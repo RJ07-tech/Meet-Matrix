@@ -1,72 +1,77 @@
-import React, { useEffect, useRef, useState } from 'react';
-import * as fabric from 'fabric';
-import { Pencil, Eraser, Download, Lock, Unlock, X } from 'lucide-react';
+import React, { useRef, useEffect, useState } from 'react';
+import { Pencil, Eraser, Download, Trash2, X, Lock, Unlock } from 'lucide-react';
 
 export default function Whiteboard({ isHost, onClose }) {
     const canvasRef = useRef(null);
-    const fabricCanvas = useRef(null);
+    const [isDrawing, setIsDrawing] = useState(false);
+    const [tool, setTool] = useState('pencil'); // 'pencil' | 'eraser'
+    const [color, setColor] = useState('#38bdf8');
+    const [lineWidth, setLineWidth] = useState(3);
     const [isLocked, setIsLocked] = useState(false);
-    const [brushColor, setBrushColor] = useState('#38bdf8');
-    const [brushSize, setBrushSize] = useState(3);
 
     useEffect(() => {
-        if (!canvasRef.current) return;
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
 
-        try {
-            const CanvasConstructor = fabric.Canvas || fabric.fabric?.Canvas;
-            if (CanvasConstructor) {
-                fabricCanvas.current = new CanvasConstructor(canvasRef.current, {
-                    isDrawingMode: true,
-                    width: 750,
-                    height: 450,
-                    backgroundColor: '#1e293b',
-                });
-
-                if (fabricCanvas.current.freeDrawingBrush) {
-                    fabricCanvas.current.freeDrawingBrush.color = brushColor;
-                    fabricCanvas.current.freeDrawingBrush.width = brushSize;
-                }
-            }
-        } catch (err) {
-            console.error("Whiteboard init error:", err);
-        }
-
-        return () => {
-            if (fabricCanvas.current && fabricCanvas.current.dispose) {
-                fabricCanvas.current.dispose();
-            }
-        };
+        // Set initial canvas background
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
     }, []);
 
-    useEffect(() => {
-        if (fabricCanvas.current) {
-            fabricCanvas.current.isDrawingMode = !isLocked;
-        }
-    }, [isLocked]);
-
-    const setTool = (tool) => {
-        if (!fabricCanvas.current) return;
-        if (tool === 'pencil') {
-            fabricCanvas.current.isDrawingMode = true;
-            if (fabricCanvas.current.freeDrawingBrush) {
-                fabricCanvas.current.freeDrawingBrush.color = brushColor;
-                fabricCanvas.current.freeDrawingBrush.width = brushSize;
-            }
-        } else if (tool === 'eraser') {
-            fabricCanvas.current.isDrawingMode = true;
-            if (fabricCanvas.current.freeDrawingBrush) {
-                fabricCanvas.current.freeDrawingBrush.color = '#1e293b';
-                fabricCanvas.current.freeDrawingBrush.width = 20;
-            }
-        }
+    const getCoordinates = (e) => {
+        const canvas = canvasRef.current;
+        const rect = canvas.getBoundingClientRect();
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        return {
+            x: (clientX - rect.left) * (canvas.width / rect.width),
+            y: (clientY - rect.top) * (canvas.height / rect.height)
+        };
     };
 
-    const exportCanvas = () => {
-        if (!fabricCanvas.current) return;
-        const dataURL = fabricCanvas.current.toDataURL({ format: 'png' });
+    const startDrawing = (e) => {
+        if (isLocked && !isHost) return;
+        const { x, y } = getCoordinates(e);
+        const ctx = canvasRef.current.getContext('2d');
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        setIsDrawing(true);
+    };
+
+    const draw = (e) => {
+        if (!isDrawing || (isLocked && !isHost)) return;
+        const { x, y } = getCoordinates(e);
+        const ctx = canvasRef.current.getContext('2d');
+
+        ctx.strokeStyle = tool === 'eraser' ? '#0f172a' : color;
+        ctx.lineWidth = tool === 'eraser' ? 22 : lineWidth;
+        ctx.lineTo(x, y);
+        ctx.stroke();
+    };
+
+    const stopDrawing = () => {
+        if (!isDrawing) return;
+        const ctx = canvasRef.current.getContext('2d');
+        ctx.closePath();
+        setIsDrawing(false);
+    };
+
+    const clearCanvas = () => {
+        if (isLocked && !isHost) return;
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    };
+
+    const downloadPNG = () => {
+        const canvas = canvasRef.current;
         const link = document.createElement('a');
         link.download = `whiteboard-${Date.now()}.png`;
-        link.href = dataURL;
+        link.href = canvas.toDataURL('image/png');
         link.click();
     };
 
@@ -76,44 +81,80 @@ export default function Whiteboard({ isHost, onClose }) {
             top: '50%',
             left: '50%',
             transform: 'translate(-50%, -50%)',
-            background: '#0f172a',
+            background: '#1e293b',
             padding: '16px',
             borderRadius: '16px',
             border: '2px solid #38bdf8',
-            boxShadow: '0 25px 50px -12px rgba(0,0,0,0.8)',
+            boxShadow: '0 25px 50px -12px rgba(0,0,0,0.85)',
             zIndex: 9999,
+            maxWidth: '95vw',
+            maxHeight: '90vh',
+            display: 'flex',
+            flexDirection: 'column'
         }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', alignItems: 'center' }}>
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <button onClick={() => setTool('pencil')} style={btnStyle}><Pencil size={15} /> Pencil</button>
-                    <button onClick={() => setTool('eraser')} style={btnStyle}><Eraser size={15} /> Eraser</button>
+            {/* Top Toolbar */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <button
+                        onClick={() => setTool('pencil')}
+                        style={{ ...btnStyle, background: tool === 'pencil' ? '#0284c7' : '#334155' }}
+                    >
+                        <Pencil size={15} /> Pen
+                    </button>
+                    <button
+                        onClick={() => setTool('eraser')}
+                        style={{ ...btnStyle, background: tool === 'eraser' ? '#0284c7' : '#334155' }}
+                    >
+                        <Eraser size={15} /> Eraser
+                    </button>
+
                     <input
                         type="color"
-                        value={brushColor}
-                        onChange={(e) => {
-                            setBrushColor(e.target.value);
-                            if (fabricCanvas.current && fabricCanvas.current.freeDrawingBrush) {
-                                fabricCanvas.current.freeDrawingBrush.color = e.target.value;
-                            }
-                        }}
-                        style={{ width: '32px', height: '32px', border: 'none', cursor: 'pointer', borderRadius: '4px' }}
+                        value={color}
+                        onChange={(e) => setColor(e.target.value)}
+                        style={{ width: '32px', height: '32px', border: 'none', cursor: 'pointer', borderRadius: '4px', background: 'transparent' }}
                     />
-                    <button onClick={exportCanvas} style={btnStyle}><Download size={15} /> Save PNG</button>
+
+                    <button onClick={clearCanvas} style={{ ...btnStyle, background: '#475569' }}>
+                        <Trash2 size={15} /> Clear
+                    </button>
+
+                    <button onClick={downloadPNG} style={{ ...btnStyle, background: '#10b981' }}>
+                        <Download size={15} /> Save PNG
+                    </button>
+
                     {isHost && (
                         <button
                             onClick={() => setIsLocked(!isLocked)}
-                            style={{ ...btnStyle, background: isLocked ? '#ef4444' : '#10b981' }}
+                            style={{ ...btnStyle, background: isLocked ? '#ef4444' : '#059669' }}
                         >
                             {isLocked ? <Lock size={15} /> : <Unlock size={15} />}
                             {isLocked ? 'Locked' : 'Unlocked'}
                         </button>
                     )}
                 </div>
+
                 <button onClick={onClose} style={{ background: '#ef4444', color: '#fff', border: 'none', borderRadius: '6px', padding: '6px 10px', cursor: 'pointer' }}>
-                    <X size={16} />
+                    <X size={18} />
                 </button>
             </div>
-            <canvas ref={canvasRef} width="750" height="450" style={{ borderRadius: '8px', border: '1px solid #334155' }} />
+
+            {/* Drawing Canvas */}
+            <div style={{ borderRadius: '10px', overflow: 'hidden', border: '1px solid #475569', background: '#0f172a' }}>
+                <canvas
+                    ref={canvasRef}
+                    width={800}
+                    height={480}
+                    onMouseDown={startDrawing}
+                    onMouseMove={draw}
+                    onMouseUp={stopDrawing}
+                    onMouseLeave={stopDrawing}
+                    onTouchStart={startDrawing}
+                    onTouchMove={draw}
+                    onTouchEnd={stopDrawing}
+                    style={{ display: 'block', cursor: tool === 'eraser' ? 'cell' : 'crosshair', maxWidth: '100%', height: 'auto', touchAction: 'none' }}
+                />
+            </div>
         </div>
     );
 }
@@ -122,11 +163,11 @@ const btnStyle = {
     display: 'flex',
     alignItems: 'center',
     gap: '6px',
-    background: '#1e293b',
-    color: '#fff',
-    border: '1px solid #334155',
+    color: '#ffffff',
+    border: 'none',
     padding: '6px 12px',
     borderRadius: '6px',
     cursor: 'pointer',
-    fontSize: '0.85rem'
+    fontSize: '0.8rem',
+    fontWeight: '500'
 };
