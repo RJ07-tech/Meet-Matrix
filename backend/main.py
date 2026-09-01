@@ -30,7 +30,13 @@ waiting_rooms: Dict[str, List[Dict]] = {}
 class CreateRoomRequest(BaseModel):
     waiting_mode: str = "direct"  # "strict", "open", "direct"
     chat_locked: bool = False
-    screenshare_locked: bool = False
+    allow_participant_screenshare: bool = True
+
+class UpdateSettingsRequest(BaseModel):
+    room_name: str
+    chat_locked: Optional[bool] = None
+    allow_participant_screenshare: Optional[bool] = None
+    waiting_mode: Optional[str] = None
 
 class TokenRequest(BaseModel):
     room_name: str
@@ -41,10 +47,14 @@ class TokenRequest(BaseModel):
 class AdmitActionRequest(BaseModel):
     room_name: str
     participant_id: str
-    action: str  # "admit" or "reject"
+    action: str
 
 class TerminateRequest(BaseModel):
     room_name: str
+
+class LeaveRequest(BaseModel):
+    room_name: str
+    participant_name: str
 
 @app.get("/")
 def health_check():
@@ -57,12 +67,30 @@ def create_room(config: CreateRoomRequest):
         "created_at": datetime.utcnow().isoformat(),
         "waiting_mode": config.waiting_mode,
         "chat_locked": config.chat_locked,
-        "screenshare_locked": config.screenshare_locked,
+        "allow_participant_screenshare": config.allow_participant_screenshare,
         "is_active": True
     }
     attendance_db[room_id] = []
     waiting_rooms[room_id] = []
     return {"room_id": room_id, "config": active_rooms[room_id]}
+
+@app.get("/api/room-settings/{room_name}")
+def get_room_settings(room_name: str):
+    if room_name not in active_rooms:
+        raise HTTPException(status_code=404, detail="Room not found")
+    return active_rooms[room_name]
+
+@app.post("/api/update-room-settings")
+def update_room_settings(req: UpdateSettingsRequest):
+    if req.room_name not in active_rooms:
+        raise HTTPException(status_code=404, detail="Room not found")
+    if req.chat_locked is not None:
+        active_rooms[req.room_name]["chat_locked"] = req.chat_locked
+    if req.allow_participant_screenshare is not None:
+        active_rooms[req.room_name]["allow_participant_screenshare"] = req.allow_participant_screenshare
+    if req.waiting_mode is not None:
+        active_rooms[req.room_name]["waiting_mode"] = req.waiting_mode
+    return {"status": "updated", "config": active_rooms[req.room_name]}
 
 @app.post("/api/get-token")
 def get_token(req: TokenRequest):
@@ -72,7 +100,6 @@ def get_token(req: TokenRequest):
     room_conf = active_rooms[req.room_name]
     p_id = str(uuid.uuid4())[:8]
 
-    # Waiting Room Check (Strict or Open Collaboration)
     if room_conf["waiting_mode"] in ["strict", "open"] and not req.is_host:
         existing = next((p for p in waiting_rooms[req.room_name] if p["name"] == req.participant_name and p["status"] == "admitted"), None)
         if not existing:
@@ -89,7 +116,7 @@ def get_token(req: TokenRequest):
             room=req.room_name,
             can_publish=True,
             can_subscribe=True,
-            can_publish_data=not room_conf["chat_locked"] or req.is_host,
+            can_publish_data=True,
             room_admin=req.is_host,
             room_record=req.is_host
         )
@@ -110,7 +137,7 @@ def get_token(req: TokenRequest):
             "leave_time": None
         })
 
-        return {"status": "joined", "token": token, "server_url": LIVEKIT_URL}
+        return {"status": "joined", "token": token, "server_url": LIVEKIT_URL, "config": room_conf}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -133,6 +160,15 @@ def admit_participant(req: AdmitActionRequest):
                 p["status"] = "admitted" if req.action == "admit" else "rejected"
                 return {"status": "success", "action": req.action}
     raise HTTPException(status_code=404, detail="Participant not found")
+
+@app.post("/api/leave-room")
+def leave_room(req: LeaveRequest):
+    records = attendance_db.get(req.room_name, [])
+    for rec in reversed(records):
+        if rec["name"] == req.participant_name and rec["leave_time"] is None:
+            rec["leave_time"] = datetime.utcnow()
+            break
+    return {"status": "left"}
 
 @app.post("/api/terminate-room")
 async def terminate_room(req: TerminateRequest):

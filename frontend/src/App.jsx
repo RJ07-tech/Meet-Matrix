@@ -8,21 +8,29 @@ import {
     useTracks,
     useLocalParticipant,
     RoomAudioRenderer,
-    ControlBar,
     Chat,
 } from '@livekit/components-react';
 import { Track } from 'livekit-client';
 import {
     Copy, Check, Disc, Square, Download,
     PenTool, Video, VideoOff, Mic, MicOff, Settings,
-    UserCheck, UserX, Clock, MonitorUp, MessageSquare, PhoneOff
+    UserCheck, UserX, Clock, MonitorUp, MessageSquare, PhoneOff, X
 } from 'lucide-react';
 import Whiteboard from './Whiteboard';
 
 const BACKEND_URL = 'https://meetmatrix-backend-3l9l.onrender.com';
 
-// Sub-Component: Custom In-Meeting Stage with Bottom Controls & Responsive Layout
-function MeetingStage({ roomName, isHost, participantName, onLeave, showWhiteboard, setShowWhiteboard }) {
+function MeetingStage({
+                          roomName,
+                          isHost,
+                          participantName,
+                          onLeave,
+                          onTerminate,
+                          showWhiteboard,
+                          setShowWhiteboard,
+                          allowScreenshare,
+                          chatLocked
+                      }) {
     const { localParticipant } = useLocalParticipant();
     const [isMicMuted, setIsMicMuted] = useState(false);
     const [isVideoMuted, setIsVideoMuted] = useState(false);
@@ -32,7 +40,6 @@ function MeetingStage({ roomName, isHost, participantName, onLeave, showWhiteboa
     const mediaRecorderRef = useRef(null);
     const recordedChunksRef = useRef([]);
 
-    // Fetch all audio/video tracks for grid
     const tracks = useTracks(
         [
             { source: Track.Source.Camera, withPlaceholder: true },
@@ -56,6 +63,10 @@ function MeetingStage({ roomName, isHost, participantName, onLeave, showWhiteboa
     };
 
     const toggleScreenShare = async () => {
+        if (!isHost && !allowScreenshare) {
+            alert("Screen sharing has been disabled by the Host for participants.");
+            return;
+        }
         if (localParticipant) {
             const nextState = !isScreenSharing;
             await localParticipant.setScreenShareEnabled(nextState);
@@ -97,22 +108,27 @@ function MeetingStage({ roomName, isHost, participantName, onLeave, showWhiteboa
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', position: 'relative' }}>
             <RoomAudioRenderer />
 
-            {/* Main Grid View & Chat Sidebar */}
             <div style={{ flex: 1, display: 'flex', position: 'relative', overflow: 'hidden' }}>
                 <div style={{ flex: 1, height: '100%', width: '100%' }}>
-                    <GridLayout tracks={tracks} style={{ height: '100%', width: '100%', objectFit: 'contain' }}>
+                    <GridLayout tracks={tracks} style={{ height: '100%', width: '100%' }}>
                         <ParticipantTile />
                     </GridLayout>
                 </div>
 
                 {showChat && (
                     <div style={{ width: '320px', maxWidth: '85vw', background: '#0f172a', borderLeft: '1px solid #1e293b', height: '100%', zIndex: 50 }}>
-                        <Chat />
+                        {chatLocked && !isHost ? (
+                            <div style={{ padding: '20px', color: '#94a3b8', textAlign: 'center' }}>
+                                Chat has been locked by the host.
+                            </div>
+                        ) : (
+                            <Chat />
+                        )}
                     </div>
                 )}
             </div>
 
-            {/* Bottom Responsive Control Bar */}
+            {/* Control Bar */}
             <div style={{
                 background: '#0f172a',
                 borderTop: '1px solid #1e293b',
@@ -124,53 +140,62 @@ function MeetingStage({ roomName, isHost, participantName, onLeave, showWhiteboa
                 zIndex: 100,
                 flexWrap: 'wrap'
             }}>
-                {/* Mic Toggle */}
                 <button onClick={toggleMic} style={{ ...controlBtn, background: isMicMuted ? '#ef4444' : '#1e293b' }}>
                     {isMicMuted ? <MicOff size={18} /> : <Mic size={18} />}
                     <span className="btn-label">{isMicMuted ? 'Unmute' : 'Mute'}</span>
                 </button>
 
-                {/* Video Toggle */}
                 <button onClick={toggleVideo} style={{ ...controlBtn, background: isVideoMuted ? '#ef4444' : '#1e293b' }}>
                     {isVideoMuted ? <VideoOff size={18} /> : <Video size={18} />}
                     <span className="btn-label">{isVideoMuted ? 'Start Video' : 'Stop Video'}</span>
                 </button>
 
-                {/* Screen Share */}
-                <button onClick={toggleScreenShare} style={{ ...controlBtn, background: isScreenSharing ? '#0284c7' : '#1e293b' }}>
+                <button
+                    onClick={toggleScreenShare}
+                    style={{
+                        ...controlBtn,
+                        background: isScreenSharing ? '#0284c7' : '#1e293b',
+                        opacity: (!isHost && !allowScreenshare) ? 0.4 : 1,
+                        cursor: (!isHost && !allowScreenshare) ? 'not-allowed' : 'pointer'
+                    }}
+                    title={(!isHost && !allowScreenshare) ? 'Screen share disabled by host' : 'Share Screen'}
+                >
                     <MonitorUp size={18} />
                     <span className="btn-label">{isScreenSharing ? 'Sharing' : 'Share'}</span>
                 </button>
 
-                {/* Whiteboard */}
                 <button onClick={() => setShowWhiteboard(!showWhiteboard)} style={controlBtn}>
                     <PenTool size={18} />
                     <span className="btn-label">Whiteboard</span>
                 </button>
 
-                {/* Chat */}
                 <button onClick={() => setShowChat(!showChat)} style={{ ...controlBtn, background: showChat ? '#0284c7' : '#1e293b' }}>
                     <MessageSquare size={18} />
                     <span className="btn-label">Chat</span>
                 </button>
 
-                {/* Local Recording */}
                 <button onClick={isRecording ? stopRecording : startRecording} style={{ ...controlBtn, background: isRecording ? '#ef4444' : '#1e293b' }}>
                     {isRecording ? <Square size={18} /> : <Disc size={18} />}
                     <span className="btn-label">{isRecording ? 'Recording' : 'Record'}</span>
                 </button>
 
-                {/* Leave/End */}
-                <button onClick={onLeave} style={{ ...controlBtn, background: '#ef4444', color: '#fff' }}>
-                    <PhoneOff size={18} />
-                    <span className="btn-label">{isHost ? 'End All' : 'Leave'}</span>
-                </button>
+                {/* Dynamic Host vs Participant Exit */}
+                {isHost ? (
+                    <button onClick={onTerminate} style={{ ...controlBtn, background: '#ef4444', color: '#fff' }}>
+                        <PhoneOff size={18} />
+                        <span className="btn-label">End Meeting for All</span>
+                    </button>
+                ) : (
+                    <button onClick={onLeave} style={{ ...controlBtn, background: '#e11d48', color: '#fff' }}>
+                        <PhoneOff size={18} />
+                        <span className="btn-label">Leave Meeting</span>
+                    </button>
+                )}
             </div>
         </div>
     );
 }
 
-// Master App Component
 export default function App() {
     const [inMeeting, setInMeeting] = useState(false);
     const [isWaiting, setIsWaiting] = useState(false);
@@ -183,21 +208,21 @@ export default function App() {
     const [loading, setLoading] = useState(false);
     const [copied, setCopied] = useState(false);
 
-    // Extended Host Settings
-    const [showSettings, setShowSettings] = useState(false);
-    const [waitingMode, setWaitingMode] = useState('direct'); // "strict", "open", "direct"
+    // Settings State
+    const [showSettingsModal, setShowSettingsModal] = useState(false);
+    const [waitingMode, setWaitingMode] = useState('direct');
     const [chatLocked, setChatLocked] = useState(false);
-    const [screenshareLocked, setScreenshareLocked] = useState(false);
+    const [allowScreenshare, setAllowScreenshare] = useState(true);
 
-    // Host Waiting List
+    // Waiting Room Requests
     const [waitingList, setWaitingList] = useState([]);
     const [showAdmitModal, setShowAdmitModal] = useState(false);
 
-    // Modals
+    // Tools
     const [showWhiteboard, setShowWhiteboard] = useState(false);
     const [floatingEmojis, setFloatingEmojis] = useState([]);
 
-    // Green Room Preview
+    // Hardware Checks
     const [cameraEnabled, setCameraEnabled] = useState(true);
     const [micEnabled, setMicEnabled] = useState(true);
     const videoPreviewRef = useRef(null);
@@ -210,13 +235,31 @@ export default function App() {
                     previewStreamRef.current = stream;
                     if (videoPreviewRef.current) videoPreviewRef.current.srcObject = stream;
                 })
-                .catch((err) => console.log("Lobby media error:", err));
+                .catch((err) => console.log("Lobby stream error:", err));
         } else {
             if (previewStreamRef.current) {
                 previewStreamRef.current.getTracks().forEach(t => t.stop());
             }
         }
     }, [inMeeting, isWaiting]);
+
+    // Periodic settings check for participants
+    useEffect(() => {
+        let interval;
+        if (inMeeting && roomName) {
+            interval = setInterval(async () => {
+                try {
+                    const res = await axios.get(`${BACKEND_URL}/api/room-settings/${roomName}`);
+                    setAllowScreenshare(res.data.allow_participant_screenshare);
+                    setChatLocked(res.data.chat_locked);
+                    setWaitingMode(res.data.waiting_mode);
+                } catch (e) {
+                    console.error(e);
+                }
+            }, 4000);
+        }
+        return () => clearInterval(interval);
+    }, [inMeeting, roomName]);
 
     // Polling for Waiting Participant
     useEffect(() => {
@@ -267,7 +310,7 @@ export default function App() {
             const res = await axios.post(`${BACKEND_URL}/api/create-room`, {
                 waiting_mode: waitingMode,
                 chat_locked: chatLocked,
-                screenshare_locked: screenshareLocked
+                allow_participant_screenshare: allowScreenshare
             });
             const newRoomId = res.data.room_id;
             setRoomName(newRoomId);
@@ -301,6 +344,10 @@ export default function App() {
             } else {
                 setToken(res.data.token);
                 setServerUrl(res.data.server_url);
+                if (res.data.config) {
+                    setAllowScreenshare(res.data.config.allow_participant_screenshare);
+                    setChatLocked(res.data.config.chat_locked);
+                }
                 setInMeeting(true);
             }
         } catch (err) {
@@ -319,7 +366,22 @@ export default function App() {
         });
         setToken(res.data.token);
         setServerUrl(res.data.server_url);
+        if (res.data.config) {
+            setAllowScreenshare(res.data.config.allow_participant_screenshare);
+            setChatLocked(res.data.config.chat_locked);
+        }
         setInMeeting(true);
+    };
+
+    const handleUpdateLiveSettings = async (updates) => {
+        try {
+            await axios.post(`${BACKEND_URL}/api/update-room-settings`, {
+                room_name: roomName,
+                ...updates
+            });
+        } catch (e) {
+            alert("Settings update failed: " + e.message);
+        }
     };
 
     const handleAdmitAction = async (pid, action) => {
@@ -335,13 +397,27 @@ export default function App() {
         }
     };
 
+    // Host Terminates Meeting
     const handleHostTermination = async () => {
-        if (isHost) {
+        if (window.confirm("Are you sure you want to end the meeting for all participants?")) {
             try {
                 await axios.post(`${BACKEND_URL}/api/terminate-room`, { room_name: roomName });
             } catch (e) {
                 console.error(e);
             }
+            setInMeeting(false);
+            setToken('');
+            setRoomName('');
+            setIsHost(false);
+        }
+    };
+
+    // Participant Leaves Meeting
+    const handleParticipantLeave = async () => {
+        try {
+            await axios.post(`${BACKEND_URL}/api/leave-room`, { room_name: roomName, participant_name: participantName });
+        } catch (e) {
+            console.error(e);
         }
         setInMeeting(false);
         setToken('');
@@ -367,11 +443,11 @@ export default function App() {
                 <Clock size={48} color="#38bdf8" style={{ marginBottom: '1rem' }} />
                 <h2 style={{ fontSize: '1.4rem', marginBottom: '0.5rem' }}>Waiting for host approval...</h2>
                 <p style={{ color: '#94a3b8', fontSize: '0.9rem' }}>Room Code: {roomName}</p>
+                <button onClick={() => setIsWaiting(false)} style={{ marginTop: '1rem', background: '#ef4444', border: 'none', color: '#fff', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer' }}>Cancel</button>
             </div>
         );
     }
 
-    // Active Meeting View
     if (inMeeting && token && serverUrl) {
         return (
             <div style={{ height: '100vh', width: '100vw', background: '#090d16', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -394,12 +470,19 @@ export default function App() {
                     </div>
 
                     <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                        {/* Emojis */}
+                        {/* Live Emojis */}
                         <div style={{ display: 'flex', gap: '2px', background: '#1e293b', padding: '2px 4px', borderRadius: '6px' }}>
                             {['👍', '❤️', '👏', '🎉', '🔥'].map(emoji => (
                                 <button key={emoji} onClick={() => triggerReaction(emoji)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: '2px' }}>{emoji}</button>
                             ))}
                         </div>
+
+                        {/* In-Meeting Host Settings */}
+                        {isHost && (
+                            <button onClick={() => setShowSettingsModal(true)} style={topBtnStyle}>
+                                <Settings size={14} /> Settings
+                            </button>
+                        )}
 
                         {/* Waiting List Requests */}
                         {isHost && waitingList.length > 0 && (
@@ -420,6 +503,56 @@ export default function App() {
                     </div>
                 </div>
 
+                {/* Live Host Settings Modal */}
+                {showSettingsModal && isHost && (
+                    <div style={{ position: 'fixed', top: '50px', right: '16px', background: '#1e293b', padding: '16px', borderRadius: '12px', border: '1px solid #334155', zIndex: 9999, width: '300px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                            <h4 style={{ margin: 0, fontSize: '0.9rem', color: '#38bdf8' }}>Meeting Settings</h4>
+                            <button onClick={() => setShowSettingsModal(false)} style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer' }}><X size={16} /></button>
+                        </div>
+
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', marginBottom: '8px', cursor: 'pointer' }}>
+                            <input
+                                type="checkbox"
+                                checked={allowScreenshare}
+                                onChange={(e) => {
+                                    setAllowScreenshare(e.target.checked);
+                                    handleUpdateLiveSettings({ allow_participant_screenshare: e.target.checked });
+                                }}
+                            />
+                            Allow Participants to Screen Share
+                        </label>
+
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', marginBottom: '8px', cursor: 'pointer' }}>
+                            <input
+                                type="checkbox"
+                                checked={chatLocked}
+                                onChange={(e) => {
+                                    setChatLocked(e.target.checked);
+                                    handleUpdateLiveSettings({ chat_locked: e.target.checked });
+                                }}
+                            />
+                            Lock Chat for Participants
+                        </label>
+
+                        <div style={{ marginTop: '10px' }}>
+                            <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '4px' }}>Waiting Room Mode:</label>
+                            <select
+                                value={waitingMode}
+                                onChange={(e) => {
+                                    setWaitingMode(e.target.value);
+                                    handleUpdateLiveSettings({ waiting_mode: e.target.value });
+                                }}
+                                style={{ width: '100%', padding: '6px', background: '#090d16', border: '1px solid #334155', color: '#fff', borderRadius: '4px', fontSize: '0.8rem' }}
+                            >
+                                <option value="direct">Direct Bypass</option>
+                                <option value="strict">Strict (Host Approval)</option>
+                                <option value="open">Open Collaboration</option>
+                            </select>
+                        </div>
+                    </div>
+                )}
+
                 {/* Admit Requests Modal */}
                 {showAdmitModal && isHost && (
                     <div style={{ position: 'fixed', top: '50px', right: '16px', background: '#1e293b', padding: '14px', borderRadius: '10px', border: '1px solid #334155', zIndex: 9999, width: '280px' }}>
@@ -439,7 +572,7 @@ export default function App() {
 
                 {showWhiteboard && <Whiteboard isHost={isHost} onClose={() => setShowWhiteboard(false)} />}
 
-                {/* LiveKit Integrated Room Stage */}
+                {/* LiveKit Video Stage */}
                 <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
                     <LiveKitRoom
                         video={cameraEnabled}
@@ -448,15 +581,18 @@ export default function App() {
                         serverUrl={serverUrl}
                         data-lk-theme="default"
                         style={{ height: '100%', width: '100%' }}
-                        onDisconnected={handleHostTermination}
+                        onDisconnected={isHost ? handleHostTermination : handleParticipantLeave}
                     >
                         <MeetingStage
                             roomName={roomName}
                             isHost={isHost}
                             participantName={participantName}
-                            onLeave={handleHostTermination}
+                            onLeave={handleParticipantLeave}
+                            onTerminate={handleHostTermination}
                             showWhiteboard={showWhiteboard}
                             setShowWhiteboard={setShowWhiteboard}
+                            allowScreenshare={allowScreenshare}
+                            chatLocked={chatLocked}
                         />
                     </LiveKitRoom>
                 </div>
@@ -464,7 +600,7 @@ export default function App() {
         );
     }
 
-    // Pre-Meeting Lobby View (Responsive)
+    // Pre-Meeting Lobby View
     return (
         <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'radial-gradient(circle at top, #1e293b 0%, #090d16 100%)', fontFamily: 'system-ui, sans-serif', color: '#fff', padding: '16px' }}>
             <div style={{ background: '#131b2e', borderRadius: '16px', width: '100%', maxWidth: '820px', display: 'flex', flexDirection: 'column', border: '1px solid #1e293b', overflow: 'hidden' }}>
@@ -486,19 +622,19 @@ export default function App() {
                         </div>
                     </div>
 
-                    {/* Join & Create Forms */}
+                    {/* Setup & Join */}
                     <div style={{ padding: '1.8rem', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
                             <h1 style={{ fontSize: '1.6rem', fontWeight: '800', color: '#38bdf8', margin: 0 }}>MeetMatrix</h1>
-                            <button onClick={() => setShowSettings(!showSettings)} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }} title="Host Settings">
+                            <button onClick={() => setShowSettingsModal(!showSettingsModal)} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }} title="Host Settings">
                                 <Settings size={20} />
                             </button>
                         </div>
 
-                        {/* Extended Pre-Meeting Settings */}
-                        {showSettings && (
+                        {/* Pre-Meeting Host Settings */}
+                        {showSettingsModal && (
                             <div style={{ background: '#090d16', padding: '12px', borderRadius: '8px', marginBottom: '1rem', border: '1px solid #1e293b' }}>
-                                <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#38bdf8', display: 'block', marginBottom: '8px' }}>HOST MEETING SETTINGS</span>
+                                <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#38bdf8', display: 'block', marginBottom: '8px' }}>PRE-MEETING HOST SETTINGS</span>
                                 <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '4px' }}>Waiting Room Policy:</label>
                                 <select
                                     value={waitingMode}
@@ -506,17 +642,18 @@ export default function App() {
                                     style={{ width: '100%', padding: '6px', background: '#131b2e', border: '1px solid #334155', color: '#fff', borderRadius: '4px', fontSize: '0.8rem', marginBottom: '8px' }}
                                 >
                                     <option value="direct">Direct Bypass (No Waiting Room)</option>
-                                    <option value="strict">Strict (Host Must Approve)</option>
-                                    <option value="open">Open Collaboration (Anyone Can Admit)</option>
+                                    <option value="strict">Strict (Host Approval)</option>
+                                    <option value="open">Open Collaboration</option>
                                 </select>
 
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', marginBottom: '4px', cursor: 'pointer' }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', marginBottom: '6px', cursor: 'pointer' }}>
+                                    <input type="checkbox" checked={allowScreenshare} onChange={(e) => setAllowScreenshare(e.target.checked)} />
+                                    Allow Participant Screen Sharing
+                                </label>
+
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', cursor: 'pointer' }}>
                                     <input type="checkbox" checked={chatLocked} onChange={(e) => setChatLocked(e.target.checked)} />
                                     Lock Chat on Join
-                                </label>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', cursor: 'pointer' }}>
-                                    <input type="checkbox" checked={screenshareLocked} onChange={(e) => setScreenshareLocked(e.target.checked)} />
-                                    Host-Only Screen Sharing
                                 </label>
                             </div>
                         )}
