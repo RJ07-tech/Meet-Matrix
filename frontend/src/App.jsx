@@ -70,7 +70,11 @@ function MeetingStage({
 
     const toggleScreenShare = async () => {
         if (!isHost && !allowScreenshare) {
-            alert("Screen sharing has been disabled by the host for participants.");
+            alert("Screen sharing is disabled by the Host for participants.");
+            return;
+        }
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+            alert("Screen sharing is not supported on this mobile browser. Please use a Desktop browser.");
             return;
         }
         if (localParticipant) {
@@ -80,10 +84,16 @@ function MeetingStage({
         }
     };
 
+    // Safe Universal Recording Logic
     const startRecording = async () => {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+            alert("Local Screen Recording is supported on PC/Laptop browsers (Chrome, Brave, Edge). Mobile browsers restrict screen capturing.");
+            return;
+        }
+
         try {
             const stream = await navigator.mediaDevices.getDisplayMedia({
-                video: { cursor: "always", displaySurface: "browser" },
+                video: { cursor: "always" },
                 audio: true
             });
             recordedChunksRef.current = [];
@@ -108,7 +118,7 @@ function MeetingStage({
             recorder.start();
             setIsRecording(true);
         } catch (err) {
-            console.error("Recording error:", err);
+            console.log("Recording cancelled or error:", err);
         }
     };
 
@@ -123,9 +133,9 @@ function MeetingStage({
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', position: 'relative', overflow: 'hidden' }}>
             <RoomAudioRenderer />
 
-            {/* Main Grid Stage */}
+            {/* Main Grid View */}
             <div style={{ flex: 1, display: 'flex', position: 'relative', overflow: 'hidden', minHeight: 0 }}>
-                <div style={{ flex: 1, height: '100%', width: '100%', padding: '6px' }}>
+                <div style={{ flex: 1, height: '100%', width: '100%', padding: '4px' }}>
                     <GridLayout tracks={tracks} style={{ height: '100%', width: '100%' }}>
                         <ParticipantTile />
                     </GridLayout>
@@ -135,7 +145,7 @@ function MeetingStage({
                     <div style={{ width: '320px', maxWidth: '85vw', background: '#0f172a', borderLeft: '1px solid #334155', height: '100%', zIndex: 50, position: 'absolute', right: 0, top: 0, bottom: 0 }}>
                         {chatLocked && !isHost ? (
                             <div style={{ padding: '24px', color: '#cbd5e1', textAlign: 'center', fontSize: '0.9rem' }}>
-                                Chat is locked by host.
+                                Chat has been locked by the host.
                             </div>
                         ) : (
                             <Chat />
@@ -144,7 +154,7 @@ function MeetingStage({
                 )}
             </div>
 
-            {/* Bottom Sticky Controls */}
+            {/* Bottom Sticky Control Bar */}
             <div style={{
                 background: '#0f172a',
                 borderTop: '1px solid #334155',
@@ -168,7 +178,7 @@ function MeetingStage({
 
                 <button
                     onClick={toggleScreenShare}
-                    className="mobile-compact-btn desktop-only"
+                    className="mobile-compact-btn"
                     style={{
                         ...controlBtn,
                         background: isScreenSharing ? '#0284c7' : '#1e293b',
@@ -191,7 +201,7 @@ function MeetingStage({
                     <span className="btn-label">Chat</span>
                 </button>
 
-                <button onClick={isRecording ? stopRecording : startRecording} className="mobile-compact-btn desktop-only" style={{ ...controlBtn, background: isRecording ? '#ef4444' : '#1e293b' }}>
+                <button onClick={isRecording ? stopRecording : startRecording} className="mobile-compact-btn" style={{ ...controlBtn, background: isRecording ? '#ef4444' : '#1e293b' }}>
                     {isRecording ? <Square size={18} /> : <Disc size={18} />}
                     <span className="btn-label">{isRecording ? 'Rec' : 'Record'}</span>
                 </button>
@@ -254,7 +264,7 @@ export default function App() {
                     previewStreamRef.current = stream;
                     if (videoPreviewRef.current) videoPreviewRef.current.srcObject = stream;
                 })
-                .catch((err) => console.log("Lobby stream notice:", err));
+                .catch((err) => console.log("Lobby media notice:", err));
         } else {
             if (previewStreamRef.current) {
                 previewStreamRef.current.getTracks().forEach(t => t.stop());
@@ -289,7 +299,7 @@ export default function App() {
                         setIsWaiting(false);
                         await joinRoomDirect(roomName, participantName, false);
                     } else if (res.data.status === 'rejected') {
-                        alert('Host denied join request.');
+                        alert('Host denied your request.');
                         setIsWaiting(false);
                         setWaitingPid(null);
                     }
@@ -439,11 +449,18 @@ export default function App() {
         setIsHost(false);
     };
 
+    // Upgraded Multi-Burst Floating Emoji Generator
     const triggerReaction = (emoji) => {
-        const id = Date.now();
-        setFloatingEmojis(prev => [...prev, { id, emoji, left: Math.random() * 70 + 15 }]);
+        const baseId = Date.now();
+        const newItems = [
+            { id: baseId, emoji, left: Math.random() * 60 + 20 },
+            { id: baseId + 1, emoji, left: Math.random() * 60 + 20 }
+        ];
+        setFloatingEmojis(prev => [...prev, ...newItems]);
         setShowEmojiPicker(false);
-        setTimeout(() => setFloatingEmojis(prev => prev.filter(e => e.id !== id)), 2500);
+        setTimeout(() => {
+            setFloatingEmojis(prev => prev.filter(e => e.id !== baseId && e.id !== baseId + 1));
+        }, 2700);
     };
 
     const copyInviteLink = () => {
@@ -468,16 +485,16 @@ export default function App() {
         return (
             <div style={{ height: '100dvh', width: '100vw', background: '#090d16', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
-                {/* Floating Emojis */}
+                {/* Floating Emojis Layer */}
                 <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none', zIndex: 9999 }}>
                     {floatingEmojis.map(item => (
-                        <span key={item.id} style={{ position: 'absolute', bottom: '80px', left: `${item.left}%`, fontSize: '2.5rem', animation: 'floatUp 2.5s ease-in-out forwards' }}>
+                        <span key={item.id} className="floating-emoji-item" style={{ left: `${item.left}%` }}>
               {item.emoji}
             </span>
                     ))}
                 </div>
 
-                {/* Responsive Header Bar */}
+                {/* Top Header */}
                 <div style={{
                     background: '#0f172a',
                     color: '#f8fafc',
@@ -497,7 +514,6 @@ export default function App() {
                     </div>
 
                     <div style={{ display: 'flex', gap: '4px', alignItems: 'center', position: 'relative' }}>
-                        {/* Quick Emojis */}
                         <div style={{ display: 'flex', gap: '2px', background: '#1e293b', padding: '2px 4px', borderRadius: '6px', alignItems: 'center', border: '1px solid #334155' }}>
                             {['👍', '❤️', '🔥'].map(emoji => (
                                 <button key={emoji} onClick={() => triggerReaction(emoji)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '0.95rem', padding: '1px' }}>{emoji}</button>
@@ -507,7 +523,6 @@ export default function App() {
                             </button>
                         </div>
 
-                        {/* Emoji Dropdown */}
                         {showEmojiPicker && (
                             <div style={{
                                 position: 'absolute',
@@ -554,7 +569,6 @@ export default function App() {
                     </div>
                 </div>
 
-                {/* Modals */}
                 {showSettingsModal && isHost && (
                     <div style={{ position: 'fixed', top: '50px', right: '12px', background: '#1e293b', padding: '16px', borderRadius: '12px', border: '2px solid #38bdf8', boxShadow: '0 20px 30px rgba(0,0,0,0.8)', zIndex: 9999, width: '280px', color: '#f8fafc' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
@@ -710,4 +724,4 @@ const primaryBtnStyle = { width: '100%', padding: '10px', background: '#0284c7',
 const secondaryBtnStyle = { width: '100%', padding: '9px', background: 'transparent', border: '1px solid #0284c7', color: '#38bdf8', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '0.85rem' };
 const topBtnStyle = { display: 'flex', alignItems: 'center', gap: '4px', background: '#1e293b', color: '#ffffff', border: '1px solid #334155', padding: '5px 8px', borderRadius: '6px', fontSize: '0.75rem', cursor: 'pointer', fontWeight: '500' };
 const toggleBtnStyle = { display: 'flex', alignItems: 'center', gap: '6px', color: '#ffffff', border: 'none', padding: '6px 10px', borderRadius: '6px', fontSize: '0.75rem', cursor: 'pointer' };
-const controlBtn = { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', background: '#1e293b', color: '#ffffff', border: '1px solid #334155', padding: '6px 10px', borderRadius: '8px', fontSize: '0.65rem', cursor: 'pointer', minWidth: '46px', fontWeight: '500' };
+const controlBtn = { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', background: '#1e293b', color: '#ffffff', border: '1px solid #334155', padding: '6px 10px', borderRadius: '8px', fontSize: '0.65rem', cursor: 'pointer', minWidth: '44px', fontWeight: '500' };

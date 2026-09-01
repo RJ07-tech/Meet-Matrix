@@ -13,7 +13,7 @@ html, body, #root {
   font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
 }
 
-/* Fix mobile video cropping & stretch */
+/* Fix mobile video cropping & aspect ratio */
 .lk-video-container {
   display: flex !important;
   align-items: center !important;
@@ -34,19 +34,42 @@ html, body, #root {
   border: 1px solid #1e293b;
 }
 
-/* Floating reaction animation */
-@keyframes floatUp {
+/* Realistic Physics-based Emoji Float & Wobble Animation */
+@keyframes emojiBurst {
   0% {
-    transform: translateY(0) scale(0.8);
+    transform: translateY(0) scale(0.4) rotate(0deg);
+    opacity: 0;
+  }
+  15% {
+    transform: translateY(-40px) scale(1.3) rotate(-8deg);
     opacity: 1;
   }
+  35% {
+    transform: translateY(-120px) scale(1.1) rotate(10deg);
+  }
+  60% {
+    transform: translateY(-220px) scale(1) rotate(-6deg);
+    opacity: 0.9;
+  }
+  85% {
+    transform: translateY(-340px) scale(0.9) rotate(4deg);
+    opacity: 0.5;
+  }
   100% {
-    transform: translateY(-300px) scale(1.3);
+    transform: translateY(-450px) scale(0.7) rotate(0deg);
     opacity: 0;
   }
 }
 
-/* Mobile responsive adjustments */
+.floating-emoji-item {
+  position: absolute;
+  bottom: 80px;
+  font-size: 2.6rem;
+  pointer-events: none;
+  animation: emojiBurst 2.6s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+  filter: drop-shadow(0 4px 10px rgba(0,0,0,0.5));
+}
+
 @media (max-width: 768px) {
   .btn-label {
     display: none !important;
@@ -57,7 +80,11 @@ html, body, #root {
   }
 
   .mobile-compact-btn {
-    padding: 6px 8px !important;
-    min-width: 40px !important;
+    padding: 6px 10px !important;
+    min-width: 44px !important;
+  }
+
+  .floating-emoji-item {
+    font-size: 2.2rem;
   }
 }
