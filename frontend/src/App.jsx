@@ -8,7 +8,7 @@ import {
 } from '@livekit/components-react';
 import { Copy, Check } from 'lucide-react';
 
-const BACKEND_URL = 'http://localhost:8000';
+const BACKEND_URL = 'https://meetmatrix-backend-319l.onrender.com';
 
 export default function App() {
   const [token, setToken] = useState('');
