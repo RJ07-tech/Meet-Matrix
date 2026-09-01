@@ -21,9 +21,11 @@ import Whiteboard from './Whiteboard';
 const BACKEND_URL = 'https://meetmatrix-backend-3l9l.onrender.com';
 
 const EMOJI_PALETTE = [
-    '👍', '❤️', '👏', '🎉', '🔥', '😂', '😮', '🙌',
-    '💯', '🚀', '✨', '💡', '😎', '🤔', '👋', '🥳',
-    '🤝', '💪', '🎯', '⭐', '🎈', '🤩', '😇', '💥'
+    '👍', '❤️', '👏', '🎉', '🔥', '😂',
+    '😮', '🙌', '💯', '🚀', '✨', '💡',
+    '😎', '🤔', '👋', '🥳', '🤝', '💪',
+    '🎯', '⭐', '🎈', '🤩', '😇', '💥',
+    '😍', '🙏', '⚡', '🏆', '👀', '💯'
 ];
 
 function MeetingStage({
@@ -524,23 +526,23 @@ export default function App() {
                         </div>
 
                         {showEmojiPicker && (
-                            <div style={{
-                                position: 'absolute',
-                                top: '35px',
-                                right: '10px',
-                                background: '#1e293b',
-                                border: '1px solid #38bdf8',
-                                borderRadius: '8px',
-                                padding: '8px',
-                                display: 'grid',
-                                gridTemplateColumns: 'repeat(5, 1fr)',
-                                gap: '6px',
-                                boxShadow: '0 10px 25px rgba(0,0,0,0.8)',
-                                zIndex: 9999
-                            }}>
-                                {EMOJI_PALETTE.map(e => (
-                                    <button key={e} onClick={() => triggerReaction(e)} style={{ background: 'transparent', border: 'none', fontSize: '1.2rem', cursor: 'pointer', padding: '2px' }}>{e}</button>
-                                ))}
+                            <div className="emoji-popover">
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', padding: '0 4px' }}>
+                                    <span style={{ fontSize: '0.72rem', fontWeight: '700', color: '#94a3b8', letterSpacing: '0.5px' }}>REACTIONS</span>
+                                    <span style={{ fontSize: '0.65rem', color: '#64748b' }}>Click to react</span>
+                                </div>
+                                <div className="emoji-grid">
+                                    {EMOJI_PALETTE.map((e, idx) => (
+                                        <button
+                                            key={`${e}-${idx}`}
+                                            onClick={() => triggerReaction(e)}
+                                            className="emoji-tile"
+                                            title={`React ${e}`}
+                                        >
+                                            {e}
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
                         )}
 
