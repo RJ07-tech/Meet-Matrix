@@ -23,15 +23,14 @@ LIVEKIT_URL = os.getenv("LIVEKIT_URL", "wss://meet-matrix-596bpvlh.livekit.cloud
 LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY", "API5gebW5oiHEeP")
 LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET", "WUzLWNzVmCd4QmnJf9THhR11oKfcp1eghJp24IOG0RwA")
 
-# Memory State
 active_rooms: Dict[str, Dict] = {}
 attendance_db: Dict[str, List[Dict]] = {}
-# Structure: { room_id: [ {"participant_id": str, "name": str, "status": "waiting"|"admitted"|"rejected"} ] }
 waiting_rooms: Dict[str, List[Dict]] = {}
 
 class CreateRoomRequest(BaseModel):
-    waiting_room_enabled: bool = False
+    waiting_mode: str = "direct"  # "strict", "open", "direct"
     chat_locked: bool = False
+    screenshare_locked: bool = False
 
 class TokenRequest(BaseModel):
     room_name: str
@@ -51,52 +50,46 @@ class TerminateRequest(BaseModel):
 def health_check():
     return {"status": "ok", "service": "MeetMatrix Core Backend"}
 
-# Flaw 4 & Flaw 1: Create Room with Host Configurations
 @app.post("/api/create-room")
 def create_room(config: CreateRoomRequest):
     room_id = f"mm-{uuid.uuid4().hex[:4]}-{uuid.uuid4().hex[:4]}"
     active_rooms[room_id] = {
         "created_at": datetime.utcnow().isoformat(),
-        "waiting_room_enabled": config.waiting_room_enabled,
+        "waiting_mode": config.waiting_mode,
         "chat_locked": config.chat_locked,
+        "screenshare_locked": config.screenshare_locked,
         "is_active": True
     }
     attendance_db[room_id] = []
     waiting_rooms[room_id] = []
     return {"room_id": room_id, "config": active_rooms[room_id]}
 
-# Flaw 1 & Flaw 2: Check & Join / Enter Waiting Room
 @app.post("/api/get-token")
 def get_token(req: TokenRequest):
-    # Flaw 1: Room existence validation
     if req.room_name not in active_rooms or not active_rooms[req.room_name]["is_active"]:
         raise HTTPException(status_code=404, detail="Invalid Room Code or Meeting has ended.")
 
     room_conf = active_rooms[req.room_name]
     p_id = str(uuid.uuid4())[:8]
 
-    # Flaw 2: If waiting room is active and user is not host
-    if room_conf["waiting_room_enabled"] and not req.is_host:
+    # Waiting Room Check (Strict or Open Collaboration)
+    if room_conf["waiting_mode"] in ["strict", "open"] and not req.is_host:
         existing = next((p for p in waiting_rooms[req.room_name] if p["name"] == req.participant_name and p["status"] == "admitted"), None)
         if not existing:
-            # Check if already waiting
-            is_waiting = next((p for p in waiting_rooms[req.room_name] if p["participant_id"] == p_id), None)
-            if not is_waiting:
-                waiting_rooms[req.room_name].append({
-                    "participant_id": p_id,
-                    "name": req.participant_name,
-                    "status": "waiting"
-                })
-            return {"status": "waiting", "participant_id": p_id}
+            waiting_rooms[req.room_name].append({
+                "participant_id": p_id,
+                "name": req.participant_name,
+                "status": "waiting"
+            })
+            return {"status": "waiting", "participant_id": p_id, "waiting_mode": room_conf["waiting_mode"]}
 
-    # Generate Token
     try:
         grants = api.VideoGrants(
             room_join=True,
             room=req.room_name,
             can_publish=True,
             can_subscribe=True,
-            can_publish_data=True,
+            can_publish_data=not room_conf["chat_locked"] or req.is_host,
             room_admin=req.is_host,
             room_record=req.is_host
         )
@@ -121,7 +114,6 @@ def get_token(req: TokenRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# Flaw 2: Waiting Room Polling & Host Controls
 @app.get("/api/waiting-list/{room_name}")
 def get_waiting_list(room_name: str):
     return {"waiting": [p for p in waiting_rooms.get(room_name, []) if p["status"] == "waiting"]}
@@ -142,18 +134,16 @@ def admit_participant(req: AdmitActionRequest):
                 return {"status": "success", "action": req.action}
     raise HTTPException(status_code=404, detail="Participant not found")
 
-# Flaw 3: Terminate Meeting when Host Leaves
 @app.post("/api/terminate-room")
 async def terminate_room(req: TerminateRequest):
     if req.room_name in active_rooms:
         active_rooms[req.room_name]["is_active"] = False
         try:
-            # Delete LiveKit active room
             lk_client = api.LiveKitAPI(LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET)
             await lk_client.room.delete_room(api.DeleteRoomRequest(room=req.room_name))
             await lk_client.aclose()
         except Exception as e:
-            print("LiveKit room deletion log:", str(e))
+            print("LiveKit room deletion:", str(e))
         return {"status": "terminated"}
     raise HTTPException(status_code=404, detail="Room not found")
 
