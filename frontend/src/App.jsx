@@ -80,7 +80,6 @@ function MeetingStage({
         }
     };
 
-    // Dedicated Content Recording
     const startRecording = async () => {
         try {
             const stream = await navigator.mediaDevices.getDisplayMedia({
@@ -121,21 +120,22 @@ function MeetingStage({
     };
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', position: 'relative' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', position: 'relative', overflow: 'hidden' }}>
             <RoomAudioRenderer />
 
-            <div style={{ flex: 1, display: 'flex', position: 'relative', overflow: 'hidden' }}>
-                <div style={{ flex: 1, height: '100%', width: '100%' }}>
+            {/* Main Grid Stage */}
+            <div style={{ flex: 1, display: 'flex', position: 'relative', overflow: 'hidden', minHeight: 0 }}>
+                <div style={{ flex: 1, height: '100%', width: '100%', padding: '6px' }}>
                     <GridLayout tracks={tracks} style={{ height: '100%', width: '100%' }}>
                         <ParticipantTile />
                     </GridLayout>
                 </div>
 
                 {showChat && (
-                    <div style={{ width: '320px', maxWidth: '85vw', background: '#0f172a', borderLeft: '1px solid #334155', height: '100%', zIndex: 50 }}>
+                    <div style={{ width: '320px', maxWidth: '85vw', background: '#0f172a', borderLeft: '1px solid #334155', height: '100%', zIndex: 50, position: 'absolute', right: 0, top: 0, bottom: 0 }}>
                         {chatLocked && !isHost ? (
                             <div style={{ padding: '24px', color: '#cbd5e1', textAlign: 'center', fontSize: '0.9rem' }}>
-                                Chat has been locked by the host.
+                                Chat is locked by host.
                             </div>
                         ) : (
                             <Chat />
@@ -144,64 +144,65 @@ function MeetingStage({
                 )}
             </div>
 
-            {/* Responsive In-Meeting Bottom Controls */}
+            {/* Bottom Sticky Controls */}
             <div style={{
                 background: '#0f172a',
                 borderTop: '1px solid #334155',
-                padding: '10px 16px',
+                padding: '8px 12px',
                 display: 'flex',
                 justifyContent: 'center',
                 alignItems: 'center',
-                gap: '10px',
+                gap: '8px',
                 zIndex: 100,
-                flexWrap: 'wrap'
+                flexShrink: 0
             }}>
-                <button onClick={toggleMic} style={{ ...controlBtn, background: isMicMuted ? '#ef4444' : '#1e293b' }}>
+                <button onClick={toggleMic} className="mobile-compact-btn" style={{ ...controlBtn, background: isMicMuted ? '#ef4444' : '#1e293b' }}>
                     {isMicMuted ? <MicOff size={18} /> : <Mic size={18} />}
                     <span className="btn-label">{isMicMuted ? 'Unmute' : 'Mute'}</span>
                 </button>
 
-                <button onClick={toggleVideo} style={{ ...controlBtn, background: isVideoMuted ? '#ef4444' : '#1e293b' }}>
+                <button onClick={toggleVideo} className="mobile-compact-btn" style={{ ...controlBtn, background: isVideoMuted ? '#ef4444' : '#1e293b' }}>
                     {isVideoMuted ? <VideoOff size={18} /> : <Video size={18} />}
                     <span className="btn-label">{isVideoMuted ? 'Start Video' : 'Stop Video'}</span>
                 </button>
 
                 <button
                     onClick={toggleScreenShare}
+                    className="mobile-compact-btn desktop-only"
                     style={{
                         ...controlBtn,
                         background: isScreenSharing ? '#0284c7' : '#1e293b',
                         opacity: (!isHost && !allowScreenshare) ? 0.4 : 1,
                         cursor: (!isHost && !allowScreenshare) ? 'not-allowed' : 'pointer'
                     }}
-                    title={(!isHost && !allowScreenshare) ? 'Screen share disabled by host' : 'Share Screen'}
+                    title="Share Screen"
                 >
                     <MonitorUp size={18} />
                     <span className="btn-label">{isScreenSharing ? 'Sharing' : 'Share'}</span>
                 </button>
 
-                <button onClick={() => setShowWhiteboard(!showWhiteboard)} style={controlBtn}>
+                <button onClick={() => setShowWhiteboard(!showWhiteboard)} className="mobile-compact-btn" style={controlBtn}>
                     <PenTool size={18} />
-                    <span className="btn-label">Whiteboard</span>
+                    <span className="btn-label">Board</span>
                 </button>
 
-                <button onClick={() => setShowChat(!showChat)} style={{ ...controlBtn, background: showChat ? '#0284c7' : '#1e293b' }}>
+                <button onClick={() => setShowChat(!showChat)} className="mobile-compact-btn" style={{ ...controlBtn, background: showChat ? '#0284c7' : '#1e293b' }}>
                     <MessageSquare size={18} />
                     <span className="btn-label">Chat</span>
                 </button>
 
-                <button onClick={isRecording ? stopRecording : startRecording} style={{ ...controlBtn, background: isRecording ? '#ef4444' : '#1e293b' }}>
+                <button onClick={isRecording ? stopRecording : startRecording} className="mobile-compact-btn desktop-only" style={{ ...controlBtn, background: isRecording ? '#ef4444' : '#1e293b' }}>
                     {isRecording ? <Square size={18} /> : <Disc size={18} />}
-                    <span className="btn-label">{isRecording ? 'Recording' : 'Record'}</span>
+                    <span className="btn-label">{isRecording ? 'Rec' : 'Record'}</span>
                 </button>
 
                 {isHost ? (
-                    <button onClick={onTerminate} style={{ ...controlBtn, background: '#ef4444', color: '#fff' }}>
+                    <button onClick={onTerminate} className="mobile-compact-btn" style={{ ...controlBtn, background: '#ef4444', color: '#fff' }}>
                         <PhoneOff size={18} />
-                        <span className="btn-label">End Meeting</span>
+                        <span className="btn-label">End</span>
                     </button>
                 ) : (
-                    <button onClick={onLeave} style={{ ...controlBtn, background: '#e11d48', color: '#fff' }}>
+                    <button onClick={onLeave} className="mobile-compact-btn" style={{ ...controlBtn, background: '#e11d48', color: '#fff' }}>
                         <PhoneOff size={18} />
                         <span className="btn-label">Leave</span>
                     </button>
@@ -223,36 +224,27 @@ export default function App() {
     const [loading, setLoading] = useState(false);
     const [copied, setCopied] = useState(false);
 
-    // Settings State
     const [showSettingsModal, setShowSettingsModal] = useState(false);
     const [waitingMode, setWaitingMode] = useState('direct');
     const [chatLocked, setChatLocked] = useState(false);
     const [allowScreenshare, setAllowScreenshare] = useState(true);
 
-    // Waiting Requests
     const [waitingList, setWaitingList] = useState([]);
     const [showAdmitModal, setShowAdmitModal] = useState(false);
 
-    // Emojis & Palette Dropdown
     const [showEmojiPicker, setShowEmojiPicker] = useState(false);
     const [floatingEmojis, setFloatingEmojis] = useState([]);
-
-    // Whiteboard Modal
     const [showWhiteboard, setShowWhiteboard] = useState(false);
 
-    // Green Room Preview
     const [cameraEnabled, setCameraEnabled] = useState(true);
     const [micEnabled, setMicEnabled] = useState(true);
     const videoPreviewRef = useRef(null);
     const previewStreamRef = useRef(null);
 
-    // Parse invite URL param on load
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
         const roomParam = params.get('room');
-        if (roomParam) {
-            setRoomName(roomParam);
-        }
+        if (roomParam) setRoomName(roomParam);
     }, []);
 
     useEffect(() => {
@@ -270,7 +262,6 @@ export default function App() {
         }
     }, [inMeeting, isWaiting]);
 
-    // Sync settings periodically
     useEffect(() => {
         let interval;
         if (inMeeting && roomName) {
@@ -288,7 +279,6 @@ export default function App() {
         return () => clearInterval(interval);
     }, [inMeeting, roomName]);
 
-    // Polling for admitted participants
     useEffect(() => {
         let interval;
         if (isWaiting && waitingPid && roomName) {
@@ -299,7 +289,7 @@ export default function App() {
                         setIsWaiting(false);
                         await joinRoomDirect(roomName, participantName, false);
                     } else if (res.data.status === 'rejected') {
-                        alert('The host declined your admission request.');
+                        alert('Host denied join request.');
                         setIsWaiting(false);
                         setWaitingPid(null);
                     }
@@ -311,7 +301,6 @@ export default function App() {
         return () => clearInterval(interval);
     }, [isWaiting, waitingPid, roomName]);
 
-    // Host polling waiting room
     useEffect(() => {
         let interval;
         if (inMeeting && isHost) {
@@ -329,7 +318,7 @@ export default function App() {
 
     const handleCreateRoom = async () => {
         if (!participantName.trim()) {
-            alert('Please enter your name first');
+            alert('Please enter your name');
             return;
         }
         setLoading(true);
@@ -407,7 +396,7 @@ export default function App() {
                 ...updates
             });
         } catch (e) {
-            alert("Settings update failed: " + e.message);
+            alert("Settings error: " + e.message);
         }
     };
 
@@ -425,7 +414,7 @@ export default function App() {
     };
 
     const handleHostTermination = async () => {
-        if (window.confirm("Are you sure you want to end the meeting for all participants?")) {
+        if (window.confirm("End meeting for all participants?")) {
             try {
                 await axios.post(`${BACKEND_URL}/api/terminate-room`, { room_name: roomName });
             } catch (e) {
@@ -452,12 +441,11 @@ export default function App() {
 
     const triggerReaction = (emoji) => {
         const id = Date.now();
-        setFloatingEmojis(prev => [...prev, { id, emoji, left: Math.random() * 80 + 10 }]);
+        setFloatingEmojis(prev => [...prev, { id, emoji, left: Math.random() * 70 + 15 }]);
         setShowEmojiPicker(false);
         setTimeout(() => setFloatingEmojis(prev => prev.filter(e => e.id !== id)), 2500);
     };
 
-    // Full Clickable Invite URL Link Copy
     const copyInviteLink = () => {
         const fullInviteLink = `${window.location.origin}/?room=${roomName}`;
         navigator.clipboard.writeText(fullInviteLink);
@@ -467,10 +455,10 @@ export default function App() {
 
     if (isWaiting) {
         return (
-            <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#090d16', color: '#f8fafc', flexDirection: 'column', padding: '20px', textAlign: 'center' }}>
-                <Clock size={48} color="#38bdf8" style={{ marginBottom: '1rem' }} />
-                <h2 style={{ fontSize: '1.4rem', marginBottom: '0.5rem', color: '#f8fafc' }}>Waiting for host approval...</h2>
-                <p style={{ color: '#94a3b8', fontSize: '0.9rem' }}>Room: {roomName}</p>
+            <div style={{ height: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#090d16', color: '#f8fafc', flexDirection: 'column', padding: '20px', textAlign: 'center' }}>
+                <Clock size={44} color="#38bdf8" style={{ marginBottom: '1rem' }} />
+                <h2 style={{ fontSize: '1.3rem', marginBottom: '0.5rem' }}>Waiting for host approval...</h2>
+                <p style={{ color: '#94a3b8', fontSize: '0.85rem' }}>Room: {roomName}</p>
                 <button onClick={() => setIsWaiting(false)} style={{ marginTop: '1rem', background: '#ef4444', border: 'none', color: '#fff', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Cancel</button>
             </div>
         );
@@ -478,156 +466,112 @@ export default function App() {
 
     if (inMeeting && token && serverUrl) {
         return (
-            <div style={{ height: '100vh', width: '100vw', background: '#090d16', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ height: '100dvh', width: '100vw', background: '#090d16', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
-                {/* Floating Emojis Overlay */}
+                {/* Floating Emojis */}
                 <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none', zIndex: 9999 }}>
                     {floatingEmojis.map(item => (
-                        <span key={item.id} style={{ position: 'absolute', bottom: '90px', left: `${item.left}%`, fontSize: '2.8rem', animation: 'floatUp 2.5s ease-in-out forwards' }}>
+                        <span key={item.id} style={{ position: 'absolute', bottom: '80px', left: `${item.left}%`, fontSize: '2.5rem', animation: 'floatUp 2.5s ease-in-out forwards' }}>
               {item.emoji}
             </span>
                     ))}
                 </div>
 
-                {/* Top Header */}
-                <div style={{ background: '#0f172a', color: '#f8fafc', padding: '8px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #334155', zIndex: 1000 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontWeight: '800', color: '#38bdf8', fontSize: '1rem' }}>MeetMatrix</span>
+                {/* Responsive Header Bar */}
+                <div style={{
+                    background: '#0f172a',
+                    color: '#f8fafc',
+                    padding: '6px 12px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    borderBottom: '1px solid #334155',
+                    zIndex: 1000,
+                    flexShrink: 0
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
+                        <span style={{ fontWeight: '800', color: '#38bdf8', fontSize: '0.9rem', whiteSpace: 'nowrap' }}>MeetMatrix</span>
                         <span style={{ color: '#64748b' }}>|</span>
-                        <span style={{ fontSize: '0.85rem', color: '#e2e8f0' }}>Room: <strong>{roomName}</strong></span>
-                        {isHost && <span style={{ background: '#0284c7', color: '#ffffff', padding: '2px 7px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 'bold' }}>HOST</span>}
+                        <span style={{ fontSize: '0.75rem', color: '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100px' }}>{roomName}</span>
+                        {isHost && <span style={{ background: '#0284c7', color: '#ffffff', padding: '1px 5px', borderRadius: '4px', fontSize: '0.65rem', fontWeight: 'bold' }}>HOST</span>}
                     </div>
 
-                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center', position: 'relative' }}>
-                        {/* Quick Emojis + Expand Button */}
-                        <div style={{ display: 'flex', gap: '4px', background: '#1e293b', padding: '2px 6px', borderRadius: '8px', alignItems: 'center', border: '1px solid #334155' }}>
-                            {['👍', '❤️', '👏', '🎉', '🔥'].map(emoji => (
-                                <button key={emoji} onClick={() => triggerReaction(emoji)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '1.1rem', padding: '2px' }}>
-                                    {emoji}
-                                </button>
+                    <div style={{ display: 'flex', gap: '4px', alignItems: 'center', position: 'relative' }}>
+                        {/* Quick Emojis */}
+                        <div style={{ display: 'flex', gap: '2px', background: '#1e293b', padding: '2px 4px', borderRadius: '6px', alignItems: 'center', border: '1px solid #334155' }}>
+                            {['👍', '❤️', '🔥'].map(emoji => (
+                                <button key={emoji} onClick={() => triggerReaction(emoji)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '0.95rem', padding: '1px' }}>{emoji}</button>
                             ))}
-                            <button
-                                onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                                style={{ background: '#334155', border: 'none', color: '#38bdf8', borderRadius: '4px', padding: '3px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
-                                title="More Emojis"
-                            >
-                                <Plus size={14} />
+                            <button onClick={() => setShowEmojiPicker(!showEmojiPicker)} style={{ background: '#334155', border: 'none', color: '#38bdf8', borderRadius: '4px', padding: '2px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                                <Plus size={12} />
                             </button>
                         </div>
 
-                        {/* Extended Emoji Dropdown */}
+                        {/* Emoji Dropdown */}
                         {showEmojiPicker && (
                             <div style={{
                                 position: 'absolute',
-                                top: '40px',
-                                right: '180px',
+                                top: '35px',
+                                right: '10px',
                                 background: '#1e293b',
                                 border: '1px solid #38bdf8',
-                                borderRadius: '10px',
-                                padding: '10px',
+                                borderRadius: '8px',
+                                padding: '8px',
                                 display: 'grid',
-                                gridTemplateColumns: 'repeat(6, 1fr)',
-                                gap: '8px',
-                                boxShadow: '0 10px 25px rgba(0,0,0,0.6)',
+                                gridTemplateColumns: 'repeat(5, 1fr)',
+                                gap: '6px',
+                                boxShadow: '0 10px 25px rgba(0,0,0,0.8)',
                                 zIndex: 9999
                             }}>
                                 {EMOJI_PALETTE.map(e => (
-                                    <button
-                                        key={e}
-                                        onClick={() => triggerReaction(e)}
-                                        style={{ background: 'transparent', border: 'none', fontSize: '1.3rem', cursor: 'pointer', padding: '4px' }}
-                                    >
-                                        {e}
-                                    </button>
+                                    <button key={e} onClick={() => triggerReaction(e)} style={{ background: 'transparent', border: 'none', fontSize: '1.2rem', cursor: 'pointer', padding: '2px' }}>{e}</button>
                                 ))}
                             </div>
                         )}
 
-                        {/* In-Meeting Host Settings */}
                         {isHost && (
-                            <button onClick={() => setShowSettingsModal(true)} style={topBtnStyle}>
-                                <Settings size={14} /> Settings
+                            <button onClick={() => setShowSettingsModal(true)} style={topBtnStyle} title="Settings">
+                                <Settings size={13} />
                             </button>
                         )}
 
-                        {/* Waiting List Requests */}
                         {isHost && waitingList.length > 0 && (
                             <button onClick={() => setShowAdmitModal(true)} style={{ ...topBtnStyle, background: '#eab308', color: '#0f172a', fontWeight: 'bold' }}>
-                                Admit ({waitingList.length})
+                                ({waitingList.length})
                             </button>
                         )}
 
                         {isHost && (
-                            <button onClick={() => window.open(`${BACKEND_URL}/api/attendance/export/${roomName}`, '_blank')} style={topBtnStyle}>
-                                <Download size={14} /> CSV
+                            <button onClick={() => window.open(`${BACKEND_URL}/api/attendance/export/${roomName}`, '_blank')} className="desktop-only" style={topBtnStyle}>
+                                <Download size={13} /> CSV
                             </button>
                         )}
 
-                        {/* Copy Full Link Button */}
                         <button onClick={copyInviteLink} style={{ ...topBtnStyle, background: copied ? '#10b981' : '#0284c7' }}>
-                            {copied ? <Check size={14} /> : <Copy size={14} />} {copied ? 'Link Copied!' : 'Copy Link'}
+                            {copied ? <Check size={13} /> : <Copy size={13} />}
+                            <span className="btn-label">{copied ? 'Copied' : 'Invite'}</span>
                         </button>
                     </div>
                 </div>
 
-                {/* High-Contrast Host Settings Modal */}
+                {/* Modals */}
                 {showSettingsModal && isHost && (
-                    <div style={{
-                        position: 'fixed',
-                        top: '55px',
-                        right: '16px',
-                        background: '#1e293b',
-                        padding: '18px',
-                        borderRadius: '12px',
-                        border: '2px solid #38bdf8',
-                        boxShadow: '0 20px 30px rgba(0,0,0,0.7)',
-                        zIndex: 9999,
-                        width: '320px',
-                        color: '#f8fafc'
-                    }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-                            <h4 style={{ margin: 0, fontSize: '0.95rem', color: '#38bdf8', fontWeight: '700' }}>Meeting Settings</h4>
-                            <button onClick={() => setShowSettingsModal(false)} style={{ background: 'transparent', border: 'none', color: '#f8fafc', cursor: 'pointer' }}>
-                                <X size={18} />
-                            </button>
+                    <div style={{ position: 'fixed', top: '50px', right: '12px', background: '#1e293b', padding: '16px', borderRadius: '12px', border: '2px solid #38bdf8', boxShadow: '0 20px 30px rgba(0,0,0,0.8)', zIndex: 9999, width: '280px', color: '#f8fafc' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                            <h4 style={{ margin: 0, fontSize: '0.9rem', color: '#38bdf8', fontWeight: '700' }}>Settings</h4>
+                            <button onClick={() => setShowSettingsModal(false)} style={{ background: 'transparent', border: 'none', color: '#f8fafc', cursor: 'pointer' }}><X size={16} /></button>
                         </div>
-
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.85rem', marginBottom: '12px', cursor: 'pointer', color: '#f8fafc', fontWeight: '500' }}>
-                            <input
-                                type="checkbox"
-                                checked={allowScreenshare}
-                                onChange={(e) => {
-                                    setAllowScreenshare(e.target.checked);
-                                    handleUpdateLiveSettings({ allow_participant_screenshare: e.target.checked });
-                                }}
-                                style={{ width: '16px', height: '16px', accentColor: '#38bdf8' }}
-                            />
-                            Allow Participants to Screen Share
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', marginBottom: '10px', cursor: 'pointer', color: '#f8fafc' }}>
+                            <input type="checkbox" checked={allowScreenshare} onChange={(e) => { setAllowScreenshare(e.target.checked); handleUpdateLiveSettings({ allow_participant_screenshare: e.target.checked }); }} style={{ accentColor: '#38bdf8' }} />
+                            Allow Participant Screen Share
                         </label>
-
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.85rem', marginBottom: '12px', cursor: 'pointer', color: '#f8fafc', fontWeight: '500' }}>
-                            <input
-                                type="checkbox"
-                                checked={chatLocked}
-                                onChange={(e) => {
-                                    setChatLocked(e.target.checked);
-                                    handleUpdateLiveSettings({ chat_locked: e.target.checked });
-                                }}
-                                style={{ width: '16px', height: '16px', accentColor: '#38bdf8' }}
-                            />
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', marginBottom: '10px', cursor: 'pointer', color: '#f8fafc' }}>
+                            <input type="checkbox" checked={chatLocked} onChange={(e) => { setChatLocked(e.target.checked); handleUpdateLiveSettings({ chat_locked: e.target.checked }); }} style={{ accentColor: '#38bdf8' }} />
                             Lock Chat for Participants
                         </label>
-
-                        <div style={{ marginTop: '12px' }}>
-                            <label style={{ fontSize: '0.8rem', color: '#94a3b8', display: 'block', marginBottom: '6px', fontWeight: '600' }}>Waiting Room Mode:</label>
-                            <select
-                                value={waitingMode}
-                                onChange={(e) => {
-                                    setWaitingMode(e.target.value);
-                                    handleUpdateLiveSettings({ waiting_mode: e.target.value });
-                                }}
-                                style={{ width: '100%', padding: '8px', background: '#090d16', border: '1px solid #475569', color: '#ffffff', borderRadius: '6px', fontSize: '0.85rem', fontWeight: '500' }}
-                            >
+                        <div>
+                            <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '4px' }}>Waiting Room:</label>
+                            <select value={waitingMode} onChange={(e) => { setWaitingMode(e.target.value); handleUpdateLiveSettings({ waiting_mode: e.target.value }); }} style={{ width: '100%', padding: '6px', background: '#090d16', border: '1px solid #475569', color: '#fff', borderRadius: '4px', fontSize: '0.8rem' }}>
                                 <option value="direct">Direct Bypass</option>
                                 <option value="strict">Strict (Host Approval)</option>
                                 <option value="open">Open Collaboration</option>
@@ -636,28 +580,26 @@ export default function App() {
                     </div>
                 )}
 
-                {/* Admit Requests Modal */}
                 {showAdmitModal && isHost && (
-                    <div style={{ position: 'fixed', top: '55px', right: '16px', background: '#1e293b', padding: '16px', borderRadius: '12px', border: '1px solid #475569', zIndex: 9999, width: '290px' }}>
-                        <h4 style={{ margin: '0 0 10px 0', fontSize: '0.9rem', color: '#38bdf8' }}>Waiting Room ({waitingList.length})</h4>
+                    <div style={{ position: 'fixed', top: '50px', right: '12px', background: '#1e293b', padding: '14px', borderRadius: '10px', border: '1px solid #475569', zIndex: 9999, width: '260px' }}>
+                        <h4 style={{ margin: '0 0 8px 0', fontSize: '0.85rem', color: '#38bdf8' }}>Waiting Room ({waitingList.length})</h4>
                         {waitingList.map(p => (
-                            <div key={p.participant_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                                <span style={{ fontSize: '0.85rem', color: '#f8fafc' }}>{p.name}</span>
-                                <div style={{ display: 'flex', gap: '6px' }}>
-                                    <button onClick={() => handleAdmitAction(p.participant_id, 'admit')} style={{ background: '#10b981', border: 'none', color: '#fff', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer' }}><UserCheck size={14} /></button>
-                                    <button onClick={() => handleAdmitAction(p.participant_id, 'reject')} style={{ background: '#ef4444', border: 'none', color: '#fff', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer' }}><UserX size={14} /></button>
+                            <div key={p.participant_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                                <span style={{ fontSize: '0.8rem', color: '#f8fafc' }}>{p.name}</span>
+                                <div style={{ display: 'flex', gap: '4px' }}>
+                                    <button onClick={() => handleAdmitAction(p.participant_id, 'admit')} style={{ background: '#10b981', border: 'none', color: '#fff', borderRadius: '4px', padding: '3px 6px', cursor: 'pointer' }}><UserCheck size={13} /></button>
+                                    <button onClick={() => handleAdmitAction(p.participant_id, 'reject')} style={{ background: '#ef4444', border: 'none', color: '#fff', borderRadius: '4px', padding: '3px 6px', cursor: 'pointer' }}><UserX size={13} /></button>
                                 </div>
                             </div>
                         ))}
-                        <button onClick={() => setShowAdmitModal(false)} style={{ width: '100%', marginTop: '6px', background: '#334155', border: 'none', color: '#fff', padding: '6px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' }}>Close</button>
+                        <button onClick={() => setShowAdmitModal(false)} style={{ width: '100%', marginTop: '6px', background: '#334155', border: 'none', color: '#fff', padding: '4px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.7rem' }}>Close</button>
                     </div>
                 )}
 
-                {/* Fixed Whiteboard */}
                 {showWhiteboard && <Whiteboard isHost={isHost} onClose={() => setShowWhiteboard(false)} />}
 
                 {/* LiveKit Video Stage */}
-                <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+                <div style={{ flex: 1, position: 'relative', overflow: 'hidden', minHeight: 0 }}>
                     <LiveKitRoom
                         video={cameraEnabled}
                         audio={micEnabled}
@@ -686,56 +628,49 @@ export default function App() {
 
     // Pre-Meeting Lobby
     return (
-        <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'radial-gradient(circle at top, #1e293b 0%, #090d16 100%)', fontFamily: 'system-ui, sans-serif', color: '#f8fafc', padding: '16px' }}>
-            <div style={{ background: '#131b2e', borderRadius: '16px', width: '100%', maxWidth: '820px', display: 'flex', flexDirection: 'column', border: '1px solid #1e293b', overflow: 'hidden' }}>
+        <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'radial-gradient(circle at top, #1e293b 0%, #090d16 100%)', fontFamily: 'system-ui, sans-serif', color: '#f8fafc', padding: '12px' }}>
+            <div style={{ background: '#131b2e', borderRadius: '16px', width: '100%', maxWidth: '800px', display: 'flex', flexDirection: 'column', border: '1px solid #1e293b', overflow: 'hidden' }}>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
                     {/* Green Room Preview */}
-                    <div style={{ padding: '1.5rem', background: '#0c1222', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                        <h3 style={{ fontSize: '0.9rem', color: '#94a3b8', marginBottom: '0.8rem' }}>Green Room Preview</h3>
-                        <div style={{ width: '100%', maxWidth: '320px', height: '200px', background: '#000', borderRadius: '10px', overflow: 'hidden' }}>
+                    <div style={{ padding: '1.2rem', background: '#0c1222', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                        <h3 style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: '0.6rem' }}>Green Room Preview</h3>
+                        <div style={{ width: '100%', maxWidth: '300px', height: '180px', background: '#000', borderRadius: '10px', overflow: 'hidden' }}>
                             <video ref={videoPreviewRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
                         </div>
-                        <div style={{ display: 'flex', gap: '8px', marginTop: '1rem' }}>
+                        <div style={{ display: 'flex', gap: '8px', marginTop: '0.8rem' }}>
                             <button onClick={() => setCameraEnabled(!cameraEnabled)} style={{ ...toggleBtnStyle, background: cameraEnabled ? '#334155' : '#ef4444' }}>
-                                {cameraEnabled ? <Video size={16} /> : <VideoOff size={16} />} {cameraEnabled ? 'Cam On' : 'Cam Off'}
+                                {cameraEnabled ? <Video size={15} /> : <VideoOff size={15} />} {cameraEnabled ? 'Cam On' : 'Cam Off'}
                             </button>
                             <button onClick={() => setMicEnabled(!micEnabled)} style={{ ...toggleBtnStyle, background: micEnabled ? '#334155' : '#ef4444' }}>
-                                {micEnabled ? <Mic size={16} /> : <MicOff size={16} />} {micEnabled ? 'Mic On' : 'Mic Off'}
+                                {micEnabled ? <Mic size={15} /> : <MicOff size={15} />} {micEnabled ? 'Mic On' : 'Mic Off'}
                             </button>
                         </div>
                     </div>
 
                     {/* Join Form */}
-                    <div style={{ padding: '1.8rem', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                    <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                            <h1 style={{ fontSize: '1.6rem', fontWeight: '800', color: '#38bdf8', margin: 0 }}>MeetMatrix</h1>
+                            <h1 style={{ fontSize: '1.5rem', fontWeight: '800', color: '#38bdf8', margin: 0 }}>MeetMatrix</h1>
                             <button onClick={() => setShowSettingsModal(!showSettingsModal)} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }} title="Host Settings">
-                                <Settings size={20} />
+                                <Settings size={18} />
                             </button>
                         </div>
 
-                        {/* Pre-Meeting Host Settings */}
                         {showSettingsModal && (
-                            <div style={{ background: '#090d16', padding: '14px', borderRadius: '8px', marginBottom: '1rem', border: '1px solid #334155', color: '#f8fafc' }}>
-                                <span style={{ fontSize: '0.8rem', fontWeight: 'bold', color: '#38bdf8', display: 'block', marginBottom: '8px' }}>HOST MEETING SETTINGS</span>
-                                <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '4px', fontWeight: '600' }}>Waiting Room Policy:</label>
-                                <select
-                                    value={waitingMode}
-                                    onChange={(e) => setWaitingMode(e.target.value)}
-                                    style={{ width: '100%', padding: '6px', background: '#131b2e', border: '1px solid #475569', color: '#ffffff', borderRadius: '4px', fontSize: '0.8rem', marginBottom: '10px' }}
-                                >
-                                    <option value="direct">Direct Bypass (No Waiting Room)</option>
+                            <div style={{ background: '#090d16', padding: '12px', borderRadius: '8px', marginBottom: '0.8rem', border: '1px solid #334155', color: '#f8fafc' }}>
+                                <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#38bdf8', display: 'block', marginBottom: '6px' }}>HOST PRE-SETTINGS</span>
+                                <label style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginBottom: '4px' }}>Waiting Room Policy:</label>
+                                <select value={waitingMode} onChange={(e) => setWaitingMode(e.target.value)} style={{ width: '100%', padding: '5px', background: '#131b2e', border: '1px solid #475569', color: '#fff', borderRadius: '4px', fontSize: '0.75rem', marginBottom: '8px' }}>
+                                    <option value="direct">Direct Bypass</option>
                                     <option value="strict">Strict (Host Approval)</option>
                                     <option value="open">Open Collaboration</option>
                                 </select>
-
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', marginBottom: '8px', cursor: 'pointer', color: '#f8fafc' }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', marginBottom: '6px', cursor: 'pointer', color: '#f8fafc' }}>
                                     <input type="checkbox" checked={allowScreenshare} onChange={(e) => setAllowScreenshare(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
-                                    Allow Participant Screen Sharing
+                                    Allow Participant Screen Share
                                 </label>
-
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', cursor: 'pointer', color: '#f8fafc' }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', cursor: 'pointer', color: '#f8fafc' }}>
                                     <input type="checkbox" checked={chatLocked} onChange={(e) => setChatLocked(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
                                     Lock Chat on Join
                                 </label>
@@ -743,22 +678,22 @@ export default function App() {
                         )}
 
                         <div style={{ marginBottom: '0.8rem' }}>
-                            <label style={{ fontSize: '0.8rem', color: '#94a3b8', display: 'block', marginBottom: '4px', fontWeight: '500' }}>Your Name</label>
+                            <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '4px' }}>Your Name</label>
                             <input type="text" placeholder="e.g. Raj" value={participantName} onChange={(e) => setParticipantName(e.target.value)} style={inputStyle} />
                         </div>
 
                         <button onClick={handleCreateRoom} disabled={loading} style={primaryBtnStyle}>
-                            {loading ? 'Starting Meeting...' : '⚡ Create New Meeting'}
+                            {loading ? 'Starting...' : '⚡ Create New Meeting'}
                         </button>
 
-                        <div style={{ display: 'flex', alignItems: 'center', margin: '1rem 0', color: '#475569' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', margin: '0.8rem 0', color: '#475569' }}>
                             <hr style={{ flex: 1, borderColor: '#1e293b' }} />
-                            <span style={{ padding: '0 8px', fontSize: '0.75rem' }}>OR JOIN EXISTING</span>
+                            <span style={{ padding: '0 8px', fontSize: '0.7rem' }}>OR JOIN EXISTING</span>
                             <hr style={{ flex: 1, borderColor: '#1e293b' }} />
                         </div>
 
                         <form onSubmit={handleJoinExisting}>
-                            <input type="text" placeholder="Enter Room Code (e.g. mm-xxxx-xxxx)" value={roomName} onChange={(e) => setRoomName(e.target.value)} style={{ ...inputStyle, marginBottom: '0.8rem' }} />
+                            <input type="text" placeholder="Enter Room Code (e.g. mm-xxxx-xxxx)" value={roomName} onChange={(e) => setRoomName(e.target.value)} style={{ ...inputStyle, marginBottom: '0.6rem' }} />
                             <button type="submit" disabled={loading} style={secondaryBtnStyle}>
                                 Join Meeting
                             </button>
@@ -770,9 +705,9 @@ export default function App() {
     );
 }
 
-const inputStyle = { width: '100%', padding: '10px 12px', background: '#090d16', border: '1px solid #334155', borderRadius: '8px', color: '#ffffff', fontSize: '0.85rem', outline: 'none', boxSizing: 'border-box' };
-const primaryBtnStyle = { width: '100%', padding: '10px', background: '#0284c7', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '0.9rem' };
-const secondaryBtnStyle = { width: '100%', padding: '10px', background: 'transparent', border: '1px solid #0284c7', color: '#38bdf8', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '0.9rem' };
-const topBtnStyle = { display: 'flex', alignItems: 'center', gap: '5px', background: '#1e293b', color: '#ffffff', border: '1px solid #334155', padding: '6px 12px', borderRadius: '6px', fontSize: '0.75rem', cursor: 'pointer', fontWeight: '500' };
-const toggleBtnStyle = { display: 'flex', alignItems: 'center', gap: '6px', color: '#ffffff', border: 'none', padding: '6px 12px', borderRadius: '6px', fontSize: '0.75rem', cursor: 'pointer' };
-const controlBtn = { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '3px', background: '#1e293b', color: '#ffffff', border: '1px solid #334155', padding: '8px 12px', borderRadius: '8px', fontSize: '0.7rem', cursor: 'pointer', minWidth: '55px', fontWeight: '500' };
+const inputStyle = { width: '100%', padding: '9px 12px', background: '#090d16', border: '1px solid #334155', borderRadius: '8px', color: '#ffffff', fontSize: '0.85rem', outline: 'none', boxSizing: 'border-box' };
+const primaryBtnStyle = { width: '100%', padding: '10px', background: '#0284c7', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '0.85rem' };
+const secondaryBtnStyle = { width: '100%', padding: '9px', background: 'transparent', border: '1px solid #0284c7', color: '#38bdf8', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '0.85rem' };
+const topBtnStyle = { display: 'flex', alignItems: 'center', gap: '4px', background: '#1e293b', color: '#ffffff', border: '1px solid #334155', padding: '5px 8px', borderRadius: '6px', fontSize: '0.75rem', cursor: 'pointer', fontWeight: '500' };
+const toggleBtnStyle = { display: 'flex', alignItems: 'center', gap: '6px', color: '#ffffff', border: 'none', padding: '6px 10px', borderRadius: '6px', fontSize: '0.75rem', cursor: 'pointer' };
+const controlBtn = { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', background: '#1e293b', color: '#ffffff', border: '1px solid #334155', padding: '6px 10px', borderRadius: '8px', fontSize: '0.65rem', cursor: 'pointer', minWidth: '46px', fontWeight: '500' };
