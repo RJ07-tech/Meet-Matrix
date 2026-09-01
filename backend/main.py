@@ -8,7 +8,6 @@ from livekit import api
 
 app = FastAPI()
 
-# Enable CORS for all domains
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -32,7 +31,6 @@ def health_check():
 
 @app.post("/api/create-room")
 def create_room():
-    # 8-character unique room ID
     room_id = str(uuid.uuid4())[:8]
     return {"room_id": room_id}
 
@@ -50,7 +48,7 @@ def get_token(req: TokenRequest):
                     room=req.room_name,
                     can_publish=True,
                     can_subscribe=True,
-                    room_admin=req.is_host
+                    room_admin=req.is_host,
                 )
             )
             .to_jwt()
