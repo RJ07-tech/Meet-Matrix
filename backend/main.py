@@ -23,42 +23,73 @@ LIVEKIT_URL = os.getenv("LIVEKIT_URL", "wss://meet-matrix-596bpvlh.livekit.cloud
 LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY", "API5gebW5oiHEeP")
 LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET", "WUzLWNzVmCd4QmnJf9THhR11oKfcp1eghJp24IOG0RwA")
 
-# In-Memory Storage for Attendance & Room Metadata
-# Structure: { room_id: [ {"name": str, "join_time": datetime, "leave_time": Optional[datetime]} ] }
+# Memory State
+active_rooms: Dict[str, Dict] = {}
 attendance_db: Dict[str, List[Dict]] = {}
-room_settings: Dict[str, Dict] = {}
+# Structure: { room_id: [ {"participant_id": str, "name": str, "status": "waiting"|"admitted"|"rejected"} ] }
+waiting_rooms: Dict[str, List[Dict]] = {}
+
+class CreateRoomRequest(BaseModel):
+    waiting_room_enabled: bool = False
+    chat_locked: bool = False
 
 class TokenRequest(BaseModel):
     room_name: str
     participant_name: str
     is_host: bool = False
-    role: Optional[str] = "participant" # host, co-host, participant
+    role: Optional[str] = "participant"
 
-class AttendanceRecord(BaseModel):
+class AdmitActionRequest(BaseModel):
     room_name: str
-    participant_name: str
-    action: str # "join" or "leave"
+    participant_id: str
+    action: str  # "admit" or "reject"
+
+class TerminateRequest(BaseModel):
+    room_name: str
 
 @app.get("/")
 def health_check():
     return {"status": "ok", "service": "MeetMatrix Core Backend"}
 
-# Module 1: Anti-Brute Force UUIDv4 Room Generation
+# Flaw 4 & Flaw 1: Create Room with Host Configurations
 @app.post("/api/create-room")
-def create_room():
+def create_room(config: CreateRoomRequest):
     room_id = f"mm-{uuid.uuid4().hex[:4]}-{uuid.uuid4().hex[:4]}"
-    room_settings[room_id] = {
+    active_rooms[room_id] = {
         "created_at": datetime.utcnow().isoformat(),
-        "chat_locked": False,
-        "room_locked": False,
-        "waiting_mode": "direct" # strict, open, direct
+        "waiting_room_enabled": config.waiting_room_enabled,
+        "chat_locked": config.chat_locked,
+        "is_active": True
     }
     attendance_db[room_id] = []
-    return {"room_id": room_id}
+    waiting_rooms[room_id] = []
+    return {"room_id": room_id, "config": active_rooms[room_id]}
 
-# Module 2 & 5: LiveKit Token Generation with Granular Permissions
+# Flaw 1 & Flaw 2: Check & Join / Enter Waiting Room
 @app.post("/api/get-token")
 def get_token(req: TokenRequest):
+    # Flaw 1: Room existence validation
+    if req.room_name not in active_rooms or not active_rooms[req.room_name]["is_active"]:
+        raise HTTPException(status_code=404, detail="Invalid Room Code or Meeting has ended.")
+
+    room_conf = active_rooms[req.room_name]
+    p_id = str(uuid.uuid4())[:8]
+
+    # Flaw 2: If waiting room is active and user is not host
+    if room_conf["waiting_room_enabled"] and not req.is_host:
+        existing = next((p for p in waiting_rooms[req.room_name] if p["name"] == req.participant_name and p["status"] == "admitted"), None)
+        if not existing:
+            # Check if already waiting
+            is_waiting = next((p for p in waiting_rooms[req.room_name] if p["participant_id"] == p_id), None)
+            if not is_waiting:
+                waiting_rooms[req.room_name].append({
+                    "participant_id": p_id,
+                    "name": req.participant_name,
+                    "status": "waiting"
+                })
+            return {"status": "waiting", "participant_id": p_id}
+
+    # Generate Token
     try:
         grants = api.VideoGrants(
             room_join=True,
@@ -66,23 +97,19 @@ def get_token(req: TokenRequest):
             can_publish=True,
             can_subscribe=True,
             can_publish_data=True,
-            room_admin=req.is_host or req.role == "co-host",
+            room_admin=req.is_host,
             room_record=req.is_host
         )
 
         token = (
             api.AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET)
-            .with_identity(f"{req.participant_name}_{uuid.uuid4().hex[:4]}")
+            .with_identity(f"{req.participant_name}_{p_id}")
             .with_name(req.participant_name)
-            .with_metadata(f'{{"role": "{req.role}"}}')
+            .with_metadata(f'{{"role": "{req.role}", "is_host": {str(req.is_host).lower()}}}')
             .with_ttl(timedelta(hours=6))
             .with_grants(grants)
             .to_jwt()
         )
-
-        # Track Attendance Join
-        if req.room_name not in attendance_db:
-            attendance_db[req.room_name] = []
 
         attendance_db[req.room_name].append({
             "name": req.participant_name,
@@ -90,19 +117,45 @@ def get_token(req: TokenRequest):
             "leave_time": None
         })
 
-        return {"token": token, "server_url": LIVEKIT_URL}
+        return {"status": "joined", "token": token, "server_url": LIVEKIT_URL}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# Module 6: Attendance Logging & CSV Export
-@app.post("/api/attendance/leave")
-def log_leave(data: AttendanceRecord):
-    records = attendance_db.get(data.room_name, [])
-    for rec in reversed(records):
-        if rec["name"] == data.participant_name and rec["leave_time"] is None:
-            rec["leave_time"] = datetime.utcnow()
-            break
-    return {"status": "recorded"}
+# Flaw 2: Waiting Room Polling & Host Controls
+@app.get("/api/waiting-list/{room_name}")
+def get_waiting_list(room_name: str):
+    return {"waiting": [p for p in waiting_rooms.get(room_name, []) if p["status"] == "waiting"]}
+
+@app.get("/api/check-admission/{room_name}/{participant_id}")
+def check_admission(room_name: str, participant_id: str):
+    p = next((x for x in waiting_rooms.get(room_name, []) if x["participant_id"] == participant_id), None)
+    if not p:
+        return {"status": "not_found"}
+    return {"status": p["status"]}
+
+@app.post("/api/admit-participant")
+def admit_participant(req: AdmitActionRequest):
+    if req.room_name in waiting_rooms:
+        for p in waiting_rooms[req.room_name]:
+            if p["participant_id"] == req.participant_id:
+                p["status"] = "admitted" if req.action == "admit" else "rejected"
+                return {"status": "success", "action": req.action}
+    raise HTTPException(status_code=404, detail="Participant not found")
+
+# Flaw 3: Terminate Meeting when Host Leaves
+@app.post("/api/terminate-room")
+async def terminate_room(req: TerminateRequest):
+    if req.room_name in active_rooms:
+        active_rooms[req.room_name]["is_active"] = False
+        try:
+            # Delete LiveKit active room
+            lk_client = api.LiveKitAPI(LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET)
+            await lk_client.room.delete_room(api.DeleteRoomRequest(room=req.room_name))
+            await lk_client.aclose()
+        except Exception as e:
+            print("LiveKit room deletion log:", str(e))
+        return {"status": "terminated"}
+    raise HTTPException(status_code=404, detail="Room not found")
 
 @app.get("/api/attendance/export/{room_name}")
 def export_attendance(room_name: str):
@@ -110,16 +163,10 @@ def export_attendance(room_name: str):
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(["Participant Name", "Join Time (UTC)", "Leave Time (UTC)", "Total Duration (Minutes)"])
-
     for r in records:
         join_str = r["join_time"].strftime("%Y-%m-%d %H:%M:%S")
-        leave_str = r["leave_time"].strftime("%Y-%m-%d %H:%M:%S") if r["leave_time"] else "Active/Abrupt Exit"
-
-        if r["leave_time"]:
-            duration = round((r["leave_time"] - r["join_time"]).total_seconds() / 60, 2)
-        else:
-            duration = "N/A"
-
+        leave_str = r["leave_time"].strftime("%Y-%m-%d %H:%M:%S") if r["leave_time"] else "Active/Terminated"
+        duration = round((r["leave_time"] - r["join_time"]).total_seconds() / 60, 2) if r["leave_time"] else "N/A"
         writer.writerow([r["name"], join_str, leave_str, duration])
 
     return Response(
