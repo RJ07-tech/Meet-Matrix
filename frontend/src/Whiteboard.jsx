@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from 'react';
-import { Pen, Eraser, RotateCcw, X, Share2, Square, Circle } from 'lucide-react';
+import { Pen, Eraser, RotateCcw, X, Share2, Square, Circle, Type } from 'lucide-react';
 import { LocalVideoTrack } from 'livekit-client';
 
 let persistentDrawingHistory = [];
@@ -7,7 +7,7 @@ let persistentDrawingHistory = [];
 export default function Whiteboard({ isModerator, onClose, localParticipant }) {
     const canvasRef = useRef(null);
     const [isDrawing, setIsDrawing] = useState(false);
-    const [tool, setTool] = useState('pen');
+    const [tool, setTool] = useState('pen'); // pen, eraser, rectangle, circle, text
     const [color, setColor] = useState('#000000');
     const [brushSize, setBrushSize] = useState(4);
     const [isSharingBoard, setIsSharingBoard] = useState(false);
@@ -15,6 +15,11 @@ export default function Whiteboard({ isModerator, onClose, localParticipant }) {
     const startPosRef = useRef({ x: 0, y: 0 });
     const snapshotRef = useRef(null);
     const animFrameIdRef = useRef(null);
+
+    // Text Input State
+    const textInputRef = useRef(null);
+    const [textPos, setTextPos] = useState(null);
+    const [textValue, setTextValue] = useState('');
 
     const fillWhiteBackground = (ctx, width, height) => {
         ctx.fillStyle = '#ffffff';
@@ -44,6 +49,10 @@ export default function Whiteboard({ isModerator, onClose, localParticipant }) {
                 ctx.beginPath();
                 ctx.arc(action.x, action.y, action.r, 0, 2 * Math.PI);
                 ctx.stroke();
+            } else if (action.type === 'text') {
+                ctx.fillStyle = action.color;
+                ctx.font = 'bold 18px Inter, system-ui, sans-serif';
+                ctx.fillText(action.text, action.x, action.y);
             }
         });
     };
@@ -120,7 +129,7 @@ export default function Whiteboard({ isModerator, onClose, localParticipant }) {
 
     const toggleShareCanvas = async () => {
         if (!isModerator) {
-            alert("Only Host and Co-Hosts can broadcast the whiteboard to everyone.");
+            alert("Only Host and Co-Hosts can broadcast the whiteboard.");
             return;
         }
         if (!localParticipant) return;
@@ -158,6 +167,29 @@ export default function Whiteboard({ isModerator, onClose, localParticipant }) {
         }
     };
 
+    const handleCommitText = () => {
+        if (!textPos || !textValue.trim()) {
+            setTextPos(null);
+            return;
+        }
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = color;
+        ctx.font = 'bold 18px Inter, system-ui, sans-serif';
+        ctx.fillText(textValue, textPos.x, textPos.y + 14);
+
+        persistentDrawingHistory.push({
+            type: 'text',
+            text: textValue,
+            x: textPos.x,
+            y: textPos.y + 14,
+            color
+        });
+
+        setTextPos(null);
+        setTextValue('');
+    };
+
     const currentPointsRef = useRef([]);
 
     const startDraw = (e) => {
@@ -165,6 +197,13 @@ export default function Whiteboard({ isModerator, onClose, localParticipant }) {
         const rect = canvas.getBoundingClientRect();
         const x = (e.clientX || e.touches?.[0]?.clientX) - rect.left;
         const y = (e.clientY || e.touches?.[0]?.clientY) - rect.top;
+
+        if (tool === 'text') {
+            setTextPos({ x, y });
+            setTextValue('');
+            setTimeout(() => textInputRef.current?.focus(), 50);
+            return;
+        }
 
         setIsDrawing(true);
         startPosRef.current = { x, y };
@@ -184,7 +223,7 @@ export default function Whiteboard({ isModerator, onClose, localParticipant }) {
     };
 
     const draw = (e) => {
-        if (!isDrawing) return;
+        if (!isDrawing || tool === 'text') return;
         const canvas = canvasRef.current;
         const ctx = canvas.getContext('2d');
         const rect = canvas.getBoundingClientRect();
@@ -219,7 +258,7 @@ export default function Whiteboard({ isModerator, onClose, localParticipant }) {
     };
 
     const stopDraw = (e) => {
-        if (!isDrawing) return;
+        if (!isDrawing || tool === 'text') return;
         setIsDrawing(false);
 
         const canvas = canvasRef.current;
@@ -280,6 +319,9 @@ export default function Whiteboard({ isModerator, onClose, localParticipant }) {
                         <button onClick={() => setTool('pen')} style={{ ...iconBtnStyle, background: tool === 'pen' ? '#0284c7' : 'transparent' }} title="Pen">
                             <Pen size={14} />
                         </button>
+                        <button onClick={() => setTool('text')} style={{ ...iconBtnStyle, background: tool === 'text' ? '#0284c7' : 'transparent' }} title="Text Note">
+                            <Type size={14} />
+                        </button>
                         <button onClick={() => setTool('eraser')} style={{ ...iconBtnStyle, background: tool === 'eraser' ? '#0284c7' : 'transparent' }} title="Eraser">
                             <Eraser size={14} />
                         </button>
@@ -317,7 +359,6 @@ export default function Whiteboard({ isModerator, onClose, localParticipant }) {
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    {/* Share Board button visible ONLY for Host and Co-Hosts */}
                     {isModerator && (
                         <button
                             onClick={toggleShareCanvas}
@@ -349,8 +390,34 @@ export default function Whiteboard({ isModerator, onClose, localParticipant }) {
                     onTouchStart={startDraw}
                     onTouchMove={draw}
                     onTouchEnd={stopDraw}
-                    style={{ display: 'block', width: '100%', height: '100%', cursor: tool === 'eraser' ? 'cell' : 'crosshair', touchAction: 'none', background: '#ffffff' }}
+                    style={{ display: 'block', width: '100%', height: '100%', cursor: tool === 'text' ? 'text' : tool === 'eraser' ? 'cell' : 'crosshair', touchAction: 'none', background: '#ffffff' }}
                 />
+
+                {textPos && (
+                    <input
+                        ref={textInputRef}
+                        type="text"
+                        value={textValue}
+                        placeholder="Type text & hit Enter"
+                        onChange={(e) => setTextValue(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleCommitText(); }}
+                        onBlur={handleCommitText}
+                        style={{
+                            position: 'absolute',
+                            left: `${textPos.x}px`,
+                            top: `${textPos.y}px`,
+                            padding: '4px 8px',
+                            background: 'rgba(255,255,255,0.95)',
+                            border: '2px solid #0284c7',
+                            borderRadius: '4px',
+                            color: color,
+                            fontSize: '16px',
+                            outline: 'none',
+                            zIndex: 10,
+                            boxShadow: '0 4px 10px rgba(0,0,0,0.2)'
+                        }}
+                    />
+                )}
             </div>
         </div>
     );
