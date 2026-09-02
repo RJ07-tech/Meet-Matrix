@@ -15,7 +15,8 @@ import {
     Copy, Check, Disc, Square, Download,
     PenTool, Video, VideoOff, Mic, MicOff, Settings,
     UserCheck, UserX, Clock, MonitorUp, MessageSquare, PhoneOff, X, Plus,
-    Users, Hand, Send, Edit3, VolumeX, MoreVertical, Smile, Shield, ShieldCheck
+    Users, Hand, Send, Edit3, VolumeX, MoreVertical, Smile, Shield, ShieldCheck,
+    Calendar, Trash2, Sliders, Play
 } from 'lucide-react';
 import { useGoogleLogin } from '@react-oauth/google';
 import EmojiPicker, { Theme } from 'emoji-picker-react';
@@ -41,9 +42,9 @@ function MeetingStage({
                           chatLocked,
                           setChatLocked,
                           waitingMode,
-                          setWaitingMode
+                          setWaitingMode,
+                          allowWhiteboard
                       }) {
-    // Direct WebRTC hardware state synchronization
     const { localParticipant, isCameraEnabled, isMicrophoneEnabled } = useLocalParticipant();
     const remoteParticipants = useRemoteParticipants();
     const room = useRoomContext();
@@ -78,8 +79,6 @@ function MeetingStage({
 
     const [isCustomizeOpen, setIsCustomizeOpen] = useState(false);
     const [activeSlotToReplace, setActiveSlotToReplace] = useState(0);
-
-    // Ref-based Synchronous Slot Tracking
     const activeSlotRef = useRef(activeSlotToReplace);
 
     const selectSlot = (idx) => {
@@ -136,7 +135,6 @@ function MeetingStage({
     const screenShareTrack = allTracks.find(t => t.source === Track.Source.ScreenShare);
     const cameraTracks = allTracks.filter(t => t.source === Track.Source.Camera);
 
-    // Safe Mobile Camera Sync: Only retries if browser delayed hardware release
     useEffect(() => {
         if (!localParticipant) return;
         localParticipant.setName(participantName);
@@ -144,9 +142,7 @@ function MeetingStage({
         if (initialCam && !localParticipant.isCameraEnabled) {
             const timer = setTimeout(() => {
                 if (!localParticipant.isCameraEnabled) {
-                    localParticipant.setCameraEnabled(true, { facingMode: 'user' }).catch(err => {
-                        console.warn("Camera auto-retry note:", err);
-                    });
+                    localParticipant.setCameraEnabled(true, { facingMode: 'user' }).catch(() => {});
                 }
             }, 800);
             return () => clearTimeout(timer);
@@ -274,18 +270,15 @@ function MeetingStage({
         setShowChatEmojiPicker(false);
     };
 
-    // Toggle camera directly controlling WebRTC hardware
     const toggleVideo = async () => {
         if (!localParticipant) return;
         try {
             await localParticipant.setCameraEnabled(!isCameraEnabled, { facingMode: 'user' });
         } catch (err) {
             console.error("Camera toggle error:", err);
-            alert("Camera error: " + (err.message || "Failed to access camera"));
         }
     };
 
-    // Toggle microphone directly controlling WebRTC hardware
     const toggleMic = async () => {
         if (!localParticipant) return;
         try {
@@ -648,7 +641,7 @@ function MeetingStage({
                         ) : (
                             waitingList.map(p => (
                                 <div key={p.participant_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #334155' }}>
-                                    <span style={{ fontSize: '0.8rem', color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    <span style={{ fontSize: '0.8rem', color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '140px' }}>
                                         {p.name}
                                     </span>
                                     <div style={{ display: 'flex', gap: '4px' }}>
@@ -925,7 +918,7 @@ function MeetingStage({
                 )}
             </div>
 
-            {/* Bottom Controls Bar: Synced 100% with hardware states */}
+            {/* Bottom Controls Bar */}
             <div className="mobile-control-bar" style={bottomBarStyle}>
                 <button onClick={toggleMic} style={{ ...controlBtn, background: !isMicrophoneEnabled ? '#ef4444' : '#1e293b' }}>
                     {!isMicrophoneEnabled ? <MicOff size={18} /> : <Mic size={18} />}
@@ -956,10 +949,12 @@ function MeetingStage({
                     <span className="mobile-hide" style={{ fontSize: '0.65rem' }}>{isScreenSharing ? 'Sharing' : 'Share'}</span>
                 </button>
 
-                <button onClick={() => setShowWhiteboard(!showWhiteboard)} style={{ ...controlBtn, background: showWhiteboard ? '#0284c7' : '#1e293b' }}>
-                    <PenTool size={18} />
-                    <span className="mobile-hide" style={{ fontSize: '0.65rem' }}>Board</span>
-                </button>
+                {allowWhiteboard && (
+                    <button onClick={() => setShowWhiteboard(!showWhiteboard)} style={{ ...controlBtn, background: showWhiteboard ? '#0284c7' : '#1e293b' }}>
+                        <PenTool size={18} />
+                        <span className="mobile-hide" style={{ fontSize: '0.65rem' }}>Board</span>
+                    </button>
+                )}
 
                 <button onClick={() => { setShowParticipants(!showParticipants); setShowChat(false); }} style={{ ...controlBtn, background: showParticipants ? '#0284c7' : '#1e293b' }}>
                     <Users size={18} />
@@ -1012,11 +1007,30 @@ export default function App() {
     const [loading, setLoading] = useState(false);
     const [isInviteFlow, setIsInviteFlow] = useState(false);
 
+    // Full Dedicated Pre-Flight Meeting Feature Settings
     const [showPreSettingsModal, setShowPreSettingsModal] = useState(false);
     const [waitingMode, setWaitingMode] = useState('direct');
     const [chatLocked, setChatLocked] = useState(false);
     const [allowScreenshare, setAllowScreenshare] = useState(true);
     const [allowDirectChat, setAllowDirectChat] = useState(true);
+    const [muteOnEntry, setMuteOnEntry] = useState(false);
+    const [cameraOffOnEntry, setCameraOffOnEntry] = useState(false);
+    const [allowWhiteboard, setAllowWhiteboard] = useState(true);
+
+    // Scheduling States
+    const [showScheduleModal, setShowScheduleModal] = useState(false);
+    const [scheduleTitle, setScheduleTitle] = useState('Team Collaboration');
+    const [scheduleDate, setScheduleDate] = useState('');
+    const [scheduleTime, setScheduleTime] = useState('');
+    const [scheduleDuration, setScheduleDuration] = useState(30);
+    const [scheduledMeetings, setScheduledMeetings] = useState(() => {
+        try {
+            const saved = localStorage.getItem('meetmatrix_scheduled');
+            return saved ? JSON.parse(saved) : [];
+        } catch {
+            return [];
+        }
+    });
 
     const [cameraEnabled, setCameraEnabled] = useState(true);
     const [micEnabled, setMicEnabled] = useState(true);
@@ -1036,7 +1050,6 @@ export default function App() {
     const [authAction, setAuthAction] = useState(null);
     const [showWhiteboard, setShowWhiteboard] = useState(false);
 
-    // Completely frees the camera sensor and blocks background re-acquiring
     const stopLobbyPreviewTracks = () => {
         isJoiningRef.current = true;
         if (previewStreamRef.current) {
@@ -1149,6 +1162,8 @@ export default function App() {
 
                 if (authAction === 'create') {
                     setShowPreSettingsModal(true);
+                } else if (authAction === 'schedule') {
+                    setShowScheduleModal(true);
                 } else if (authAction === 'join' || isInviteFlow) {
                     await proceedJoin(userData.name);
                 }
@@ -1174,6 +1189,15 @@ export default function App() {
         }
     };
 
+    const handleStartScheduleMeeting = () => {
+        if (user) {
+            setShowScheduleModal(true);
+        } else {
+            setAuthAction('schedule');
+            triggerGoogleAuth();
+        }
+    };
+
     const handleConfirmAndLaunchRoom = async () => {
         setShowPreSettingsModal(false);
         setLoading(true);
@@ -1181,7 +1205,11 @@ export default function App() {
             const res = await axios.post(`${BACKEND_URL}/api/create-room`, {
                 waiting_mode: waitingMode,
                 chat_locked: chatLocked,
-                allow_participant_screenshare: allowScreenshare
+                allow_participant_screenshare: allowScreenshare,
+                allow_direct_chat: allowDirectChat,
+                mute_on_entry: muteOnEntry,
+                camera_off_on_entry: cameraOffOnEntry,
+                allow_whiteboard: allowWhiteboard
             });
             const newRoomId = res.data.room_id;
             const hostDisplayName = participantName || user?.name || 'Host';
@@ -1207,6 +1235,56 @@ export default function App() {
         } finally {
             setLoading(false);
         }
+    };
+
+    const handleSaveScheduleMeeting = async (e) => {
+        e.preventDefault();
+        if (!scheduleDate || !scheduleTime) {
+            alert("Please pick both Date and Time.");
+            return;
+        }
+        setLoading(true);
+        try {
+            const generatedRoomId = `mm-${Math.random().toString(36).substring(2, 6)}-${Math.random().toString(36).substring(2, 6)}`;
+            const newScheduled = {
+                room_id: generatedRoomId,
+                title: scheduleTitle.trim() || 'Team Meeting',
+                date: scheduleDate,
+                time: scheduleTime,
+                duration: scheduleDuration,
+                created_at: new Date().toISOString()
+            };
+
+            const updatedList = [newScheduled, ...scheduledMeetings];
+            setScheduledMeetings(updatedList);
+            localStorage.setItem('meetmatrix_scheduled', JSON.stringify(updatedList));
+
+            try {
+                await axios.post(`${BACKEND_URL}/api/schedule-meeting`, {
+                    ...newScheduled,
+                    host_name: user?.name || 'Host',
+                    host_email: user?.email || null,
+                    waiting_mode: waitingMode,
+                    chat_locked: chatLocked,
+                    allow_participant_screenshare: allowScreenshare
+                });
+            } catch (backendErr) {
+                console.warn("Backend schedule persist note:", backendErr);
+            }
+
+            setShowScheduleModal(false);
+            alert(`Meeting scheduled! Room Code: ${generatedRoomId}`);
+        } catch (err) {
+            alert("Scheduling failed: " + err.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const deleteScheduledMeeting = (roomId) => {
+        const filtered = scheduledMeetings.filter(m => m.room_id !== roomId);
+        setScheduledMeetings(filtered);
+        localStorage.setItem('meetmatrix_scheduled', JSON.stringify(filtered));
     };
 
     const proceedJoin = async (nameToUse) => {
@@ -1321,6 +1399,7 @@ export default function App() {
                         setChatLocked={setChatLocked}
                         waitingMode={waitingMode}
                         setWaitingMode={setWaitingMode}
+                        allowWhiteboard={allowWhiteboard}
                     />
                 </LiveKitRoom>
             </div>
@@ -1329,51 +1408,153 @@ export default function App() {
 
     return (
         <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'radial-gradient(circle at top, #1e293b 0%, #090d16 100%)', color: '#f8fafc', padding: '12px' }}>
+
+            {/* DEDICATED PRE-MEETING CONFIGURATION & SECURITY MODAL */}
             {showPreSettingsModal && (
                 <div style={modalBackdropStyle}>
                     <div style={modalCardStyle}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                            <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#38bdf8' }}>Meeting Configuration</h3>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', borderBottom: '1px solid #334155', paddingBottom: '10px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <Sliders size={18} color="#38bdf8" />
+                                <h3 style={{ margin: 0, fontSize: '1.05rem', color: '#38bdf8', fontWeight: '700' }}>Pre-Meeting Security & Controls</h3>
+                            </div>
                             <button onClick={() => setShowPreSettingsModal(false)} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}><X size={18} /></button>
                         </div>
 
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '20px' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '20px', maxHeight: '60vh', overflowY: 'auto', paddingRight: '4px' }}>
                             <div>
-                                <label style={settingLabelStyle}>Waiting Room Entry Policy</label>
+                                <label style={settingLabelStyle}>Waiting Room Admission Policy</label>
                                 <select value={waitingMode} onChange={(e) => setWaitingMode(e.target.value)} style={selectInputStyle}>
-                                    <option value="direct">Direct Bypass (Instant Join)</option>
-                                    <option value="strict">Strict (Host Approval Required)</option>
-                                    <option value="open">Open Collaboration</option>
+                                    <option value="direct">Direct Bypass (Instant Join without approval)</option>
+                                    <option value="strict">Strict (Host/Co-Host Approval Required)</option>
+                                    <option value="open">Open Collaboration Room</option>
                                 </select>
                             </div>
 
-                            <label style={checkboxRowStyle}>
-                                <input type="checkbox" checked={allowScreenshare} onChange={(e) => setAllowScreenshare(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
-                                <span>Allow Participants to Share Screen</span>
-                            </label>
+                            <div style={featureBoxStyle}>
+                                <span style={groupHeadingStyle}>COLLABORATION & SHARING</span>
+                                <label style={checkboxRowStyle}>
+                                    <input type="checkbox" checked={allowScreenshare} onChange={(e) => setAllowScreenshare(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
+                                    <span>Allow Participants to Share Screen</span>
+                                </label>
 
-                            <label style={checkboxRowStyle}>
-                                <input type="checkbox" checked={allowDirectChat} onChange={(e) => setAllowDirectChat(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
-                                <span>Allow 1-on-1 Direct Chat Between Participants</span>
-                            </label>
+                                <label style={checkboxRowStyle}>
+                                    <input type="checkbox" checked={allowWhiteboard} onChange={(e) => setAllowWhiteboard(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
+                                    <span>Enable Interactive Whiteboard Feature</span>
+                                </label>
+                            </div>
 
-                            <label style={checkboxRowStyle}>
-                                <input type="checkbox" checked={chatLocked} onChange={(e) => setChatLocked(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
-                                <span>Lock Chat by Default</span>
-                            </label>
+                            <div style={featureBoxStyle}>
+                                <span style={groupHeadingStyle}>COMMUNICATION & CHAT</span>
+                                <label style={checkboxRowStyle}>
+                                    <input type="checkbox" checked={!chatLocked} onChange={(e) => setChatLocked(!e.target.checked)} style={{ accentColor: '#38bdf8' }} />
+                                    <span>Allow Public In-Meeting Chat</span>
+                                </label>
+
+                                <label style={checkboxRowStyle}>
+                                    <input type="checkbox" checked={allowDirectChat} onChange={(e) => setAllowDirectChat(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
+                                    <span>Allow 1-on-1 Direct Chat Between Peers</span>
+                                </label>
+                            </div>
+
+                            <div style={featureBoxStyle}>
+                                <span style={groupHeadingStyle}>AUDIO & VIDEO ENTRY POLICY</span>
+                                <label style={checkboxRowStyle}>
+                                    <input type="checkbox" checked={muteOnEntry} onChange={(e) => setMuteOnEntry(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
+                                    <span>Mute Participants Mic upon joining</span>
+                                </label>
+
+                                <label style={checkboxRowStyle}>
+                                    <input type="checkbox" checked={cameraOffOnEntry} onChange={(e) => setCameraOffOnEntry(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
+                                    <span>Turn off Participants Camera upon joining</span>
+                                </label>
+                            </div>
                         </div>
 
                         <button onClick={handleConfirmAndLaunchRoom} style={primaryBtnStyle}>
-                            🚀 Launch Meeting Now
+                            🚀 Launch Instant Meeting
                         </button>
                     </div>
                 </div>
             )}
 
-            <div style={{ background: '#131b2e', borderRadius: '16px', width: '100%', maxWidth: '800px', display: 'flex', flexDirection: 'column', border: '1px solid #1e293b', overflow: 'hidden' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
+            {/* SCHEDULE MEETING MODAL */}
+            {showScheduleModal && (
+                <div style={modalBackdropStyle}>
+                    <div style={modalCardStyle}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', borderBottom: '1px solid #334155', paddingBottom: '10px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <Calendar size={18} color="#38bdf8" />
+                                <h3 style={{ margin: 0, fontSize: '1.05rem', color: '#38bdf8', fontWeight: '700' }}>Schedule a Meeting</h3>
+                            </div>
+                            <button onClick={() => setShowScheduleModal(false)} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}><X size={18} /></button>
+                        </div>
+
+                        <form onSubmit={handleSaveScheduleMeeting} style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '15px' }}>
+                            <div>
+                                <label style={settingLabelStyle}>Meeting Topic / Title</label>
+                                <input
+                                    type="text"
+                                    value={scheduleTitle}
+                                    placeholder="e.g. Sprint Planning / Viva Prep"
+                                    onChange={(e) => setScheduleTitle(e.target.value)}
+                                    style={selectInputStyle}
+                                    required
+                                />
+                            </div>
+
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                                <div>
+                                    <label style={settingLabelStyle}>Date</label>
+                                    <input
+                                        type="date"
+                                        value={scheduleDate}
+                                        onChange={(e) => setScheduleDate(e.target.value)}
+                                        style={selectInputStyle}
+                                        required
+                                    />
+                                </div>
+                                <div>
+                                    <label style={settingLabelStyle}>Start Time</label>
+                                    <input
+                                        type="time"
+                                        value={scheduleTime}
+                                        onChange={(e) => setScheduleTime(e.target.value)}
+                                        style={selectInputStyle}
+                                        required
+                                    />
+                                </div>
+                            </div>
+
+                            <div>
+                                <label style={settingLabelStyle}>Estimated Duration</label>
+                                <select
+                                    value={scheduleDuration}
+                                    onChange={(e) => setScheduleDuration(parseInt(e.target.value))}
+                                    style={selectInputStyle}
+                                >
+                                    <option value={15}>15 Minutes</option>
+                                    <option value={30}>30 Minutes</option>
+                                    <option value={45}>45 Minutes</option>
+                                    <option value={60}>1 Hour</option>
+                                    <option value={90}>1.5 Hours</option>
+                                </select>
+                            </div>
+
+                            <button type="submit" disabled={loading} style={{ ...primaryBtnStyle, marginTop: '8px' }}>
+                                📅 Save & Schedule Meeting
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            <div style={{ background: '#131b2e', borderRadius: '16px', width: '100%', maxWidth: '840px', display: 'flex', flexDirection: 'column', border: '1px solid #1e293b', overflow: 'hidden' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' }}>
+
+                    {/* Green Room Preview Column */}
                     <div style={{ padding: '1.5rem', background: '#0c1222', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                        <h3 style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: '0.8rem' }}>Green Room Preview</h3>
+                        <h3 style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: '0.8rem' }}>Green Room Hardware Preview</h3>
                         <div style={{ width: '100%', maxWidth: '320px', height: '190px', background: '#000', borderRadius: '10px', overflow: 'hidden', position: 'relative' }}>
                             <video ref={videoPreviewRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
                             {!cameraEnabled && (
@@ -1393,8 +1574,9 @@ export default function App() {
                         </div>
                     </div>
 
+                    {/* Controls & Meeting Options Column */}
                     <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                        <h1 style={{ fontSize: '1.6rem', fontWeight: '800', color: '#38bdf8', marginBottom: '0.5rem' }}>MeetMatrix</h1>
+                        <h1 style={{ fontSize: '1.6rem', fontWeight: '800', color: '#38bdf8', marginBottom: '0.4rem' }}>MeetMatrix</h1>
                         {isInviteFlow && (
                             <p style={{ color: '#94a3b8', fontSize: '0.8rem', marginBottom: '1rem' }}>
                                 Joining Meeting: <strong style={{ color: '#38bdf8' }}>{roomName}</strong>
@@ -1418,24 +1600,66 @@ export default function App() {
                             </button>
                         ) : (
                             <>
-                                <button onClick={handleStartCreateMeeting} disabled={loading} style={{ ...primaryBtnStyle, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                                    {!user && <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" style={{ width: '16px', height: '16px' }} />}
-                                    {user ? `⚡ Configure & Create Meeting` : `Sign in & Create Meeting`}
-                                </button>
+                                <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+                                    <button onClick={handleStartCreateMeeting} disabled={loading} style={{ ...primaryBtnStyle, flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                                        <Sliders size={15} /> Configure & Host
+                                    </button>
+                                    <button onClick={handleStartScheduleMeeting} disabled={loading} style={{ ...secondaryBtnStyle, flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                                        <Calendar size={15} /> Schedule
+                                    </button>
+                                </div>
 
-                                <div style={{ display: 'flex', alignItems: 'center', margin: '1rem 0', color: '#475569' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', margin: '0.8rem 0', color: '#475569' }}>
                                     <hr style={{ flex: 1, borderColor: '#1e293b' }} />
                                     <span style={{ padding: '0 8px', fontSize: '0.7rem' }}>OR JOIN EXISTING</span>
                                     <hr style={{ flex: 1, borderColor: '#1e293b' }} />
                                 </div>
 
-                                <form onSubmit={handleJoinClick}>
+                                <form onSubmit={handleJoinClick} style={{ marginBottom: '14px' }}>
                                     <input type="text" placeholder="Enter Room Code (e.g. mm-xxxx-xxxx)" value={roomName} onChange={(e) => setRoomName(e.target.value)} style={{ ...inputStyle, marginBottom: '0.8rem' }} />
-                                    <button type="submit" disabled={loading} style={{ ...secondaryBtnStyle, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                                    <button type="submit" disabled={loading} style={{ ...secondaryBtnStyle, width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
                                         {!user && <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" style={{ width: '16px', height: '16px' }} />}
                                         {user ? `Join Meeting as ${user.name.split(' ')[0]}` : `Sign in & Join Meeting`}
                                     </button>
                                 </form>
+
+                                {/* Upcoming Scheduled Meetings List */}
+                                {scheduledMeetings.length > 0 && (
+                                    <div style={{ background: '#090d16', borderRadius: '10px', padding: '10px', border: '1px solid #1e293b', maxHeight: '160px', overflowY: 'auto' }}>
+                                        <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: '700', display: 'block', marginBottom: '6px' }}>UPCOMING SCHEDULED MEETINGS</span>
+                                        {scheduledMeetings.map((item) => (
+                                            <div key={item.room_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #1e293b' }}>
+                                                <div style={{ overflow: 'hidden' }}>
+                                                    <span style={{ fontSize: '0.78rem', color: '#38bdf8', fontWeight: '600', display: 'block', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', maxWidth: '160px' }}>{item.title}</span>
+                                                    <span style={{ fontSize: '0.68rem', color: '#64748b' }}>{item.date} at {item.time} ({item.duration}m)</span>
+                                                </div>
+                                                <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                                                    <button
+                                                        onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/?room=${item.room_id}`); alert("Invite Link Copied!"); }}
+                                                        style={iconActionBtnStyle}
+                                                        title="Copy Invite Link"
+                                                    >
+                                                        <Copy size={13} />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => { setRoomName(item.room_id); setIsHost(true); joinRoomDirect(item.room_id, user?.name || 'Host', true); }}
+                                                        style={{ ...iconActionBtnStyle, background: '#0284c7', color: '#fff' }}
+                                                        title="Start Meeting Now"
+                                                    >
+                                                        <Play size={13} />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => deleteScheduledMeeting(item.room_id)}
+                                                        style={{ ...iconActionBtnStyle, color: '#ef4444' }}
+                                                        title="Delete"
+                                                    >
+                                                        <Trash2 size={13} />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
                             </>
                         )}
                     </div>
@@ -1460,7 +1684,10 @@ const drawerActionBtn = { background: 'transparent', border: 'none', color: '#94
 const contextMenuStyle = { position: 'absolute', right: 0, top: '26px', background: '#1e293b', border: '1px solid #334155', borderRadius: '6px', padding: '4px', zIndex: 999, minWidth: '140px', boxShadow: '0 8px 16px rgba(0,0,0,0.5)' };
 const contextMenuItemStyle = { width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 8px', background: 'transparent', border: 'none', color: '#f8fafc', fontSize: '0.75rem', cursor: 'pointer', textAlign: 'left', borderRadius: '4px' };
 const modalBackdropStyle = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(4px)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' };
-const modalCardStyle = { background: '#131b2e', border: '1px solid #38bdf8', borderRadius: '14px', padding: '20px', width: '100%', maxWidth: '420px', boxShadow: '0 25px 50px rgba(0,0,0,0.7)' };
+const modalCardStyle = { background: '#131b2e', border: '1px solid #38bdf8', borderRadius: '14px', padding: '20px', width: '100%', maxWidth: '440px', boxShadow: '0 25px 50px rgba(0,0,0,0.7)' };
 const settingLabelStyle = { fontSize: '0.78rem', color: '#94a3b8', display: 'block', marginBottom: '6px', fontWeight: '600' };
-const selectInputStyle = { width: '100%', padding: '8px', background: '#090d16', border: '1px solid #334155', color: '#fff', borderRadius: '6px', fontSize: '0.8rem' };
-const checkboxRowStyle = { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', cursor: 'pointer', color: '#f8fafc' };
+const selectInputStyle = { width: '100%', padding: '8px', background: '#090d16', border: '1px solid #334155', color: '#fff', borderRadius: '6px', fontSize: '0.8rem', boxSizing: 'border-box' };
+const checkboxRowStyle = { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', cursor: 'pointer', color: '#f8fafc', marginBottom: '6px' };
+const featureBoxStyle = { background: '#090d16', padding: '10px', borderRadius: '8px', border: '1px solid #1e293b' };
+const groupHeadingStyle = { fontSize: '0.68rem', color: '#38bdf8', fontWeight: '700', letterSpacing: '0.5px', display: 'block', marginBottom: '8px' };
+const iconActionBtnStyle = { background: '#1e293b', border: '1px solid #334155', color: '#cbd5e1', padding: '4px 6px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center' };
