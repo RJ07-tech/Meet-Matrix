@@ -200,3 +200,22 @@ def export_attendance(room_name: str):
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename=attendance-{room_name}.csv"}
     )
+class KickRequest(BaseModel):
+    room_name: str
+    participant_identity: str
+
+@app.post("/api/kick-participant")
+async def kick_participant(req: KickRequest):
+    try:
+        from livekit import api
+        lk_api = api.LiveKitAPI(LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET)
+        await lk_api.room.remove_participant(
+            api.RoomParticipantIdentity(
+                room=req.room_name,
+                identity=req.participant_identity
+            )
+        )
+        await lk_api.aclose()
+        return {"status": "success", "message": "Participant removed"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

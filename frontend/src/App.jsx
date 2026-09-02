@@ -9,13 +9,14 @@ import {
     useLocalParticipant,
     useRemoteParticipants,
     RoomAudioRenderer,
+    useRoomContext,
 } from '@livekit/components-react';
 import { Track } from 'livekit-client';
 import {
     Copy, Check, Disc, Square, Download,
     PenTool, Video, VideoOff, Mic, MicOff, Settings,
     UserCheck, UserX, Clock, MonitorUp, MessageSquare, PhoneOff, X, Plus,
-    Users, Hand, Send, Edit3, VolumeX, ShieldAlert
+    Users, Hand, Send, Edit3, VolumeX, MoreVertical
 } from 'lucide-react';
 import { useGoogleLogin } from '@react-oauth/google';
 import Whiteboard from './Whiteboard';
@@ -47,25 +48,31 @@ function MeetingStage({
                       }) {
     const { localParticipant } = useLocalParticipant();
     const remoteParticipants = useRemoteParticipants();
+    const room = useRoomContext();
 
     const [isMicMuted, setIsMicMuted] = useState(!initialMic);
     const [isVideoMuted, setIsVideoMuted] = useState(!initialCam);
     const [isScreenSharing, setIsScreenSharing] = useState(false);
     const [isHandRaised, setIsHandRaised] = useState(false);
 
-    // Persistent Raised Hands Map: { [participantIdentity]: boolean }
+    // Persistent Hand Raise State Map { [identity]: boolean }
     const [raisedHandsMap, setRaisedHandsMap] = useState({});
 
-    // Drawers
+    // Drawers & Modals
     const [showChat, setShowChat] = useState(false);
     const [showParticipants, setShowParticipants] = useState(false);
+    const [activeMenuIdentity, setActiveMenuIdentity] = useState(null);
+
+    // In-Drawer Rename State
+    const [isEditingName, setIsEditingName] = useState(false);
+    const [editNameValue, setEditNameValue] = useState(participantName);
 
     // Chat State
     const [chatMessages, setChatMessages] = useState([]);
     const [chatInput, setChatInput] = useState('');
     const [chatRecipient, setChatRecipient] = useState('Everyone');
 
-    // Local Recording
+    // Recording State
     const [isRecording, setIsRecording] = useState(false);
     const mediaRecorderRef = useRef(null);
     const recordedChunksRef = useRef([]);
@@ -87,10 +94,9 @@ function MeetingStage({
         }
     }, [localParticipant]);
 
-    // Handle Real-Time Signaling (Hand Raise, Chat, Host Mute/Kick)
+    // LiveKit Reliable Data Channel Listener
     useEffect(() => {
-        if (!localParticipant?.room) return;
-        const room = localParticipant.room;
+        if (!room) return;
 
         const handleDataReceived = (payload, participant) => {
             try {
@@ -116,17 +122,17 @@ function MeetingStage({
                     setIsMicMuted(true);
                     alert("The Host has muted your microphone.");
                 } else if (data.type === 'kick_user' && data.targetIdentity === localParticipant.identity) {
-                    alert("You were removed from the meeting by the Host.");
+                    alert("You have been removed from the meeting by the Host.");
                     onLeave();
                 }
             } catch (err) {
-                console.error("Data event error:", err);
+                console.error("Signal parse error:", err);
             }
         };
 
         room.on('dataReceived', handleDataReceived);
         return () => room.off('dataReceived', handleDataReceived);
-    }, [localParticipant, onLeave]);
+    }, [room, localParticipant, onLeave]);
 
     const toggleMic = async () => {
         if (localParticipant) {
@@ -160,9 +166,9 @@ function MeetingStage({
         }
     };
 
-    // Reliable Hand Raise Broadcast
+    // Reliable Hand Raise Toggle & Broadcast
     const toggleHandRaise = () => {
-        if (!localParticipant?.room) return;
+        if (!localParticipant || !room) return;
         const nextState = !isHandRaised;
         setIsHandRaised(nextState);
 
@@ -172,15 +178,49 @@ function MeetingStage({
         }));
 
         const payload = JSON.stringify({ type: 'hand_raise', raised: nextState });
-        localParticipant.room.localParticipant.publishData(
+        room.localParticipant.publishData(
             new TextEncoder().encode(payload),
             { reliable: true }
         );
     };
 
+    const handleSaveName = () => {
+        if (!editNameValue.trim() || !localParticipant) return;
+        localParticipant.setName(editNameValue.trim());
+        setParticipantName(editNameValue.trim());
+        setIsEditingName(false);
+    };
+
+    const handleHostMute = (identity) => {
+        if (!isHost || !room) return;
+        const payload = JSON.stringify({ type: 'force_mute', targetIdentity: identity });
+        room.localParticipant.publishData(new TextEncoder().encode(payload), { reliable: true });
+        setActiveMenuIdentity(null);
+    };
+
+    const handleHostKick = async (identity) => {
+        if (!isHost) return;
+        if (window.confirm("Remove this participant from the meeting?")) {
+            try {
+                // Inform client via data message
+                const payload = JSON.stringify({ type: 'kick_user', targetIdentity: identity });
+                room?.localParticipant?.publishData(new TextEncoder().encode(payload), { reliable: true });
+
+                // Direct Server-side Kick Request
+                await axios.post(`${BACKEND_URL}/api/kick-participant`, {
+                    room_name: roomName,
+                    participant_identity: identity
+                });
+            } catch (err) {
+                console.log("Kick API fallback handled");
+            }
+            setActiveMenuIdentity(null);
+        }
+    };
+
     const handleSendChat = (e) => {
         e.preventDefault();
-        if (!chatInput.trim() || !localParticipant?.room) return;
+        if (!chatInput.trim() || !room) return;
         if (chatLocked && !isHost) {
             alert("Chat has been locked by the Host.");
             return;
@@ -192,7 +232,7 @@ function MeetingStage({
             recipient: chatRecipient
         };
 
-        localParticipant.room.localParticipant.publishData(
+        room.localParticipant.publishData(
             new TextEncoder().encode(JSON.stringify(messageData)),
             { reliable: true }
         );
@@ -205,20 +245,6 @@ function MeetingStage({
         }]);
 
         setChatInput('');
-    };
-
-    const handleHostMutePeer = (identity) => {
-        if (!isHost || !localParticipant?.room) return;
-        const payload = JSON.stringify({ type: 'force_mute', targetIdentity: identity });
-        localParticipant.room.localParticipant.publishData(new TextEncoder().encode(payload), { reliable: true });
-    };
-
-    const handleHostKickPeer = (identity) => {
-        if (!isHost || !localParticipant?.room) return;
-        if (window.confirm("Remove this participant from the meeting?")) {
-            const payload = JSON.stringify({ type: 'kick_user', targetIdentity: identity });
-            localParticipant.room.localParticipant.publishData(new TextEncoder().encode(payload), { reliable: true });
-        }
     };
 
     const startRecording = async () => {
@@ -284,37 +310,77 @@ function MeetingStage({
                     </GridLayout>
                 </div>
 
-                {/* Participants Side Drawer */}
+                {/* Participants Drawer with 3-Dot Menu & Rename Option */}
                 {showParticipants && (
                     <div style={sideDrawerStyle}>
                         <div style={drawerHeaderStyle}>
                             <span style={{ fontWeight: '700', fontSize: '0.85rem' }}>Participants ({allPeers.length})</span>
-                            <button onClick={() => setShowParticipants(false)} style={drawerCloseBtn}><X size={16} /></button>
+                            <button onClick={() => { setShowParticipants(false); setActiveMenuIdentity(null); }} style={drawerCloseBtn}><X size={16} /></button>
                         </div>
+
                         <div style={{ padding: '8px', overflowY: 'auto', flex: 1 }}>
                             {allPeers.map(p => (
-                                <div key={p.identity} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px', borderBottom: '1px solid #1e293b' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
-                                        <div style={{ width: '26px', height: '26px', borderRadius: '50%', background: '#0284c7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 'bold' }}>
+                                <div key={p.identity} style={{ position: 'relative', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 8px', borderBottom: '1px solid #1e293b' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden', flex: 1 }}>
+                                        <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: '#0284c7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 'bold', flexShrink: 0 }}>
                                             {p.name.charAt(0).toUpperCase()}
                                         </div>
-                                        <span style={{ fontSize: '0.8rem', color: '#f8fafc', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                            {p.name} {p.isHandRaised && <span title="Hand Raised" style={{ marginLeft: '4px' }}>✋</span>}
-                                        </span>
+
+                                        {p.isSelf && isEditingName ? (
+                                            <div style={{ display: 'flex', gap: '4px', alignItems: 'center', width: '100%' }}>
+                                                <input
+                                                    type="text"
+                                                    value={editNameValue}
+                                                    onChange={(e) => setEditNameValue(e.target.value)}
+                                                    style={{ background: '#090d16', border: '1px solid #38bdf8', color: '#fff', padding: '2px 6px', borderRadius: '4px', fontSize: '0.75rem', width: '90px' }}
+                                                />
+                                                <button onClick={handleSaveName} style={{ background: '#10b981', border: 'none', color: '#fff', padding: '2px 6px', borderRadius: '4px', cursor: 'pointer' }}><Check size={12} /></button>
+                                            </div>
+                                        ) : (
+                                            <span style={{ fontSize: '0.82rem', color: '#f8fafc', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                {p.name} {p.isHandRaised && <span title="Hand Raised" style={{ marginLeft: '4px' }}>✋</span>}
+                                            </span>
+                                        )}
                                     </div>
-                                    {isHost && !p.isSelf && (
-                                        <div style={{ display: 'flex', gap: '4px' }}>
-                                            <button onClick={() => handleHostMutePeer(p.identity)} style={peerActionBtn} title="Mute Participant"><VolumeX size={13} /></button>
-                                            <button onClick={() => handleHostKickPeer(p.identity)} style={{ ...peerActionBtn, background: '#ef4444' }} title="Remove Participant"><UserX size={13} /></button>
-                                        </div>
-                                    )}
+
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+                                        {/* Rename option inside panel for self */}
+                                        {p.isSelf && !isEditingName && (
+                                            <button onClick={() => setIsEditingName(true)} style={drawerActionBtn} title="Rename self">
+                                                <Edit3 size={13} />
+                                            </button>
+                                        )}
+
+                                        {/* 3-Dot Options Menu for Host on Remote Participants */}
+                                        {isHost && !p.isSelf && (
+                                            <div style={{ position: 'relative' }}>
+                                                <button
+                                                    onClick={() => setActiveMenuIdentity(activeMenuIdentity === p.identity ? null : p.identity)}
+                                                    style={drawerActionBtn}
+                                                >
+                                                    <MoreVertical size={14} />
+                                                </button>
+
+                                                {activeMenuIdentity === p.identity && (
+                                                    <div style={contextMenuStyle}>
+                                                        <button onClick={() => handleHostMute(p.identity)} style={contextMenuItemStyle}>
+                                                            <VolumeX size={14} color="#f59e0b" /> Mute Audio
+                                                        </button>
+                                                        <button onClick={() => handleHostKick(p.identity)} style={{ ...contextMenuItemStyle, color: '#ef4444' }}>
+                                                            <UserX size={14} color="#ef4444" /> Remove User
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             ))}
                         </div>
                     </div>
                 )}
 
-                {/* Custom Group & 1-to-1 Chat Drawer */}
+                {/* Chat Drawer */}
                 {showChat && (
                     <div style={sideDrawerStyle}>
                         <div style={drawerHeaderStyle}>
@@ -373,7 +439,7 @@ function MeetingStage({
                 )}
             </div>
 
-            {/* Synchronized Bottom Controls (Mobile-first Horizontal Dock) */}
+            {/* Mobile-Friendly Horizontal Dock */}
             <div className="mobile-control-bar" style={bottomBarStyle}>
                 <button onClick={toggleMic} style={{ ...controlBtn, background: isMicMuted ? '#ef4444' : '#1e293b' }}>
                     {isMicMuted ? <MicOff size={18} /> : <Mic size={18} />}
@@ -457,9 +523,6 @@ export default function App() {
     const [isHost, setIsHost] = useState(false);
     const [loading, setLoading] = useState(false);
     const [copied, setCopied] = useState(false);
-
-    const [editingHeaderName, setEditingHeaderName] = useState(false);
-    const [tempName, setTempName] = useState('');
 
     const [showPreSettingsModal, setShowPreSettingsModal] = useState(false);
     const [waitingMode, setWaitingMode] = useState('direct');
@@ -668,35 +731,16 @@ export default function App() {
                     ))}
                 </div>
 
-                {/* Responsive Meeting Header */}
+                {/* Clean Header */}
                 <div className="mobile-header" style={headerBarStyle}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
                         <span style={{ fontWeight: '800', color: '#38bdf8', fontSize: '0.85rem' }}>MeetMatrix</span>
                         <span style={{ color: '#475569' }}>|</span>
                         <span className="mobile-room-pill" style={{ fontSize: '0.72rem', color: '#cbd5e1' }}>{roomName}</span>
-
-                        {editingHeaderName ? (
-                            <div style={{ display: 'flex', gap: '3px', alignItems: 'center' }}>
-                                <input
-                                    type="text"
-                                    value={tempName}
-                                    onChange={(e) => setTempName(e.target.value)}
-                                    style={{ background: '#090d16', border: '1px solid #38bdf8', color: '#fff', padding: '1px 4px', borderRadius: '4px', fontSize: '0.7rem', width: '70px' }}
-                                />
-                                <button onClick={() => { setParticipantName(tempName); setEditingHeaderName(false); }} style={{ background: '#10b981', border: 'none', color: '#fff', padding: '2px 5px', borderRadius: '4px', cursor: 'pointer' }}><Check size={10} /></button>
-                            </div>
-                        ) : (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
-                                <span className="mobile-room-pill" style={{ fontSize: '0.72rem', color: '#94a3b8' }}>({participantName.split(' ')[0]})</span>
-                                <button onClick={() => { setTempName(participantName); setEditingHeaderName(true); }} style={{ background: 'transparent', border: 'none', color: '#64748b', cursor: 'pointer', padding: '2px' }} title="Change name"><Edit3 size={11} /></button>
-                            </div>
-                        )}
-
                         {isHost && <span style={{ background: '#0284c7', color: '#fff', padding: '1px 4px', borderRadius: '4px', fontSize: '0.6rem', fontWeight: 'bold' }}>HOST</span>}
                     </div>
 
                     <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexShrink: 0 }}>
-                        {/* Compact Emoji Reaction Toolbar */}
                         <div style={{ display: 'flex', gap: '2px', background: '#1e293b', padding: '1px 3px', borderRadius: '6px', alignItems: 'center' }}>
                             {['👍', '❤️'].map(e => (
                                 <button key={e} onClick={() => triggerReaction(e)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '0.85rem', padding: '1px' }}>{e}</button>
@@ -731,7 +775,7 @@ export default function App() {
                     </div>
                 </div>
 
-                {/* LiveKit Video Stage */}
+                {/* LiveKit Stage */}
                 <div style={{ flex: 1, position: 'relative', overflow: 'hidden', minHeight: 0 }}>
                     <LiveKitRoom
                         video={cameraEnabled}
@@ -767,7 +811,7 @@ export default function App() {
     return (
         <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'radial-gradient(circle at top, #1e293b 0%, #090d16 100%)', color: '#f8fafc', padding: '12px' }}>
 
-            {/* Host Pre-Flight Settings Modal */}
+            {/* Pre-Flight Modal */}
             {showPreSettingsModal && (
                 <div style={modalBackdropStyle}>
                     <div style={modalCardStyle}>
@@ -809,7 +853,6 @@ export default function App() {
                 </div>
             )}
 
-            {/* Main Lobby Box */}
             <div style={{ background: '#131b2e', borderRadius: '16px', width: '100%', maxWidth: '800px', display: 'flex', flexDirection: 'column', border: '1px solid #1e293b', overflow: 'hidden' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
 
@@ -835,7 +878,7 @@ export default function App() {
                         </div>
                     </div>
 
-                    {/* Join / Create Column */}
+                    {/* Lobby Controls */}
                     <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                         <h1 style={{ fontSize: '1.6rem', fontWeight: '800', color: '#38bdf8', marginBottom: '1rem' }}>MeetMatrix</h1>
 
@@ -879,13 +922,15 @@ const primaryBtnStyle = { width: '100%', padding: '11px', background: '#0284c7',
 const secondaryBtnStyle = { width: '100%', padding: '10px', background: 'transparent', border: '1px solid #0284c7', color: '#38bdf8', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '0.85rem' };
 const topBtnStyle = { display: 'flex', alignItems: 'center', gap: '4px', background: '#1e293b', color: '#ffffff', border: '1px solid #334155', padding: '5px 8px', borderRadius: '6px', fontSize: '0.75rem', cursor: 'pointer', fontWeight: '500' };
 const toggleBtnStyle = { display: 'flex', alignItems: 'center', gap: '6px', color: '#ffffff', border: 'none', padding: '7px 12px', borderRadius: '6px', fontSize: '0.75rem', cursor: 'pointer', fontWeight: '600' };
-const controlBtn = { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', background: '#1e293b', color: '#ffffff', border: '1px solid #334155', padding: '6px 10px', borderRadius: '8px', cursor: 'pointer', minWidth: '44px', fontWeight: '500' };
+const controlBtn = { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', background: '#1e293b', color: '#ffffff', border: '1px solid #334155', padding: '6px 10px', borderRadius: '8px', fontSize: '0.65rem', cursor: 'pointer', minWidth: '46px', fontWeight: '500' };
 const bottomBarStyle = { background: '#0f172a', borderTop: '1px solid #334155', padding: '8px 12px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', zIndex: 100, flexShrink: 0 };
 const headerBarStyle = { background: '#0f172a', color: '#f8fafc', padding: '6px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #334155', zIndex: 1000, flexShrink: 0 };
 const sideDrawerStyle = { width: '320px', maxWidth: '85vw', background: '#0f172a', borderLeft: '1px solid #334155', height: '100%', zIndex: 50, position: 'absolute', right: 0, top: 0, bottom: 0, display: 'flex', flexDirection: 'column' };
 const drawerHeaderStyle = { padding: '12px 14px', borderBottom: '1px solid #1e293b', display: 'flex', justifyContent: 'space-between', alignItems: 'center' };
 const drawerCloseBtn = { background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' };
-const peerActionBtn = { background: '#334155', border: 'none', color: '#fff', borderRadius: '4px', padding: '4px 6px', cursor: 'pointer' };
+const drawerActionBtn = { background: 'transparent', border: 'none', color: '#94a3b8', padding: '4px', cursor: 'pointer', borderRadius: '4px', display: 'flex', alignItems: 'center' };
+const contextMenuStyle = { position: 'absolute', right: 0, top: '26px', background: '#1e293b', border: '1px solid #334155', borderRadius: '6px', padding: '4px', zIndex: 999, minWidth: '130px', boxShadow: '0 8px 16px rgba(0,0,0,0.5)' };
+const contextMenuItemStyle = { width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 8px', background: 'transparent', border: 'none', color: '#f8fafc', fontSize: '0.75rem', cursor: 'pointer', textAlign: 'left', borderRadius: '4px' };
 const modalBackdropStyle = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(4px)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' };
 const modalCardStyle = { background: '#131b2e', border: '1px solid #38bdf8', borderRadius: '14px', padding: '20px', width: '100%', maxWidth: '420px', boxShadow: '0 25px 50px rgba(0,0,0,0.7)' };
 const settingLabelStyle = { fontSize: '0.78rem', color: '#94a3b8', display: 'block', marginBottom: '6px', fontWeight: '600' };

@@ -184,3 +184,49 @@ html, body, #root {
     object-fit: cover !important;
   }
 }
+/* Screenshare/Whiteboard should never be cropped */
+.lk-focus-layout video,
+.lk-grid-layout [data-lk-source="screen_share"] video,
+video[data-lk-source="screen_share"] {
+  object-fit: contain !important;
+  background: #000 !important;
+}
+
+@media (max-width: 768px) {
+  .mobile-header {
+    padding: 6px 8px !important;
+    gap: 4px !important;
+  }
+  .mobile-hide {
+    display: none !important;
+  }
+  .mobile-room-pill {
+    max-width: 85px !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+    font-size: 0.7rem !important;
+  }
+  .mobile-control-bar {
+    padding: 6px 8px !important;
+    gap: 6px !important;
+    justify-content: flex-start !important;
+    overflow-x: auto !important;
+    white-space: nowrap !important;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .mobile-control-bar::-webkit-scrollbar {
+    display: none;
+  }
+  .mobile-control-bar button {
+    flex-shrink: 0 !important;
+    padding: 8px 10px !important;
+    min-width: 44px !important;
+    height: 42px !important;
+  }
+  /* Regular camera feeds cover, but screenshare stays fit */
+  .lk-participant-tile:not([data-lk-source="screen_share"]) video {
+    object-fit: cover !important;
+  }
+}
