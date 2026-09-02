@@ -8,7 +8,10 @@ from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from livekit import api
-
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from typing import Optional, List
+import uuid
 app = FastAPI(title="MeetMatrix Backend API")
 
 app.add_middleware(
@@ -219,3 +222,42 @@ async def kick_participant(req: KickRequest):
         return {"status": "success", "message": "Participant removed"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+# In-memory store (or connected DB)
+scheduled_meetings_db = {}
+
+class ScheduleMeetingRequest(BaseModel):
+    title: str
+    scheduled_date: str
+    scheduled_time: str
+    duration_mins: int
+    host_name: str
+    host_email: Optional[str] = None
+    waiting_mode: str = "direct"
+    chat_locked: bool = False
+    allow_participant_screenshare: bool = True
+    allow_direct_chat: bool = True
+    mute_on_entry: bool = False
+    camera_off_on_entry: bool = False
+    allow_whiteboard: bool = True
+
+@app.post("/api/schedule-meeting")
+async def schedule_meeting(req: ScheduleMeetingRequest):
+    room_id = f"mm-{uuid.uuid4().hex[:4]}-{uuid.uuid4().hex[:4]}"
+    data = req.dict()
+    data["room_id"] = room_id
+    scheduled_meetings_db[room_id] = data
+    return {"status": "success", "room_id": room_id, "meeting": data}
+
+@app.get("/api/scheduled-meetings")
+async def get_scheduled_meetings(host_email: Optional[str] = None):
+    if host_email:
+        meetings = [m for m in scheduled_meetings_db.values() if m.get("host_email") == host_email]
+        return {"meetings": meetings}
+    return {"meetings": list(scheduled_meetings_db.values())}
+
+@app.delete("/api/scheduled-meetings/{room_id}")
+async def delete_scheduled_meeting(room_id: str):
+    if room_id in scheduled_meetings_db:
+        del scheduled_meetings_db[room_id]
+        return {"status": "deleted"}
+    raise HTTPException(status_code=404, detail="Meeting not found")
