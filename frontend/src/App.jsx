@@ -43,12 +43,11 @@ function MeetingStage({
                           waitingMode,
                           setWaitingMode
                       }) {
-    const { localParticipant } = useLocalParticipant();
+    // Direct WebRTC hardware state synchronization
+    const { localParticipant, isCameraEnabled, isMicrophoneEnabled } = useLocalParticipant();
     const remoteParticipants = useRemoteParticipants();
     const room = useRoomContext();
 
-    const [isMicMuted, setIsMicMuted] = useState(!initialMic);
-    const [isVideoMuted, setIsVideoMuted] = useState(!initialCam);
     const [isScreenSharing, setIsScreenSharing] = useState(false);
     const [isHandRaised, setIsHandRaised] = useState(false);
     const [raisedHandsMap, setRaisedHandsMap] = useState({});
@@ -80,7 +79,7 @@ function MeetingStage({
     const [isCustomizeOpen, setIsCustomizeOpen] = useState(false);
     const [activeSlotToReplace, setActiveSlotToReplace] = useState(0);
 
-    // Ref-based Synchronous Slot Tracking (Fixes Stale Closure Trap)
+    // Ref-based Synchronous Slot Tracking
     const activeSlotRef = useRef(activeSlotToReplace);
 
     const selectSlot = (idx) => {
@@ -99,7 +98,6 @@ function MeetingStage({
         setIsCustomizeOpen(false);
     }, []);
 
-    // Side-effect persistence decoupled from state updater
     useEffect(() => {
         try {
             localStorage.setItem('meetmatrix_quick_emojis', JSON.stringify(quickEmojis));
@@ -138,26 +136,22 @@ function MeetingStage({
     const screenShareTrack = allTracks.find(t => t.source === Track.Source.ScreenShare);
     const cameraTracks = allTracks.filter(t => t.source === Track.Source.Camera);
 
-    // Initial Mobile Camera & Mic Engagement
+    // Safe Mobile Camera Sync: Only retries if browser delayed hardware release
     useEffect(() => {
-        if (localParticipant) {
-            localParticipant.setName(participantName);
-            if (initialCam) {
-                localParticipant.setCameraEnabled(true).catch(err => {
-                    console.warn("Retrying camera initialization:", err);
-                    setTimeout(() => localParticipant.setCameraEnabled(true).catch(() => {}), 500);
-                });
-            } else {
-                localParticipant.setCameraEnabled(false).catch(() => {});
-            }
+        if (!localParticipant) return;
+        localParticipant.setName(participantName);
 
-            if (initialMic) {
-                localParticipant.setMicrophoneEnabled(true).catch(() => {});
-            } else {
-                localParticipant.setMicrophoneEnabled(false).catch(() => {});
-            }
+        if (initialCam && !localParticipant.isCameraEnabled) {
+            const timer = setTimeout(() => {
+                if (!localParticipant.isCameraEnabled) {
+                    localParticipant.setCameraEnabled(true, { facingMode: 'user' }).catch(err => {
+                        console.warn("Camera auto-retry note:", err);
+                    });
+                }
+            }, 800);
+            return () => clearTimeout(timer);
         }
-    }, [localParticipant, initialCam, initialMic, participantName]);
+    }, [localParticipant, initialCam, participantName]);
 
     useEffect(() => {
         let interval;
@@ -251,7 +245,6 @@ function MeetingStage({
                     }
                 } else if (data.type === 'force_mute' && data.targetIdentity === localParticipant?.identity) {
                     localParticipant.setMicrophoneEnabled(false);
-                    setIsMicMuted(true);
                     alert("Your microphone was muted by the Host.");
                 } else if (data.type === 'kick_user' && data.targetIdentity === localParticipant?.identity) {
                     alert("You were removed from the meeting by the Host.");
@@ -281,19 +274,24 @@ function MeetingStage({
         setShowChatEmojiPicker(false);
     };
 
-    const toggleMic = async () => {
-        if (localParticipant) {
-            const target = isMicMuted;
-            await localParticipant.setMicrophoneEnabled(target);
-            setIsMicMuted(!target);
+    // Toggle camera directly controlling WebRTC hardware
+    const toggleVideo = async () => {
+        if (!localParticipant) return;
+        try {
+            await localParticipant.setCameraEnabled(!isCameraEnabled, { facingMode: 'user' });
+        } catch (err) {
+            console.error("Camera toggle error:", err);
+            alert("Camera error: " + (err.message || "Failed to access camera"));
         }
     };
 
-    const toggleVideo = async () => {
-        if (localParticipant) {
-            const target = isVideoMuted;
-            await localParticipant.setCameraEnabled(target);
-            setIsVideoMuted(!target);
+    // Toggle microphone directly controlling WebRTC hardware
+    const toggleMic = async () => {
+        if (!localParticipant) return;
+        try {
+            await localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled);
+        } catch (err) {
+            console.error("Mic toggle error:", err);
         }
     };
 
@@ -565,7 +563,6 @@ function MeetingStage({
                         </button>
                     </div>
 
-                    {/* Visual Slot Selector & Picker Popup */}
                     {isCustomizeOpen && (
                         <div style={{ position: 'absolute', top: '42px', right: 0, zIndex: 99999, boxShadow: '0 15px 35px rgba(0,0,0,0.85)', borderRadius: '8px', overflow: 'hidden', background: '#0f172a', border: '1px solid #334155' }}>
                             <div style={{ padding: '8px 10px', borderBottom: '1px solid #334155' }}>
@@ -651,7 +648,7 @@ function MeetingStage({
                         ) : (
                             waitingList.map(p => (
                                 <div key={p.participant_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #334155' }}>
-                                    <span style={{ fontSize: '0.8rem', color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '140px' }}>
+                                    <span style={{ fontSize: '0.8rem', color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                         {p.name}
                                     </span>
                                     <div style={{ display: 'flex', gap: '4px' }}>
@@ -928,16 +925,16 @@ function MeetingStage({
                 )}
             </div>
 
-            {/* Bottom Controls Bar */}
+            {/* Bottom Controls Bar: Synced 100% with hardware states */}
             <div className="mobile-control-bar" style={bottomBarStyle}>
-                <button onClick={toggleMic} style={{ ...controlBtn, background: isMicMuted ? '#ef4444' : '#1e293b' }}>
-                    {isMicMuted ? <MicOff size={18} /> : <Mic size={18} />}
-                    <span className="mobile-hide" style={{ fontSize: '0.65rem' }}>{isMicMuted ? 'Unmute' : 'Mute'}</span>
+                <button onClick={toggleMic} style={{ ...controlBtn, background: !isMicrophoneEnabled ? '#ef4444' : '#1e293b' }}>
+                    {!isMicrophoneEnabled ? <MicOff size={18} /> : <Mic size={18} />}
+                    <span className="mobile-hide" style={{ fontSize: '0.65rem' }}>{!isMicrophoneEnabled ? 'Unmute' : 'Mute'}</span>
                 </button>
 
-                <button onClick={toggleVideo} style={{ ...controlBtn, background: isVideoMuted ? '#ef4444' : '#1e293b' }}>
-                    {isVideoMuted ? <VideoOff size={18} /> : <Video size={18} />}
-                    <span className="mobile-hide" style={{ fontSize: '0.65rem' }}>{isVideoMuted ? 'Start Video' : 'Stop Video'}</span>
+                <button onClick={toggleVideo} style={{ ...controlBtn, background: !isCameraEnabled ? '#ef4444' : '#1e293b' }}>
+                    {!isCameraEnabled ? <VideoOff size={18} /> : <Video size={18} />}
+                    <span className="mobile-hide" style={{ fontSize: '0.65rem' }}>{!isCameraEnabled ? 'Start Video' : 'Stop Video'}</span>
                 </button>
 
                 {!isHost && (
@@ -1025,6 +1022,7 @@ export default function App() {
     const [micEnabled, setMicEnabled] = useState(true);
     const videoPreviewRef = useRef(null);
     const previewStreamRef = useRef(null);
+    const isJoiningRef = useRef(false);
 
     const [user, setUser] = useState(() => {
         try {
@@ -1038,10 +1036,15 @@ export default function App() {
     const [authAction, setAuthAction] = useState(null);
     const [showWhiteboard, setShowWhiteboard] = useState(false);
 
+    // Completely frees the camera sensor and blocks background re-acquiring
     const stopLobbyPreviewTracks = () => {
+        isJoiningRef.current = true;
         if (previewStreamRef.current) {
             previewStreamRef.current.getTracks().forEach(t => t.stop());
             previewStreamRef.current = null;
+        }
+        if (videoPreviewRef.current) {
+            videoPreviewRef.current.srcObject = null;
         }
     };
 
@@ -1091,12 +1094,16 @@ export default function App() {
     }, [isWaiting, waitingPid, roomName, user, participantName]);
 
     useEffect(() => {
-        if (!inMeeting && !isWaiting) {
+        if (!inMeeting && !isWaiting && !isJoiningRef.current) {
             navigator.mediaDevices.getUserMedia({
                 video: { facingMode: 'user' },
                 audio: true
             })
                 .then((stream) => {
+                    if (isJoiningRef.current) {
+                        stream.getTracks().forEach(t => t.stop());
+                        return;
+                    }
                     previewStreamRef.current = stream;
                     if (videoPreviewRef.current) videoPreviewRef.current.srcObject = stream;
                 })
