@@ -48,11 +48,13 @@ function MeetingStage({
     const { localParticipant } = useLocalParticipant();
     const remoteParticipants = useRemoteParticipants();
 
-    // Control bar synchronized states from lobby greenroom initial selection
     const [isMicMuted, setIsMicMuted] = useState(!initialMic);
     const [isVideoMuted, setIsVideoMuted] = useState(!initialCam);
     const [isScreenSharing, setIsScreenSharing] = useState(false);
     const [isHandRaised, setIsHandRaised] = useState(false);
+
+    // Persistent Raised Hands Map: { [participantIdentity]: boolean }
+    const [raisedHandsMap, setRaisedHandsMap] = useState({});
 
     // Drawers
     const [showChat, setShowChat] = useState(false);
@@ -62,10 +64,6 @@ function MeetingStage({
     const [chatMessages, setChatMessages] = useState([]);
     const [chatInput, setChatInput] = useState('');
     const [chatRecipient, setChatRecipient] = useState('Everyone');
-
-    // In-meeting Name Edit
-    const [isEditingName, setIsEditingName] = useState(false);
-    const [editNameValue, setEditNameValue] = useState(participantName);
 
     // Local Recording
     const [isRecording, setIsRecording] = useState(false);
@@ -80,7 +78,7 @@ function MeetingStage({
         { onlySubscribed: false }
     );
 
-    // Initial Sync with LiveKit Hardware
+    // Initial Hardware Sync
     useEffect(() => {
         if (localParticipant) {
             localParticipant.setCameraEnabled(initialCam);
@@ -89,7 +87,7 @@ function MeetingStage({
         }
     }, [localParticipant]);
 
-    // Handle in-meeting data messages (Hand raise, Chat, Kick, Mute)
+    // Handle Real-Time Signaling (Hand Raise, Chat, Host Mute/Kick)
     useEffect(() => {
         if (!localParticipant?.room) return;
         const room = localParticipant.room;
@@ -99,7 +97,12 @@ function MeetingStage({
                 const decoded = new TextDecoder().decode(payload);
                 const data = JSON.parse(decoded);
 
-                if (data.type === 'chat') {
+                if (data.type === 'hand_raise') {
+                    setRaisedHandsMap(prev => ({
+                        ...prev,
+                        [participant.identity]: data.raised
+                    }));
+                } else if (data.type === 'chat') {
                     if (data.recipient === 'Everyone' || data.recipient === localParticipant.identity || participant.identity === localParticipant.identity) {
                         setChatMessages(prev => [...prev, {
                             sender: participant.name || participant.identity,
@@ -108,8 +111,6 @@ function MeetingStage({
                             time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                         }]);
                     }
-                } else if (data.type === 'hand_raise') {
-                    alert(`${participant.name || 'Participant'} ${data.raised ? 'raised their hand ✋' : 'lowered their hand.'}`);
                 } else if (data.type === 'force_mute' && data.targetIdentity === localParticipant.identity) {
                     localParticipant.setMicrophoneEnabled(false);
                     setIsMicMuted(true);
@@ -119,7 +120,7 @@ function MeetingStage({
                     onLeave();
                 }
             } catch (err) {
-                console.error("Data decode error:", err);
+                console.error("Data event error:", err);
             }
         };
 
@@ -159,12 +160,24 @@ function MeetingStage({
         }
     };
 
+    // Reliable Hand Raise Broadcast
     const toggleHandRaise = () => {
         if (!localParticipant?.room) return;
         const nextState = !isHandRaised;
         setIsHandRaised(nextState);
+
+        // Update locally
+        setRaisedHandsMap(prev => ({
+            ...prev,
+            [localParticipant.identity]: nextState
+        }));
+
+        // Broadcast to all peers
         const payload = JSON.stringify({ type: 'hand_raise', raised: nextState });
-        localParticipant.room.localParticipant.publishData(new TextEncoder().encode(payload), { reliable: true });
+        localParticipant.room.localParticipant.publishData(
+            new TextEncoder().encode(payload),
+            { reliable: true }
+        );
     };
 
     const handleSendChat = (e) => {
@@ -251,8 +264,14 @@ function MeetingStage({
     };
 
     const allPeers = [
-        { identity: localParticipant?.identity, name: `${participantName} (You)`, isHost, isSelf: true },
-        ...remoteParticipants.map(p => ({ identity: p.identity, name: p.name || p.identity, isHost: false, isSelf: false }))
+        { identity: localParticipant?.identity, name: `${participantName} (You)`, isHost, isSelf: true, isHandRaised: !!raisedHandsMap[localParticipant?.identity] },
+        ...remoteParticipants.map(p => ({
+            identity: p.identity,
+            name: p.name || p.identity,
+            isHost: false,
+            isSelf: false,
+            isHandRaised: !!raisedHandsMap[p.identity]
+        }))
     ];
 
     return (
@@ -281,7 +300,9 @@ function MeetingStage({
                                         <div style={{ width: '26px', height: '26px', borderRadius: '50%', background: '#0284c7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 'bold' }}>
                                             {p.name.charAt(0).toUpperCase()}
                                         </div>
-                                        <span style={{ fontSize: '0.8rem', color: '#f8fafc', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</span>
+                                        <span style={{ fontSize: '0.8rem', color: '#f8fafc', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                            {p.name} {p.isHandRaised && <span title="Hand Raised" style={{ marginLeft: '4px' }}>✋</span>}
+                                        </span>
                                     </div>
                                     {isHost && !p.isSelf && (
                                         <div style={{ display: 'flex', gap: '4px' }}>
@@ -366,7 +387,12 @@ function MeetingStage({
                     <span className="btn-label">{isVideoMuted ? 'Start Video' : 'Stop Video'}</span>
                 </button>
 
-                <button onClick={toggleHandRaise} className="mobile-compact-btn" style={{ ...controlBtn, background: isHandRaised ? '#eab308' : '#1e293b', color: isHandRaised ? '#000' : '#fff' }}>
+                <button
+                    onClick={toggleHandRaise}
+                    className="mobile-compact-btn"
+                    style={{ ...controlBtn, background: isHandRaised ? '#eab308' : '#1e293b', color: isHandRaised ? '#000' : '#fff' }}
+                    title={isHandRaised ? 'Lower Hand' : 'Raise Hand'}
+                >
                     <Hand size={18} />
                     <span className="btn-label">{isHandRaised ? 'Lower' : 'Raise'}</span>
                 </button>
@@ -436,24 +462,20 @@ export default function App() {
     const [loading, setLoading] = useState(false);
     const [copied, setCopied] = useState(false);
 
-    // In-Meeting Name Editor in Header
     const [editingHeaderName, setEditingHeaderName] = useState(false);
     const [tempName, setTempName] = useState('');
 
-    // Host Detailed Pre-Flight Settings Modal
     const [showPreSettingsModal, setShowPreSettingsModal] = useState(false);
     const [waitingMode, setWaitingMode] = useState('direct');
     const [chatLocked, setChatLocked] = useState(false);
     const [allowScreenshare, setAllowScreenshare] = useState(true);
     const [allowDirectChat, setAllowDirectChat] = useState(true);
 
-    // Green Room Preview Sync Flags
     const [cameraEnabled, setCameraEnabled] = useState(true);
     const [micEnabled, setMicEnabled] = useState(true);
     const videoPreviewRef = useRef(null);
     const previewStreamRef = useRef(null);
 
-    // Local persistent session
     const [user, setUser] = useState(() => {
         try {
             const saved = localStorage.getItem('meetmatrix_user');
@@ -474,7 +496,6 @@ export default function App() {
         if (roomParam) setRoomName(roomParam);
     }, []);
 
-    // Green Room Stream Handler
     useEffect(() => {
         if (!inMeeting && !isWaiting) {
             navigator.mediaDevices.getUserMedia({ video: true, audio: true })
@@ -490,7 +511,6 @@ export default function App() {
         }
     }, [inMeeting, isWaiting]);
 
-    // Green Room Hardware Track Toggles
     const toggleLobbyCam = () => {
         if (previewStreamRef.current) {
             const videoTrack = previewStreamRef.current.getVideoTracks()[0];
@@ -556,7 +576,6 @@ export default function App() {
         setShowPreSettingsModal(false);
         setLoading(true);
         try {
-            // Backend schema strict match to prevent 422
             const res = await axios.post(`${BACKEND_URL}/api/create-room`, {
                 waiting_mode: waitingMode,
                 chat_locked: chatLocked,
@@ -568,7 +587,6 @@ export default function App() {
             setRoomName(newRoomId);
             setIsHost(true);
 
-            // Directly retrieve token for host
             const tokenRes = await axios.post(`${BACKEND_URL}/api/get-token`, {
                 room_name: newRoomId,
                 participant_name: hostDisplayName,
@@ -661,7 +679,6 @@ export default function App() {
                         <span style={{ color: '#475569' }}>|</span>
                         <span style={{ fontSize: '0.75rem', color: '#cbd5e1' }}>{roomName}</span>
 
-                        {/* In-Meeting Name Editor */}
                         {editingHeaderName ? (
                             <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
                                 <input
@@ -683,7 +700,6 @@ export default function App() {
                     </div>
 
                     <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                        {/* Quick Reactions */}
                         <div style={{ display: 'flex', gap: '2px', background: '#1e293b', padding: '2px 4px', borderRadius: '6px', alignItems: 'center' }}>
                             {['👍', '❤️', '🔥'].map(e => (
                                 <button key={e} onClick={() => triggerReaction(e)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '0.95rem' }}>{e}</button>
@@ -826,7 +842,6 @@ export default function App() {
                     <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                         <h1 style={{ fontSize: '1.6rem', fontWeight: '800', color: '#38bdf8', marginBottom: '1rem' }}>MeetMatrix</h1>
 
-                        {/* Profile Chip */}
                         {user && (
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#090d16', padding: '6px 12px', borderRadius: '20px', marginBottom: '12px', border: '1px solid #334155' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
@@ -877,5 +892,4 @@ const peerActionBtn = { background: '#334155', border: 'none', color: '#fff', bo
 const modalBackdropStyle = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(4px)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' };
 const modalCardStyle = { background: '#131b2e', border: '1px solid #38bdf8', borderRadius: '14px', padding: '20px', width: '100%', maxWidth: '420px', boxShadow: '0 25px 50px rgba(0,0,0,0.7)' };
 const settingLabelStyle = { fontSize: '0.78rem', color: '#94a3b8', display: 'block', marginBottom: '6px', fontWeight: '600' };
-const selectInputStyle = { width: '100%', padding: '8px', background: '#090d16', border: '1px solid #334155', color: '#fff', borderRadius: '6px', fontSize: '0.8rem' };
-const checkboxRowStyle = { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', cursor: 'pointer', color: '#f8fafc' };
+const selectInputStyle = {

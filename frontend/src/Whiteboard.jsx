@@ -3,15 +3,17 @@ import {
     Pencil, Eraser, Trash2, Download, Lock, Unlock,
     X, Type, MonitorUp, StopCircle
 } from 'lucide-react';
+import { Track } from 'livekit-client';
 
 export default function Whiteboard({ isHost, onClose, localParticipant }) {
     const canvasRef = useRef(null);
     const [isDrawing, setIsDrawing] = useState(false);
-    const [tool, setTool] = useState('pen'); // 'pen' | 'eraser' | 'text'
+    const [tool, setTool] = useState('pen');
     const [color, setColor] = useState('#1e293b');
     const [lineWidth, setLineWidth] = useState(3);
     const [isLocked, setIsLocked] = useState(false);
     const [isSharingBoard, setIsSharingBoard] = useState(false);
+    const publishedPublicationRef = useRef(null);
     const textInputRef = useRef(null);
     const [textPos, setTextPos] = useState(null);
     const [textValue, setTextValue] = useState('');
@@ -21,9 +23,9 @@ export default function Whiteboard({ isHost, onClose, localParticipant }) {
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
 
-        // Set white canvas background
-        canvas.width = canvas.parentElement.clientWidth;
-        canvas.height = canvas.parentElement.clientHeight - 65;
+        // Exact dimensions
+        canvas.width = canvas.parentElement.clientWidth || 800;
+        canvas.height = (canvas.parentElement.clientHeight || 550) - 65;
         ctx.fillStyle = '#ffffff';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
     }, []);
@@ -83,7 +85,7 @@ export default function Whiteboard({ isHost, onClose, localParticipant }) {
         }
         const ctx = canvasRef.current.getContext('2d');
         ctx.fillStyle = color;
-        ctx.font = '18px Inter, system-ui, sans-serif';
+        ctx.font = 'bold 18px Inter, system-ui, sans-serif';
         ctx.fillText(textValue, textPos.x, textPos.y + 14);
         setTextPos(null);
         setTextValue('');
@@ -106,25 +108,49 @@ export default function Whiteboard({ isHost, onClose, localParticipant }) {
         a.click();
     };
 
-    // Host-only: Stream whiteboard canvas directly to video room via WebRTC
+    // Fixed LiveKit Whiteboard Video Sharing
     const toggleShareWhiteboardStream = async () => {
         if (!isHost) {
-            alert("Only the Host can broadcast the whiteboard directly as screen share.");
+            alert("Only the Host can broadcast the whiteboard to the meeting.");
             return;
         }
-        if (!localParticipant) return;
+        if (!localParticipant) {
+            alert("Local participant not ready.");
+            return;
+        }
 
         if (!isSharingBoard) {
             try {
-                const stream = canvasRef.current.captureStream(30);
+                const stream = canvasRef.current.captureStream(25); // 25 FPS
                 const videoTrack = stream.getVideoTracks()[0];
-                await localParticipant.publishTrack(videoTrack, { name: 'whiteboard' });
+
+                if (!videoTrack) {
+                    alert("Canvas stream track generation failed.");
+                    return;
+                }
+
+                // Tag properly as ScreenShare so LiveKit GridLayout renders it to all peers
+                const publication = await localParticipant.publishTrack(videoTrack, {
+                    name: 'whiteboard-share',
+                    source: Track.Source.ScreenShare,
+                    simulcast: false,
+                });
+
+                publishedPublicationRef.current = publication;
                 setIsSharingBoard(true);
             } catch (err) {
-                alert("Could not share whiteboard: " + err.message);
+                console.error("Share board error:", err);
+                alert("Failed to share whiteboard: " + err.message);
             }
         } else {
-            await localParticipant.setScreenShareEnabled(false);
+            try {
+                if (publishedPublicationRef.current) {
+                    await localParticipant.unpublishTrack(publishedPublicationRef.current.track);
+                    publishedPublicationRef.current = null;
+                }
+            } catch (err) {
+                console.error("Unpublish error:", err);
+            }
             setIsSharingBoard(false);
         }
     };
@@ -212,7 +238,7 @@ export default function Whiteboard({ isHost, onClose, localParticipant }) {
                             ref={textInputRef}
                             type="text"
                             value={textValue}
-                            placeholder="Type note and hit Enter"
+                            placeholder="Type note & Enter"
                             onChange={(e) => setTextValue(e.target.value)}
                             onKeyDown={(e) => { if (e.key === 'Enter') handleCommitText(); }}
                             onBlur={handleCommitText}
