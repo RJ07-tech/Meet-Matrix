@@ -17,6 +17,8 @@ import {
     UserCheck, UserX, Clock, MonitorUp, MessageSquare, PhoneOff, X, Plus
 } from 'lucide-react';
 import Whiteboard from './Whiteboard';
+import { GoogleLogin } from '@react-oauth/google';
+import { jwtDecode } from 'jwt-decode';
 
 const BACKEND_URL = 'https://meetmatrix-backend-3l9l.onrender.com';
 
@@ -236,6 +238,23 @@ export default function App() {
     const [loading, setLoading] = useState(false);
     const [copied, setCopied] = useState(false);
 
+    // Google OAuth User State
+    const [user, setUser] = useState(null);
+
+    const handleGoogleSuccess = (credentialResponse) => {
+        try {
+            const decoded = jwtDecode(credentialResponse.credential);
+            setUser(decoded);
+            setParticipantName(decoded.name || '');
+        } catch (err) {
+            console.error("Token decode error:", err);
+        }
+    };
+
+    const handleGoogleError = () => {
+        alert("Google Sign-In failed. Please try again.");
+    };
+
     const [showSettingsModal, setShowSettingsModal] = useState(false);
     const [waitingMode, setWaitingMode] = useState('direct');
     const [chatLocked, setChatLocked] = useState(false);
@@ -330,7 +349,7 @@ export default function App() {
 
     const handleCreateRoom = async () => {
         if (!participantName.trim()) {
-            alert('Please enter your name');
+            alert('Please enter your name or Sign in with Google');
             return;
         }
         setLoading(true);
@@ -354,7 +373,7 @@ export default function App() {
     const handleJoinExisting = async (e) => {
         e.preventDefault();
         if (!roomName.trim() || !participantName.trim()) {
-            alert('Enter Room Code and Name');
+            alert('Enter Room Code and Name (or Sign in with Google)');
             return;
         }
         setLoading(true);
@@ -364,6 +383,7 @@ export default function App() {
                 room_name: roomName.trim(),
                 participant_name: participantName.trim(),
                 is_host: false,
+                email: user ? user.email : ""
             });
 
             if (res.data.status === 'waiting') {
@@ -391,6 +411,7 @@ export default function App() {
             participant_name: name,
             is_host: hostFlag,
             role: hostFlag ? "host" : "participant",
+            email: user ? user.email : ""
         });
         setToken(res.data.token);
         setServerUrl(res.data.server_url);
@@ -451,7 +472,6 @@ export default function App() {
         setIsHost(false);
     };
 
-    // Upgraded Multi-Burst Floating Emoji Generator
     const triggerReaction = (emoji) => {
         const baseId = Date.now();
         const newItems = [
@@ -692,6 +712,53 @@ export default function App() {
                                 </label>
                             </div>
                         )}
+
+                        {/* Google Sign-In Block */}
+                        <div style={{ marginBottom: '1.2rem', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                            {!user ? (
+                                <div style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
+                                    <GoogleLogin
+                                        onSuccess={handleGoogleSuccess}
+                                        onError={handleGoogleError}
+                                        theme="filled_black"
+                                        shape="pill"
+                                        size="large"
+                                    />
+                                </div>
+                            ) : (
+                                <div style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '10px',
+                                    background: '#090d16',
+                                    border: '1px solid #334155',
+                                    padding: '8px 14px',
+                                    borderRadius: '24px',
+                                    width: '100%',
+                                    boxSizing: 'border-box'
+                                }}>
+                                    <img
+                                        src={user.picture}
+                                        alt="Avatar"
+                                        style={{ width: '32px', height: '32px', borderRadius: '50%' }}
+                                    />
+                                    <div style={{ flex: 1, overflow: 'hidden' }}>
+                                        <p style={{ fontSize: '0.85rem', fontWeight: '600', color: '#f8fafc', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            {user.name}
+                                        </p>
+                                        <p style={{ fontSize: '0.7rem', color: '#94a3b8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            {user.email}
+                                        </p>
+                                    </div>
+                                    <button
+                                        onClick={() => { setUser(null); setParticipantName(''); }}
+                                        style={{ background: 'transparent', border: 'none', color: '#ef4444', fontSize: '0.75rem', cursor: 'pointer', fontWeight: 'bold' }}
+                                    >
+                                        Sign Out
+                                    </button>
+                                </div>
+                            )}
+                        </div>
 
                         <div style={{ marginBottom: '0.8rem' }}>
                             <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '4px' }}>Your Name</label>
