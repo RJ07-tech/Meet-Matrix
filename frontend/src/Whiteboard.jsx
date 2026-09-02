@@ -4,7 +4,7 @@ import { LocalVideoTrack } from 'livekit-client';
 
 let persistentDrawingHistory = [];
 
-export default function Whiteboard({ isHost, onClose, localParticipant }) {
+export default function Whiteboard({ isModerator, onClose, localParticipant }) {
     const canvasRef = useRef(null);
     const [isDrawing, setIsDrawing] = useState(false);
     const [tool, setTool] = useState('pen');
@@ -48,13 +48,11 @@ export default function Whiteboard({ isHost, onClose, localParticipant }) {
         });
     };
 
-    // Frame pump: WebRTC captureStream requires constant frame commits to not show black
     const startHeartbeatPump = () => {
         const pump = () => {
             const canvas = canvasRef.current;
             if (canvas) {
                 const ctx = canvas.getContext('2d');
-                // Microscopic 1-pixel flip to force WebRTC encoder to emit frames continuously
                 const pixel = ctx.getImageData(0, 0, 1, 1);
                 ctx.putImageData(pixel, 0, 0);
             }
@@ -121,7 +119,12 @@ export default function Whiteboard({ isHost, onClose, localParticipant }) {
     };
 
     const toggleShareCanvas = async () => {
+        if (!isModerator) {
+            alert("Only Host and Co-Hosts can broadcast the whiteboard to everyone.");
+            return;
+        }
         if (!localParticipant) return;
+
         if (isSharingBoard) {
             await stopWhiteboardSharing();
         } else {
@@ -129,7 +132,6 @@ export default function Whiteboard({ isHost, onClose, localParticipant }) {
                 const canvas = canvasRef.current;
                 const ctx = canvas.getContext('2d');
 
-                // Force clean solid white refresh
                 if (persistentDrawingHistory.length === 0) {
                     fillWhiteBackground(ctx, canvas.width, canvas.height);
                 }
@@ -315,18 +317,21 @@ export default function Whiteboard({ isHost, onClose, localParticipant }) {
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <button
-                        onClick={toggleShareCanvas}
-                        style={{
-                            ...actionBtnStyle,
-                            background: isSharingBoard ? '#ef4444' : '#0284c7',
-                            color: '#ffffff',
-                            fontWeight: '600'
-                        }}
-                    >
-                        <Share2 size={14} />
-                        {isSharingBoard ? 'Stop Sharing Board' : 'Present Board Live'}
-                    </button>
+                    {/* Share Board button visible ONLY for Host and Co-Hosts */}
+                    {isModerator && (
+                        <button
+                            onClick={toggleShareCanvas}
+                            style={{
+                                ...actionBtnStyle,
+                                background: isSharingBoard ? '#ef4444' : '#0284c7',
+                                color: '#ffffff',
+                                fontWeight: '600'
+                            }}
+                        >
+                            <Share2 size={14} />
+                            {isSharingBoard ? 'Stop Sharing Board' : 'Present Board Live'}
+                        </button>
+                    )}
 
                     <button onClick={handleCloseWhiteboard} style={closeBtnStyle} title="Close Whiteboard">
                         <X size={18} />

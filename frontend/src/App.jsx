@@ -56,7 +56,7 @@ function MeetingStage({
     // Co-Hosts mapping
     const [coHostsMap, setCoHostsMap] = useState({});
 
-    // Waiting List Poller & Admit Modal for Host/Co-Host
+    // Waiting List Poller & Admit Modal
     const [waitingList, setWaitingList] = useState([]);
     const [showAdmitModal, setShowAdmitModal] = useState(false);
 
@@ -100,6 +100,7 @@ function MeetingStage({
     const mediaRecorderRef = useRef(null);
     const recordedChunksRef = useRef([]);
 
+    // Effective Moderator check: Owner Host OR Co-Host
     const isEffectiveModerator = isHost || Boolean(coHostsMap[localParticipant?.identity]);
 
     const allTracks = useTracks(
@@ -113,7 +114,27 @@ function MeetingStage({
     const screenShareTrack = allTracks.find(t => t.source === Track.Source.ScreenShare);
     const cameraTracks = allTracks.filter(t => t.source === Track.Source.Camera);
 
-    // Waiting list auto-polling for Host / Co-Host
+    // Sync settings from Backend periodically for absolute parity across all devices
+    useEffect(() => {
+        let interval;
+        if (roomName) {
+            interval = setInterval(async () => {
+                try {
+                    const res = await axios.get(`${BACKEND_URL}/api/room-settings/${roomName}`);
+                    if (res.data) {
+                        setAllowScreenshare(res.data.allow_participant_screenshare);
+                        setChatLocked(res.data.chat_locked);
+                        setWaitingMode(res.data.waiting_mode);
+                    }
+                } catch (e) {
+                    console.error("Room settings sync error:", e);
+                }
+            }, 3000);
+        }
+        return () => clearInterval(interval);
+    }, [roomName, setAllowScreenshare, setChatLocked, setWaitingMode]);
+
+    // Waiting list auto-polling for Host & Co-Hosts
     useEffect(() => {
         let interval;
         if (isEffectiveModerator && roomName) {
@@ -122,7 +143,6 @@ function MeetingStage({
                     const res = await axios.get(`${BACKEND_URL}/api/waiting-list/${roomName}`);
                     const pending = res.data.waiting || [];
                     setWaitingList(pending);
-                    // Automatically pop up admit modal if someone arrives
                     if (pending.length > 0) {
                         setShowAdmitModal(true);
                     }
@@ -168,7 +188,7 @@ function MeetingStage({
         }, 2800);
     };
 
-    // LiveKit DataChannel Signal Listener
+    // Real-Time LiveKit Data Channel Listener (Settings, Co-Host, Reactions, Chat)
     useEffect(() => {
         if (!room) return;
 
@@ -177,17 +197,27 @@ function MeetingStage({
                 const decoded = new TextDecoder().decode(payload);
                 const data = JSON.parse(decoded);
 
-                if (data.type === 'reaction') {
+                if (data.type === 'settings_update') {
+                    if (data.allow_participant_screenshare !== undefined) {
+                        setAllowScreenshare(data.allow_participant_screenshare);
+                    }
+                    if (data.chat_locked !== undefined) {
+                        setChatLocked(data.chat_locked);
+                    }
+                    if (data.waiting_mode !== undefined) {
+                        setWaitingMode(data.waiting_mode);
+                    }
+                } else if (data.type === 'co_host_update') {
+                    setCoHostsMap(prev => ({
+                        ...prev,
+                        [data.targetIdentity]: data.isCoHost
+                    }));
+                } else if (data.type === 'reaction') {
                     renderLocalFloatingEmoji(data.emoji, data.sender || participant.name || 'User');
                 } else if (data.type === 'hand_raise') {
                     setRaisedHandsMap(prev => ({
                         ...prev,
                         [participant.identity]: data.raised
-                    }));
-                } else if (data.type === 'co_host_update') {
-                    setCoHostsMap(prev => ({
-                        ...prev,
-                        [data.targetIdentity]: data.isCoHost
                     }));
                 } else if (data.type === 'chat') {
                     if (data.recipient === 'Everyone' || data.recipient === localParticipant?.identity || participant.identity === localParticipant?.identity) {
@@ -201,7 +231,7 @@ function MeetingStage({
                 } else if (data.type === 'force_mute' && data.targetIdentity === localParticipant?.identity) {
                     localParticipant.setMicrophoneEnabled(false);
                     setIsMicMuted(true);
-                    alert("The Host has muted your microphone.");
+                    alert("Your microphone was muted by the Host.");
                 } else if (data.type === 'kick_user' && data.targetIdentity === localParticipant?.identity) {
                     alert("You were removed from the meeting by the Host.");
                     onLeave();
@@ -213,7 +243,7 @@ function MeetingStage({
 
         room.on('dataReceived', handleDataReceived);
         return () => room.off('dataReceived', handleDataReceived);
-    }, [room, localParticipant, onLeave]);
+    }, [room, localParticipant, onLeave, setAllowScreenshare, setChatLocked, setWaitingMode]);
 
     const triggerReactionBroadcast = (emoji) => {
         const sender = participantName || localParticipant?.name || 'You';
@@ -228,7 +258,6 @@ function MeetingStage({
         }
     };
 
-    // Replace selected quick emoji slot with 100% precision
     const handleEmojiSelectedForSlot = (emojiData) => {
         const targetIdx = Number(activeSlotToReplace);
         setQuickEmojis(prev => {
@@ -357,14 +386,23 @@ function MeetingStage({
         }
     };
 
+    // Instant Synced Settings Handler: updates backend & broadcasts live via DataChannel
     const handleUpdateLiveRoomSettings = async (updates) => {
         try {
             await axios.post(`${BACKEND_URL}/api/update-room-settings`, {
                 room_name: roomName,
                 ...updates
             });
+
+            if (room?.localParticipant) {
+                const payload = JSON.stringify({
+                    type: 'settings_update',
+                    ...updates
+                });
+                room.localParticipant.publishData(new TextEncoder().encode(payload), { reliable: true });
+            }
         } catch (e) {
-            console.error("Live settings error:", e);
+            console.error("Live settings update error:", e);
         }
     };
 
@@ -579,7 +617,7 @@ function MeetingStage({
                         </button>
                     )}
 
-                    {/* In-Meeting Settings Gear Icon */}
+                    {/* In-Meeting Settings Gear Icon (Synchronized for Host & Co-Host) */}
                     {isEffectiveModerator && (
                         <button
                             onClick={() => setShowInMeetingSettings(!showInMeetingSettings)}
@@ -647,7 +685,7 @@ function MeetingStage({
             {showInMeetingSettings && isEffectiveModerator && (
                 <div style={{ position: 'fixed', top: '55px', right: '14px', background: '#1e293b', padding: '16px', borderRadius: '12px', border: '2px solid #38bdf8', boxShadow: '0 20px 30px rgba(0,0,0,0.85)', zIndex: 99999, width: '290px', color: '#f8fafc' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                        <h4 style={{ margin: 0, fontSize: '0.9rem', color: '#38bdf8', fontWeight: '700' }}>In-Meeting Host Settings</h4>
+                        <h4 style={{ margin: 0, fontSize: '0.9rem', color: '#38bdf8', fontWeight: '700' }}>In-Meeting Settings</h4>
                         <button onClick={() => setShowInMeetingSettings(false)} style={{ background: 'transparent', border: 'none', color: '#f8fafc', cursor: 'pointer' }}><X size={16} /></button>
                     </div>
 
@@ -777,6 +815,7 @@ function MeetingStage({
                                             </button>
                                         )}
 
+                                        {/* Moderation Menu for Host & Co-Host */}
                                         {isEffectiveModerator && !p.isSelf && (
                                             <div style={{ position: 'relative' }}>
                                                 <button
@@ -960,7 +999,7 @@ function MeetingStage({
 
             {showWhiteboard && (
                 <Whiteboard
-                    isHost={isHost}
+                    isModerator={isEffectiveModerator}
                     onClose={() => setShowWhiteboard(false)}
                     localParticipant={localParticipant}
                 />
