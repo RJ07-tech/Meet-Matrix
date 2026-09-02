@@ -234,6 +234,16 @@ export default function App() {
     const [loading, setLoading] = useState(false);
     const [copied, setCopied] = useState(false);
 
+    // Persistent User Auth from LocalStorage
+    const [user, setUser] = useState(() => {
+        try {
+            const saved = localStorage.getItem('meetmatrix_user');
+            return saved ? JSON.parse(saved) : null;
+        } catch {
+            return null;
+        }
+    });
+
     // Settings State
     const [showSettingsModal, setShowSettingsModal] = useState(false);
     const [waitingMode, setWaitingMode] = useState('direct');
@@ -301,7 +311,8 @@ export default function App() {
                     const res = await axios.get(`${BACKEND_URL}/api/check-admission/${roomName}/${waitingPid}`);
                     if (res.data.status === 'admitted') {
                         setIsWaiting(false);
-                        await joinRoomDirect(roomName, participantName, false);
+                        const currentName = user ? user.name : participantName;
+                        await joinRoomDirect(roomName, currentName, false);
                     } else if (res.data.status === 'rejected') {
                         alert('Host denied your request.');
                         setIsWaiting(false);
@@ -313,7 +324,7 @@ export default function App() {
             }, 2500);
         }
         return () => clearInterval(interval);
-    }, [isWaiting, waitingPid, roomName]);
+    }, [isWaiting, waitingPid, roomName, user, participantName]);
 
     useEffect(() => {
         let interval;
@@ -330,49 +341,63 @@ export default function App() {
         return () => clearInterval(interval);
     }, [inMeeting, isHost, roomName]);
 
+    const proceedCreateRoom = async (userName) => {
+        const res = await axios.post(`${BACKEND_URL}/api/create-room`, {
+            waiting_mode: waitingMode,
+            chat_locked: chatLocked,
+            allow_participant_screenshare: allowScreenshare
+        });
+        const newRoomId = res.data.room_id;
+        setRoomName(newRoomId);
+        setIsHost(true);
+        await joinRoomDirect(newRoomId, userName, true);
+    };
+
+    const proceedJoinRoom = async (userName) => {
+        setIsHost(false);
+        const res = await axios.post(`${BACKEND_URL}/api/get-token`, {
+            room_name: roomName.trim(),
+            participant_name: userName,
+            is_host: false,
+        });
+
+        if (res.data.status === 'waiting') {
+            setIsWaiting(true);
+            setWaitingPid(res.data.participant_id);
+        } else {
+            setToken(res.data.token);
+            setServerUrl(res.data.server_url);
+            if (res.data.config) {
+                setAllowScreenshare(res.data.config.allow_participant_screenshare);
+                setChatLocked(res.data.config.chat_locked);
+            }
+            setInMeeting(true);
+        }
+    };
+
     // Google Login Trigger
     const triggerGoogleAuth = useGoogleLogin({
         onSuccess: async (tokenResponse) => {
             try {
                 setLoading(true);
-                // Fetch verified user profile from Google UserInfo endpoint
                 const userInfo = await axios.get('https://www.googleapis.com/oauth2/v3/userinfo', {
                     headers: { Authorization: `Bearer ${tokenResponse.access_token}` },
                 });
 
-                const verifiedName = userInfo.data.name;
-                setParticipantName(verifiedName);
+                const userData = {
+                    name: userInfo.data.name,
+                    email: userInfo.data.email,
+                    picture: userInfo.data.picture,
+                };
+
+                localStorage.setItem('meetmatrix_user', JSON.stringify(userData));
+                setUser(userData);
+                setParticipantName(userData.name);
 
                 if (authAction === 'create') {
-                    const res = await axios.post(`${BACKEND_URL}/api/create-room`, {
-                        waiting_mode: waitingMode,
-                        chat_locked: chatLocked,
-                        allow_participant_screenshare: allowScreenshare
-                    });
-                    const newRoomId = res.data.room_id;
-                    setRoomName(newRoomId);
-                    setIsHost(true);
-                    await joinRoomDirect(newRoomId, verifiedName, true);
+                    await proceedCreateRoom(userData.name);
                 } else if (authAction === 'join') {
-                    setIsHost(false);
-                    const res = await axios.post(`${BACKEND_URL}/api/get-token`, {
-                        room_name: roomName.trim(),
-                        participant_name: verifiedName,
-                        is_host: false,
-                    });
-
-                    if (res.data.status === 'waiting') {
-                        setIsWaiting(true);
-                        setWaitingPid(res.data.participant_id);
-                    } else {
-                        setToken(res.data.token);
-                        setServerUrl(res.data.server_url);
-                        if (res.data.config) {
-                            setAllowScreenshare(res.data.config.allow_participant_screenshare);
-                            setChatLocked(res.data.config.chat_locked);
-                        }
-                        setInMeeting(true);
-                    }
+                    await proceedJoinRoom(userData.name);
                 }
             } catch (err) {
                 alert("Google Verification Failed: " + err.message);
@@ -387,8 +412,14 @@ export default function App() {
     });
 
     const handleCreateMeetingClick = () => {
-        setAuthAction('create');
-        triggerGoogleAuth();
+        if (user) {
+            setLoading(true);
+            setParticipantName(user.name);
+            proceedCreateRoom(user.name).finally(() => setLoading(false));
+        } else {
+            setAuthAction('create');
+            triggerGoogleAuth();
+        }
     };
 
     const handleJoinMeetingClick = (e) => {
@@ -397,8 +428,20 @@ export default function App() {
             alert('Please enter a Room Code');
             return;
         }
-        setAuthAction('join');
-        triggerGoogleAuth();
+        if (user) {
+            setLoading(true);
+            setParticipantName(user.name);
+            proceedJoinRoom(user.name).finally(() => setLoading(false));
+        } else {
+            setAuthAction('join');
+            triggerGoogleAuth();
+        }
+    };
+
+    const handleSignOut = () => {
+        localStorage.removeItem('meetmatrix_user');
+        setUser(null);
+        setParticipantName('');
     };
 
     const joinRoomDirect = async (room, name, hostFlag) => {
@@ -457,7 +500,7 @@ export default function App() {
 
     const handleParticipantLeave = async () => {
         try {
-            await axios.post(`${BACKEND_URL}/api/leave-room`, { room_name: roomName, participant_name: participantName });
+            await axios.post(`${BACKEND_URL}/api/leave-room`, { room_name: roomName, participant_name: user ? user.name : participantName });
         } catch (e) {
             console.error(e);
         }
@@ -673,7 +716,7 @@ export default function App() {
 
                     {/* Join / Create Form */}
                     <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem' }}>
                             <h1 style={{ fontSize: '1.5rem', fontWeight: '800', color: '#38bdf8', margin: 0 }}>MeetMatrix</h1>
                             <button onClick={() => setShowSettingsModal(!showSettingsModal)} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }} title="Host Settings">
                                 <Settings size={18} />
@@ -700,14 +743,37 @@ export default function App() {
                             </div>
                         )}
 
-                        {/* Direct Google Action: Create */}
+                        {/* Active User Chip */}
+                        {user && (
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#090d16', padding: '6px 12px', borderRadius: '20px', marginBottom: '12px', border: '1px solid #334155' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
+                                    {user.picture ? (
+                                        <img src={user.picture} alt="" style={{ width: '22px', height: '22px', borderRadius: '50%' }} />
+                                    ) : (
+                                        <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#0284c7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem' }}>
+                                            {user.name.charAt(0)}
+                                        </div>
+                                    )}
+                                    <span style={{ fontSize: '0.8rem', color: '#e2e8f0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{user.name}</span>
+                                </div>
+                                <button onClick={handleSignOut} style={{ background: 'transparent', border: 'none', color: '#ef4444', fontSize: '0.7rem', cursor: 'pointer', textDecoration: 'underline' }}>
+                                    Switch
+                                </button>
+                            </div>
+                        )}
+
+                        {/* Action 1: Create Meeting */}
                         <button
                             onClick={handleCreateMeetingClick}
                             disabled={loading}
                             style={{ ...primaryBtnStyle, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
                         >
-                            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="G" style={{ width: '16px', height: '16px' }} />
-                            {loading && authAction === 'create' ? 'Authenticating...' : 'Sign in & Create Meeting'}
+                            {!user && <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="G" style={{ width: '16px', height: '16px' }} />}
+                            {loading && authAction === 'create'
+                                ? 'Starting...'
+                                : user
+                                    ? `⚡ Create Meeting as ${user.name.split(' ')[0]}`
+                                    : 'Sign in & Create Meeting'}
                         </button>
 
                         <div style={{ display: 'flex', alignItems: 'center', margin: '1rem 0', color: '#475569' }}>
@@ -716,7 +782,7 @@ export default function App() {
                             <hr style={{ flex: 1, borderColor: '#1e293b' }} />
                         </div>
 
-                        {/* Direct Google Action: Join */}
+                        {/* Action 2: Join Meeting */}
                         <form onSubmit={handleJoinMeetingClick}>
                             <input
                                 type="text"
@@ -730,8 +796,12 @@ export default function App() {
                                 disabled={loading}
                                 style={{ ...secondaryBtnStyle, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
                             >
-                                <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="G" style={{ width: '16px', height: '16px' }} />
-                                {loading && authAction === 'join' ? 'Verifying & Joining...' : 'Sign in & Join Meeting'}
+                                {!user && <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="G" style={{ width: '16px', height: '16px' }} />}
+                                {loading && authAction === 'join'
+                                    ? 'Joining...'
+                                    : user
+                                        ? `Join Meeting as ${user.name.split(' ')[0]}`
+                                        : 'Sign in & Join Meeting'}
                             </button>
                         </form>
                     </div>
