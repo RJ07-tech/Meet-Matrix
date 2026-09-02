@@ -15,7 +15,7 @@ import {
     Copy, Check, Disc, Square, Download,
     PenTool, Video, VideoOff, Mic, MicOff, Settings,
     UserCheck, UserX, Clock, MonitorUp, MessageSquare, PhoneOff, X, Plus,
-    Users, Hand, Send, Edit3, VolumeX, MoreVertical, Smile
+    Users, Hand, Send, Edit3, VolumeX, MoreVertical, Smile, Shield, ShieldCheck
 } from 'lucide-react';
 import { useGoogleLogin } from '@react-oauth/google';
 import EmojiPicker, { Theme } from 'emoji-picker-react';
@@ -35,8 +35,13 @@ function MeetingStage({
                           showWhiteboard,
                           setShowWhiteboard,
                           allowScreenshare,
+                          setAllowScreenshare,
                           allowDirectChat,
-                          chatLocked
+                          setAllowDirectChat,
+                          chatLocked,
+                          setChatLocked,
+                          waitingMode,
+                          setWaitingMode
                       }) {
     const { localParticipant } = useLocalParticipant();
     const remoteParticipants = useRemoteParticipants();
@@ -48,15 +53,17 @@ function MeetingStage({
     const [isHandRaised, setIsHandRaised] = useState(false);
     const [raisedHandsMap, setRaisedHandsMap] = useState({});
 
-    // Drawers
+    // Co-Hosts mapping: { [identity]: boolean }
+    const [coHostsMap, setCoHostsMap] = useState({});
+
+    // Modals & Drawers
     const [showChat, setShowChat] = useState(false);
     const [showParticipants, setShowParticipants] = useState(false);
+    const [showInMeetingSettings, setShowInMeetingSettings] = useState(false);
     const [activeMenuIdentity, setActiveMenuIdentity] = useState(null);
 
-    // Floating reaction emojis
+    // Reactions
     const [floatingEmojis, setFloatingEmojis] = useState([]);
-
-    // 5 Quick Customizable Emojis
     const [quickEmojis, setQuickEmojis] = useState(() => {
         try {
             const saved = localStorage.getItem('meetmatrix_quick_emojis');
@@ -66,14 +73,14 @@ function MeetingStage({
         }
     });
 
-    // Customization Mode
+    // Customization & Slot selection
     const [isCustomizeOpen, setIsCustomizeOpen] = useState(false);
     const [activeSlotToReplace, setActiveSlotToReplace] = useState(0);
 
     // Chat Drawer Emoji Picker
     const [showChatEmojiPicker, setShowChatEmojiPicker] = useState(false);
 
-    // In-Drawer Rename State
+    // In-Drawer Rename
     const [isEditingName, setIsEditingName] = useState(false);
     const [editNameValue, setEditNameValue] = useState(participantName);
 
@@ -86,6 +93,9 @@ function MeetingStage({
     const [isRecording, setIsRecording] = useState(false);
     const mediaRecorderRef = useRef(null);
     const recordedChunksRef = useRef([]);
+
+    // Effective Moderator check: Host or Co-Host
+    const isEffectiveModerator = isHost || Boolean(coHostsMap[localParticipant?.identity]);
 
     const allTracks = useTracks(
         [
@@ -131,6 +141,7 @@ function MeetingStage({
         }, 2800);
     };
 
+    // LiveKit DataChannel Signal Listener
     useEffect(() => {
         if (!room) return;
 
@@ -145,6 +156,11 @@ function MeetingStage({
                     setRaisedHandsMap(prev => ({
                         ...prev,
                         [participant.identity]: data.raised
+                    }));
+                } else if (data.type === 'co_host_update') {
+                    setCoHostsMap(prev => ({
+                        ...prev,
+                        [data.targetIdentity]: data.isCoHost
                     }));
                 } else if (data.type === 'chat') {
                     if (data.recipient === 'Everyone' || data.recipient === localParticipant?.identity || participant.identity === localParticipant?.identity) {
@@ -185,12 +201,14 @@ function MeetingStage({
         }
     };
 
-    // Slot Picker callback
+    // Instant slot replace with zero-lag state update
     const handleEmojiSelectedForSlot = (emojiData) => {
-        const updated = [...quickEmojis];
-        updated[activeSlotToReplace] = emojiData.emoji;
-        setQuickEmojis(updated);
-        localStorage.setItem('meetmatrix_quick_emojis', JSON.stringify(updated));
+        setQuickEmojis(prev => {
+            const updated = [...prev];
+            updated[activeSlotToReplace] = emojiData.emoji;
+            localStorage.setItem('meetmatrix_quick_emojis', JSON.stringify(updated));
+            return updated;
+        });
         setIsCustomizeOpen(false);
     };
 
@@ -216,7 +234,7 @@ function MeetingStage({
     };
 
     const toggleScreenShare = async () => {
-        if (!isHost && !allowScreenshare) {
+        if (!isEffectiveModerator && !allowScreenshare) {
             alert("Screen sharing is restricted by the Host.");
             return;
         }
@@ -260,14 +278,14 @@ function MeetingStage({
     };
 
     const handleHostMute = (identity) => {
-        if (!isHost || !room) return;
+        if (!isEffectiveModerator || !room) return;
         const payload = JSON.stringify({ type: 'force_mute', targetIdentity: identity });
         room.localParticipant.publishData(new TextEncoder().encode(payload), { reliable: true });
         setActiveMenuIdentity(null);
     };
 
     const handleHostKick = async (identity) => {
-        if (!isHost) return;
+        if (!isEffectiveModerator) return;
         if (window.confirm("Remove this participant from the meeting?")) {
             try {
                 const payload = JSON.stringify({ type: 'kick_user', targetIdentity: identity });
@@ -284,10 +302,36 @@ function MeetingStage({
         }
     };
 
+    // Make or Revoke Co-Host action
+    const handleToggleCoHost = (identity) => {
+        if (!isHost || !room) return;
+        const nextStatus = !coHostsMap[identity];
+        setCoHostsMap(prev => ({ ...prev, [identity]: nextStatus }));
+
+        const payload = JSON.stringify({
+            type: 'co_host_update',
+            targetIdentity: identity,
+            isCoHost: nextStatus
+        });
+        room.localParticipant.publishData(new TextEncoder().encode(payload), { reliable: true });
+        setActiveMenuIdentity(null);
+    };
+
+    const handleUpdateLiveRoomSettings = async (updates) => {
+        try {
+            await axios.post(`${BACKEND_URL}/api/update-room-settings`, {
+                room_name: roomName,
+                ...updates
+            });
+        } catch (e) {
+            console.error("Live settings error:", e);
+        }
+    };
+
     const handleSendChat = (e) => {
         e.preventDefault();
         if (!chatInput.trim() || !room) return;
-        if (chatLocked && !isHost) {
+        if (chatLocked && !isEffectiveModerator) {
             alert("Chat has been locked by the Host.");
             return;
         }
@@ -355,11 +399,19 @@ function MeetingStage({
     };
 
     const allPeers = [
-        { identity: localParticipant?.identity, name: `${participantName} (You)`, isHost, isSelf: true, isHandRaised: !!raisedHandsMap[localParticipant?.identity] },
+        {
+            identity: localParticipant?.identity,
+            name: `${participantName} (You)`,
+            isHost,
+            isCoHost: Boolean(coHostsMap[localParticipant?.identity]),
+            isSelf: true,
+            isHandRaised: !!raisedHandsMap[localParticipant?.identity]
+        },
         ...remoteParticipants.map(p => ({
             identity: p.identity,
             name: p.name || p.identity,
             isHost: false,
+            isCoHost: Boolean(coHostsMap[p.identity]),
             isSelf: false,
             isHandRaised: !!raisedHandsMap[p.identity]
         }))
@@ -384,20 +436,23 @@ function MeetingStage({
                 ))}
             </div>
 
-            {/* Header with Visual Slot Replacement */}
+            {/* Header */}
             <div className="mobile-header" style={headerBarStyle}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
                     <span style={{ fontWeight: '800', color: '#38bdf8', fontSize: '0.85rem' }}>MeetMatrix</span>
                     <span style={{ color: '#475569' }}>|</span>
                     <span className="mobile-room-pill" style={{ fontSize: '0.72rem', color: '#cbd5e1' }}>{roomName}</span>
                     {isHost && <span style={{ background: '#0284c7', color: '#fff', padding: '1px 4px', borderRadius: '4px', fontSize: '0.6rem', fontWeight: 'bold' }}>HOST</span>}
+                    {!isHost && coHostsMap[localParticipant?.identity] && (
+                        <span style={{ background: '#059669', color: '#fff', padding: '1px 4px', borderRadius: '4px', fontSize: '0.6rem', fontWeight: 'bold' }}>CO-HOST</span>
+                    )}
                 </div>
 
                 <div style={{ display: 'flex', gap: '5px', alignItems: 'center', flexShrink: 0, position: 'relative' }}>
                     <div style={{ display: 'flex', gap: '3px', background: '#1e293b', padding: '2px 5px', borderRadius: '8px', alignItems: 'center', border: '1px solid #334155' }}>
                         {quickEmojis.map((e, idx) => (
                             <button
-                                key={idx}
+                                key={`${e}-${idx}`}
                                 onClick={() => triggerReactionBroadcast(e)}
                                 title="Click to react"
                                 style={{
@@ -435,11 +490,11 @@ function MeetingStage({
                         </button>
                     </div>
 
-                    {/* Visual Slot Selector & Picker Popup */}
+                    {/* Emoji Slot Customizer Popup */}
                     {isCustomizeOpen && (
                         <div style={{ position: 'absolute', top: '42px', right: 0, zIndex: 99999, boxShadow: '0 15px 35px rgba(0,0,0,0.8)', borderRadius: '8px', overflow: 'hidden', background: '#0f172a', border: '1px solid #334155' }}>
                             <div style={{ padding: '8px 10px', borderBottom: '1px solid #334155' }}>
-                                <span style={{ fontSize: '0.72rem', color: '#94a3b8', display: 'block', marginBottom: '6px' }}>Select Slot to Replace:</span>
+                                <span style={{ fontSize: '0.72rem', color: '#94a3b8', display: 'block', marginBottom: '6px' }}>Click Slot to Replace:</span>
                                 <div style={{ display: 'flex', gap: '6px' }}>
                                     {quickEmojis.map((em, i) => (
                                         <button
@@ -473,6 +528,17 @@ function MeetingStage({
                         </div>
                     )}
 
+                    {/* In-Meeting Settings Gear Icon (Restored for Host / Co-Host) */}
+                    {isEffectiveModerator && (
+                        <button
+                            onClick={() => setShowInMeetingSettings(!showInMeetingSettings)}
+                            style={topBtnStyle}
+                            title="Meeting Security & Settings"
+                        >
+                            <Settings size={14} />
+                        </button>
+                    )}
+
                     {isHost && (
                         <button onClick={() => window.open(`${BACKEND_URL}/api/attendance/export/${roomName}`, '_blank')} className="mobile-hide" style={topBtnStyle}>
                             <Download size={12} /> CSV
@@ -485,6 +551,58 @@ function MeetingStage({
                     </button>
                 </div>
             </div>
+
+            {/* In-Meeting Live Settings Modal */}
+            {showInMeetingSettings && isEffectiveModerator && (
+                <div style={{ position: 'fixed', top: '55px', right: '14px', background: '#1e293b', padding: '16px', borderRadius: '12px', border: '2px solid #38bdf8', boxShadow: '0 20px 30px rgba(0,0,0,0.85)', zIndex: 99999, width: '290px', color: '#f8fafc' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                        <h4 style={{ margin: 0, fontSize: '0.9rem', color: '#38bdf8', fontWeight: '700' }}>In-Meeting Host Settings</h4>
+                        <button onClick={() => setShowInMeetingSettings(false)} style={{ background: 'transparent', border: 'none', color: '#f8fafc', cursor: 'pointer' }}><X size={16} /></button>
+                    </div>
+
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', marginBottom: '10px', cursor: 'pointer', color: '#f8fafc' }}>
+                        <input
+                            type="checkbox"
+                            checked={allowScreenshare}
+                            onChange={(e) => {
+                                setAllowScreenshare(e.target.checked);
+                                handleUpdateLiveRoomSettings({ allow_participant_screenshare: e.target.checked });
+                            }}
+                            style={{ accentColor: '#38bdf8' }}
+                        />
+                        Allow Participant Screen Share
+                    </label>
+
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', marginBottom: '10px', cursor: 'pointer', color: '#f8fafc' }}>
+                        <input
+                            type="checkbox"
+                            checked={chatLocked}
+                            onChange={(e) => {
+                                setChatLocked(e.target.checked);
+                                handleUpdateLiveRoomSettings({ chat_locked: e.target.checked });
+                            }}
+                            style={{ accentColor: '#38bdf8' }}
+                        />
+                        Lock Chat for Participants
+                    </label>
+
+                    <div>
+                        <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '4px' }}>Waiting Room Mode:</label>
+                        <select
+                            value={waitingMode}
+                            onChange={(e) => {
+                                setWaitingMode(e.target.value);
+                                handleUpdateLiveRoomSettings({ waiting_mode: e.target.value });
+                            }}
+                            style={{ width: '100%', padding: '6px', background: '#090d16', border: '1px solid #475569', color: '#fff', borderRadius: '4px', fontSize: '0.8rem' }}
+                        >
+                            <option value="direct">Direct Bypass (Instant Join)</option>
+                            <option value="strict">Strict (Host Approval)</option>
+                            <option value="open">Open Collaboration</option>
+                        </select>
+                    </div>
+                </div>
+            )}
 
             {/* Video Viewport & Drawers */}
             <div style={{ flex: 1, display: 'flex', position: 'relative', overflow: 'hidden', minHeight: 0 }}>
@@ -535,7 +653,7 @@ function MeetingStage({
                             {allPeers.map(p => (
                                 <div key={p.identity} style={{ position: 'relative', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 8px', borderBottom: '1px solid #1e293b' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden', flex: 1 }}>
-                                        <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: '#0284c7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 'bold', flexShrink: 0 }}>
+                                        <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: p.isHost ? '#0284c7' : p.isCoHost ? '#059669' : '#334155', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 'bold', flexShrink: 0 }}>
                                             {p.name.charAt(0).toUpperCase()}
                                         </div>
 
@@ -550,9 +668,14 @@ function MeetingStage({
                                                 <button onClick={handleSaveName} style={{ background: '#10b981', border: 'none', color: '#fff', padding: '2px 6px', borderRadius: '4px', cursor: 'pointer' }}><Check size={12} /></button>
                                             </div>
                                         ) : (
-                                            <span style={{ fontSize: '0.82rem', color: '#f8fafc', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                                {p.name} {p.isHandRaised && <span title="Hand Raised" style={{ marginLeft: '4px' }}>✋</span>}
-                                            </span>
+                                            <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                                                <span style={{ fontSize: '0.82rem', color: '#f8fafc', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                    {p.name} {p.isHandRaised && <span title="Hand Raised" style={{ marginLeft: '4px' }}>✋</span>}
+                                                </span>
+                                                <span style={{ fontSize: '0.65rem', color: '#94a3b8' }}>
+                                                    {p.isHost ? 'Host' : p.isCoHost ? 'Co-Host' : 'Participant'}
+                                                </span>
+                                            </div>
                                         )}
                                     </div>
 
@@ -563,7 +686,8 @@ function MeetingStage({
                                             </button>
                                         )}
 
-                                        {isHost && !p.isSelf && (
+                                        {/* 3-Dot Moderation Menu for Host & Co-Host */}
+                                        {isEffectiveModerator && !p.isSelf && (
                                             <div style={{ position: 'relative' }}>
                                                 <button
                                                     onClick={() => setActiveMenuIdentity(activeMenuIdentity === p.identity ? null : p.identity)}
@@ -574,6 +698,12 @@ function MeetingStage({
 
                                                 {activeMenuIdentity === p.identity && (
                                                     <div style={contextMenuStyle}>
+                                                        {isHost && (
+                                                            <button onClick={() => handleToggleCoHost(p.identity)} style={contextMenuItemStyle}>
+                                                                {p.isCoHost ? <Shield size={14} color="#ef4444" /> : <ShieldCheck size={14} color="#10b981" />}
+                                                                {p.isCoHost ? 'Remove Co-Host' : 'Make Co-Host'}
+                                                            </button>
+                                                        )}
                                                         <button onClick={() => handleHostMute(p.identity)} style={contextMenuItemStyle}>
                                                             <VolumeX size={14} color="#f59e0b" /> Mute Audio
                                                         </button>
@@ -661,12 +791,12 @@ function MeetingStage({
                             <input
                                 type="text"
                                 value={chatInput}
-                                placeholder={chatLocked && !isHost ? "Chat locked by host" : `Message ${chatRecipient}...`}
-                                disabled={chatLocked && !isHost}
+                                placeholder={chatLocked && !isEffectiveModerator ? "Chat locked by host" : `Message ${chatRecipient}...`}
+                                disabled={chatLocked && !isEffectiveModerator}
                                 onChange={(e) => setChatInput(e.target.value)}
                                 style={{ flex: 1, padding: '8px 10px', background: '#131b2e', border: '1px solid #334155', borderRadius: '6px', color: '#fff', fontSize: '0.78rem', outline: 'none' }}
                             />
-                            <button type="submit" disabled={chatLocked && !isHost} style={{ background: '#0284c7', border: 'none', color: '#fff', borderRadius: '6px', padding: '8px 12px', cursor: 'pointer' }}>
+                            <button type="submit" disabled={chatLocked && !isEffectiveModerator} style={{ background: '#0284c7', border: 'none', color: '#fff', borderRadius: '6px', padding: '8px 12px', cursor: 'pointer' }}>
                                 <Send size={14} />
                             </button>
                         </form>
@@ -686,6 +816,7 @@ function MeetingStage({
                     <span className="mobile-hide" style={{ fontSize: '0.65rem' }}>{isVideoMuted ? 'Start Video' : 'Stop Video'}</span>
                 </button>
 
+                {/* Hand Raise: Visible for participants and co-hosts (Not Owner Host) */}
                 {!isHost && (
                     <button
                         onClick={toggleHandRaise}
@@ -699,7 +830,7 @@ function MeetingStage({
 
                 <button
                     onClick={toggleScreenShare}
-                    style={{ ...controlBtn, background: isScreenSharing ? '#0284c7' : '#1e293b', opacity: (!isHost && !allowScreenshare) ? 0.4 : 1 }}
+                    style={{ ...controlBtn, background: isScreenSharing ? '#0284c7' : '#1e293b', opacity: (!isEffectiveModerator && !allowScreenshare) ? 0.4 : 1 }}
                 >
                     <MonitorUp size={18} />
                     <span className="mobile-hide" style={{ fontSize: '0.65rem' }}>{isScreenSharing ? 'Sharing' : 'Share'}</span>
@@ -797,7 +928,6 @@ export default function App() {
         return () => window.removeEventListener('beforeunload', handleBeforeUnload);
     }, [inMeeting, isHost, roomName]);
 
-    // Check if user came from an invite link
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
         const roomParam = params.get('room');
@@ -807,7 +937,6 @@ export default function App() {
         }
     }, []);
 
-    // Waiting Room Poller for Guest
     useEffect(() => {
         let interval;
         if (isWaiting && waitingPid && roomName) {
@@ -1041,18 +1170,21 @@ export default function App() {
                         showWhiteboard={showWhiteboard}
                         setShowWhiteboard={setShowWhiteboard}
                         allowScreenshare={allowScreenshare}
+                        setAllowScreenshare={setAllowScreenshare}
                         allowDirectChat={allowDirectChat}
+                        setAllowDirectChat={setAllowDirectChat}
                         chatLocked={chatLocked}
+                        setChatLocked={setChatLocked}
+                        waitingMode={waitingMode}
+                        setWaitingMode={setWaitingMode}
                     />
                 </LiveKitRoom>
             </div>
         );
     }
 
-    // Lobby
     return (
         <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'radial-gradient(circle at top, #1e293b 0%, #090d16 100%)', color: '#f8fafc', padding: '12px' }}>
-
             {showPreSettingsModal && (
                 <div style={modalBackdropStyle}>
                     <div style={modalCardStyle}>
@@ -1096,8 +1228,6 @@ export default function App() {
 
             <div style={{ background: '#131b2e', borderRadius: '16px', width: '100%', maxWidth: '800px', display: 'flex', flexDirection: 'column', border: '1px solid #1e293b', overflow: 'hidden' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
-
-                    {/* Green Room Preview */}
                     <div style={{ padding: '1.5rem', background: '#0c1222', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
                         <h3 style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: '0.8rem' }}>Green Room Preview</h3>
                         <div style={{ width: '100%', maxWidth: '320px', height: '190px', background: '#000', borderRadius: '10px', overflow: 'hidden', position: 'relative' }}>
@@ -1119,7 +1249,6 @@ export default function App() {
                         </div>
                     </div>
 
-                    {/* Clean Action Column */}
                     <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                         <h1 style={{ fontSize: '1.6rem', fontWeight: '800', color: '#38bdf8', marginBottom: '0.5rem' }}>MeetMatrix</h1>
                         {isInviteFlow && (
@@ -1138,7 +1267,6 @@ export default function App() {
                             </div>
                         )}
 
-                        {/* Invite link auto-mode: Only Join Action is shown */}
                         {isInviteFlow ? (
                             <button onClick={handleJoinClick} disabled={loading} style={{ ...primaryBtnStyle, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
                                 {!user && <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" style={{ width: '16px', height: '16px' }} />}
@@ -1185,7 +1313,7 @@ const sideDrawerStyle = { width: '320px', maxWidth: '85vw', background: '#0f172a
 const drawerHeaderStyle = { padding: '12px 14px', borderBottom: '1px solid #1e293b', display: 'flex', justifyContent: 'space-between', alignItems: 'center' };
 const drawerCloseBtn = { background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' };
 const drawerActionBtn = { background: 'transparent', border: 'none', color: '#94a3b8', padding: '4px', cursor: 'pointer', borderRadius: '4px', display: 'flex', alignItems: 'center' };
-const contextMenuStyle = { position: 'absolute', right: 0, top: '26px', background: '#1e293b', border: '1px solid #334155', borderRadius: '6px', padding: '4px', zIndex: 999, minWidth: '130px', boxShadow: '0 8px 16px rgba(0,0,0,0.5)' };
+const contextMenuStyle = { position: 'absolute', right: 0, top: '26px', background: '#1e293b', border: '1px solid #334155', borderRadius: '6px', padding: '4px', zIndex: 999, minWidth: '140px', boxShadow: '0 8px 16px rgba(0,0,0,0.5)' };
 const contextMenuItemStyle = { width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 8px', background: 'transparent', border: 'none', color: '#f8fafc', fontSize: '0.75rem', cursor: 'pointer', textAlign: 'left', borderRadius: '4px' };
 const modalBackdropStyle = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(4px)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' };
 const modalCardStyle = { background: '#131b2e', border: '1px solid #38bdf8', borderRadius: '14px', padding: '20px', width: '100%', maxWidth: '420px', boxShadow: '0 25px 50px rgba(0,0,0,0.7)' };
