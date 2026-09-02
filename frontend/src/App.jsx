@@ -44,6 +44,7 @@ function MeetingStage({
                           waitingMode,
                           setWaitingMode,
                           allowWhiteboard,
+                          setAllowWhiteboard,
                           allowReactions,
                           setAllowReactions
                       }) {
@@ -55,17 +56,21 @@ function MeetingStage({
     const [isHandRaised, setIsHandRaised] = useState(false);
     const [raisedHandsMap, setRaisedHandsMap] = useState({});
 
+    // Co-Hosts mapping
     const [coHostsMap, setCoHostsMap] = useState({});
     const [waitingList, setWaitingList] = useState([]);
     const [showAdmitModal, setShowAdmitModal] = useState(false);
 
+    // Drawers & Modals
     const [showChat, setShowChat] = useState(false);
     const [showParticipants, setShowParticipants] = useState(false);
     const [showInMeetingSettings, setShowInMeetingSettings] = useState(false);
     const [activeMenuIdentity, setActiveMenuIdentity] = useState(null);
 
+    // Floating reaction emojis
     const [floatingEmojis, setFloatingEmojis] = useState([]);
 
+    // 5 Quick Customizable Emojis
     const [quickEmojis, setQuickEmojis] = useState(() => {
         try {
             const saved = localStorage.getItem('meetmatrix_quick_emojis');
@@ -103,18 +108,24 @@ function MeetingStage({
         }
     }, [quickEmojis]);
 
+    // Chat Drawer Emoji Picker
     const [showChatEmojiPicker, setShowChatEmojiPicker] = useState(false);
+
+    // In-Drawer Rename
     const [isEditingName, setIsEditingName] = useState(false);
     const [editNameValue, setEditNameValue] = useState(participantName);
 
+    // Chat
     const [chatMessages, setChatMessages] = useState([]);
     const [chatInput, setChatInput] = useState('');
     const [chatRecipient, setChatRecipient] = useState('Everyone');
 
+    // Recording
     const [isRecording, setIsRecording] = useState(false);
     const mediaRecorderRef = useRef(null);
     const recordedChunksRef = useRef([]);
 
+    // Effective Roles
     const isCoHost = Boolean(coHostsMap[localParticipant?.identity]);
     const isEffectiveModerator = isHost || isCoHost;
 
@@ -143,6 +154,7 @@ function MeetingStage({
         }
     }, [localParticipant, initialCam, participantName]);
 
+    // Backend room settings sync
     useEffect(() => {
         let interval;
         if (roomName) {
@@ -153,16 +165,17 @@ function MeetingStage({
                         setAllowScreenshare(Boolean(res.data.allow_participant_screenshare));
                         setChatLocked(Boolean(res.data.chat_locked));
                         setWaitingMode(res.data.waiting_mode || 'direct');
-                        if (res.data.allow_reactions !== undefined) {
-                            setAllowReactions(Boolean(res.data.allow_reactions));
-                        }
+                        if (res.data.allow_reactions !== undefined) setAllowReactions(Boolean(res.data.allow_reactions));
+                        if (res.data.allow_whiteboard !== undefined) setAllowWhiteboard(Boolean(res.data.allow_whiteboard));
+                        if (res.data.allow_direct_chat !== undefined) setAllowDirectChat(Boolean(res.data.allow_direct_chat));
                     }
                 } catch (e) {}
             }, 3000);
         }
         return () => clearInterval(interval);
-    }, [roomName, setAllowScreenshare, setChatLocked, setWaitingMode, setAllowReactions]);
+    }, [roomName, setAllowScreenshare, setChatLocked, setWaitingMode, setAllowReactions, setAllowWhiteboard, setAllowDirectChat]);
 
+    // Waiting list auto-polling for Host & Co-Hosts
     useEffect(() => {
         let interval;
         if (isEffectiveModerator && roomName) {
@@ -215,6 +228,8 @@ function MeetingStage({
                     if (data.chat_locked !== undefined) setChatLocked(data.chat_locked);
                     if (data.waiting_mode !== undefined) setWaitingMode(data.waiting_mode);
                     if (data.allow_reactions !== undefined) setAllowReactions(data.allow_reactions);
+                    if (data.allow_whiteboard !== undefined) setAllowWhiteboard(data.allow_whiteboard);
+                    if (data.allow_direct_chat !== undefined) setAllowDirectChat(data.allow_direct_chat);
                 } else if (data.type === 'co_host_update') {
                     setCoHostsMap(prev => ({ ...prev, [data.targetIdentity]: data.isCoHost }));
                 } else if (data.type === 'reaction') {
@@ -238,14 +253,21 @@ function MeetingStage({
                         }]);
                     }
                 } else if (data.type === 'force_mute' && data.targetIdentity === localParticipant?.identity) {
-                    localParticipant.setMicrophoneEnabled(false);
-                    alert("Your microphone was muted by a moderator.");
-                } else if (data.type === 'mute_all' && !isEffectiveModerator) {
-                    localParticipant.setMicrophoneEnabled(false);
-                    alert("A moderator has muted all participants.");
+                    if (!isHost) {
+                        localParticipant.setMicrophoneEnabled(false);
+                        alert("Your microphone was muted by a moderator.");
+                    }
+                } else if (data.type === 'mute_all') {
+                    if (!isHost) {
+                        localParticipant.setMicrophoneEnabled(false);
+                        alert("A moderator has muted all participants.");
+                    }
                 } else if (data.type === 'kick_user' && data.targetIdentity === localParticipant?.identity) {
-                    alert("You were removed from the meeting.");
-                    onLeave();
+                    // Host cannot be kicked!
+                    if (!isHost) {
+                        alert("You were removed from the meeting.");
+                        onLeave();
+                    }
                 }
             } catch (err) {
                 console.error(err);
@@ -254,7 +276,7 @@ function MeetingStage({
 
         room.on('dataReceived', handleDataReceived);
         return () => room.off('dataReceived', handleDataReceived);
-    }, [room, localParticipant, onLeave, setAllowScreenshare, setChatLocked, setWaitingMode, setAllowReactions, allowReactions, isEffectiveModerator]);
+    }, [room, localParticipant, onLeave, setAllowScreenshare, setChatLocked, setWaitingMode, setAllowReactions, setAllowWhiteboard, setAllowDirectChat, allowReactions, isEffectiveModerator, isHost]);
 
     const triggerReactionBroadcast = (emoji) => {
         if (!allowReactions) {
@@ -345,7 +367,11 @@ function MeetingStage({
         alert("All participants muted.");
     };
 
-    const handleHostKick = async (identity) => {
+    const handleHostKick = async (identity, targetIsHost) => {
+        if (targetIsHost) {
+            alert("Host cannot be removed!");
+            return;
+        }
         if (!isEffectiveModerator) return;
         if (window.confirm("Remove this participant from the meeting?")) {
             try {
@@ -476,19 +502,20 @@ function MeetingStage({
         }
     };
 
+    // Participants array with clear Host marking
     const allPeers = [
         {
             identity: localParticipant?.identity,
             name: `${participantName} (You)`,
-            isHost,
-            isCoHost: Boolean(coHostsMap[localParticipant?.identity]),
+            isHost: isHost,
+            isCoHost: isCoHost,
             isSelf: true,
             isHandRaised: !!raisedHandsMap[localParticipant?.identity]
         },
         ...remoteParticipants.map(p => ({
             identity: p.identity,
             name: p.name || p.identity,
-            isHost: false,
+            isHost: !isHost && (p.identity.includes('Host') || p.name?.includes('Host')), // Identify Host across peers
             isCoHost: Boolean(coHostsMap[p.identity]),
             isSelf: false,
             isHandRaised: !!raisedHandsMap[p.identity]
@@ -514,15 +541,15 @@ function MeetingStage({
                 ))}
             </div>
 
-            {/* Header */}
+            {/* Top Header Bar */}
             <div className="mobile-header" style={headerBarStyle}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
                     <span style={{ fontWeight: '800', color: '#38bdf8', fontSize: '0.85rem' }}>MeetMatrix</span>
                     <span style={{ color: '#475569' }}>|</span>
                     <span className="mobile-room-pill" style={{ fontSize: '0.72rem', color: '#cbd5e1' }}>{roomName}</span>
-                    {isHost && <span style={{ background: '#0284c7', color: '#fff', padding: '1px 4px', borderRadius: '4px', fontSize: '0.6rem', fontWeight: 'bold' }}>HOST</span>}
+                    {isHost && <span style={{ background: '#0284c7', color: '#fff', padding: '1px 5px', borderRadius: '4px', fontSize: '0.65rem', fontWeight: 'bold' }}>HOST</span>}
                     {!isHost && isCoHost && (
-                        <span style={{ background: '#059669', color: '#fff', padding: '1px 4px', borderRadius: '4px', fontSize: '0.6rem', fontWeight: 'bold' }}>CO-HOST</span>
+                        <span style={{ background: '#059669', color: '#fff', padding: '1px 5px', borderRadius: '4px', fontSize: '0.65rem', fontWeight: 'bold' }}>CO-HOST</span>
                     )}
                 </div>
 
@@ -608,7 +635,7 @@ function MeetingStage({
                         </div>
                     )}
 
-                    {/* Waiting Lobby Button: Exactly Next to Settings */}
+                    {/* Point 5: Waiting Lobby Button for Moderator */}
                     {isEffectiveModerator && (
                         <button
                             onClick={() => setShowAdmitModal(!showAdmitModal)}
@@ -625,11 +652,12 @@ function MeetingStage({
                         </button>
                     )}
 
-                    {isEffectiveModerator && (
+                    {/* Point 3: Settings Gear Icon - ONLY FOR ROOM HOST */}
+                    {isHost && (
                         <button
                             onClick={() => setShowInMeetingSettings(!showInMeetingSettings)}
                             style={topBtnStyle}
-                            title="Meeting Security & Settings"
+                            title="Host Meeting Controls"
                         >
                             <Settings size={14} />
                         </button>
@@ -688,13 +716,11 @@ function MeetingStage({
                 </div>
             )}
 
-            {/* In-Meeting Live Settings: Host vs Co-Host Scoped Controls */}
-            {showInMeetingSettings && isEffectiveModerator && (
-                <div style={{ position: 'fixed', top: '55px', right: '14px', background: '#1e293b', padding: '16px', borderRadius: '12px', border: '2px solid #38bdf8', boxShadow: '0 20px 30px rgba(0,0,0,0.85)', zIndex: 99999, width: '290px', color: '#f8fafc' }}>
+            {/* Point 2 & 3: In-Meeting Live Settings - HOST ONLY with expanded toggles */}
+            {showInMeetingSettings && isHost && (
+                <div style={{ position: 'fixed', top: '55px', right: '14px', background: '#1e293b', padding: '16px', borderRadius: '12px', border: '2px solid #38bdf8', boxShadow: '0 20px 30px rgba(0,0,0,0.85)', zIndex: 99999, width: '310px', color: '#f8fafc' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                        <h4 style={{ margin: 0, fontSize: '0.9rem', color: '#38bdf8', fontWeight: '700' }}>
-                            {isHost ? 'Host Controls' : 'Co-Host Moderator Tools'}
-                        </h4>
+                        <h4 style={{ margin: 0, fontSize: '0.92rem', color: '#38bdf8', fontWeight: '700' }}>Host Meeting Controls</h4>
                         <button onClick={() => setShowInMeetingSettings(false)} style={{ background: 'transparent', border: 'none', color: '#f8fafc', cursor: 'pointer' }}><X size={16} /></button>
                     </div>
 
@@ -705,68 +731,88 @@ function MeetingStage({
                         <VolumeX size={14} /> Mute All Participants
                     </button>
 
-                    {isHost ? (
-                        <>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', marginBottom: '10px', cursor: 'pointer', color: '#f8fafc' }}>
-                                <input
-                                    type="checkbox"
-                                    checked={allowScreenshare}
-                                    onChange={(e) => {
-                                        setAllowScreenshare(e.target.checked);
-                                        handleUpdateLiveRoomSettings({ allow_participant_screenshare: e.target.checked });
-                                    }}
-                                    style={{ accentColor: '#38bdf8' }}
-                                />
-                                Allow Participant Screen Share
-                            </label>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', cursor: 'pointer', color: '#f8fafc' }}>
+                            <input
+                                type="checkbox"
+                                checked={allowScreenshare}
+                                onChange={(e) => {
+                                    setAllowScreenshare(e.target.checked);
+                                    handleUpdateLiveRoomSettings({ allow_participant_screenshare: e.target.checked });
+                                }}
+                                style={{ accentColor: '#38bdf8' }}
+                            />
+                            Allow Participant Screen Share
+                        </label>
 
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', marginBottom: '10px', cursor: 'pointer', color: '#f8fafc' }}>
-                                <input
-                                    type="checkbox"
-                                    checked={chatLocked}
-                                    onChange={(e) => {
-                                        setChatLocked(e.target.checked);
-                                        handleUpdateLiveRoomSettings({ chat_locked: e.target.checked });
-                                    }}
-                                    style={{ accentColor: '#38bdf8' }}
-                                />
-                                Lock Chat for Participants
-                            </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', cursor: 'pointer', color: '#f8fafc' }}>
+                            <input
+                                type="checkbox"
+                                checked={chatLocked}
+                                onChange={(e) => {
+                                    setChatLocked(e.target.checked);
+                                    handleUpdateLiveRoomSettings({ chat_locked: e.target.checked });
+                                }}
+                                style={{ accentColor: '#38bdf8' }}
+                            />
+                            Lock Public Chat
+                        </label>
 
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', marginBottom: '12px', cursor: 'pointer', color: '#f8fafc' }}>
-                                <input
-                                    type="checkbox"
-                                    checked={allowReactions}
-                                    onChange={(e) => {
-                                        setAllowReactions(e.target.checked);
-                                        handleUpdateLiveRoomSettings({ allow_reactions: e.target.checked });
-                                    }}
-                                    style={{ accentColor: '#38bdf8' }}
-                                />
-                                Allow Emoji Reactions
-                            </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', cursor: 'pointer', color: '#f8fafc' }}>
+                            <input
+                                type="checkbox"
+                                checked={allowDirectChat}
+                                onChange={(e) => {
+                                    setAllowDirectChat(e.target.checked);
+                                    handleUpdateLiveRoomSettings({ allow_direct_chat: e.target.checked });
+                                }}
+                                style={{ accentColor: '#38bdf8' }}
+                            />
+                            Allow 1-on-1 Direct Chat
+                        </label>
 
-                            <div>
-                                <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '4px' }}>Waiting Room Mode:</label>
-                                <select
-                                    value={waitingMode}
-                                    onChange={(e) => {
-                                        setWaitingMode(e.target.value);
-                                        handleUpdateLiveRoomSettings({ waiting_mode: e.target.value });
-                                    }}
-                                    style={{ width: '100%', padding: '6px', background: '#090d16', border: '1px solid #475569', color: '#fff', borderRadius: '4px', fontSize: '0.8rem' }}
-                                >
-                                    <option value="direct">Direct Bypass (Instant Join)</option>
-                                    <option value="strict">Strict (Host Approval)</option>
-                                    <option value="open">Open Collaboration</option>
-                                </select>
-                            </div>
-                        </>
-                    ) : (
-                        <p style={{ fontSize: '0.72rem', color: '#94a3b8', margin: '4px 0 0 0' }}>
-                            ℹ️ Screen share, chat lock, and reactions are reserved for the Host. You can mute participants and admit users from the Lobby.
-                        </p>
-                    )}
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', cursor: 'pointer', color: '#f8fafc' }}>
+                            <input
+                                type="checkbox"
+                                checked={allowWhiteboard}
+                                onChange={(e) => {
+                                    setAllowWhiteboard(e.target.checked);
+                                    handleUpdateLiveRoomSettings({ allow_whiteboard: e.target.checked });
+                                }}
+                                style={{ accentColor: '#38bdf8' }}
+                            />
+                            Enable Whiteboard Feature
+                        </label>
+
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', cursor: 'pointer', color: '#f8fafc' }}>
+                            <input
+                                type="checkbox"
+                                checked={allowReactions}
+                                onChange={(e) => {
+                                    setAllowReactions(e.target.checked);
+                                    handleUpdateLiveRoomSettings({ allow_reactions: e.target.checked });
+                                }}
+                                style={{ accentColor: '#38bdf8' }}
+                            />
+                            Allow Floating Emoji Reactions
+                        </label>
+                    </div>
+
+                    <div>
+                        <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '4px' }}>Waiting Room Mode:</label>
+                        <select
+                            value={waitingMode}
+                            onChange={(e) => {
+                                setWaitingMode(e.target.value);
+                                handleUpdateLiveRoomSettings({ waiting_mode: e.target.value });
+                            }}
+                            style={{ width: '100%', padding: '6px', background: '#090d16', border: '1px solid #475569', color: '#fff', borderRadius: '4px', fontSize: '0.8rem' }}
+                        >
+                            <option value="direct">Direct Bypass (Instant Join)</option>
+                            <option value="strict">Strict (Host Approval)</option>
+                            <option value="open">Open Collaboration</option>
+                        </select>
+                    </div>
                 </div>
             )}
 
@@ -807,7 +853,7 @@ function MeetingStage({
                     )}
                 </div>
 
-                {/* Participants Drawer */}
+                {/* Participants Drawer (Point 4: Host Immunity Protected) */}
                 {showParticipants && (
                     <div style={sideDrawerStyle}>
                         <div style={drawerHeaderStyle}>
@@ -838,8 +884,8 @@ function MeetingStage({
                                                 <span style={{ fontSize: '0.82rem', color: '#f8fafc', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                                     {p.name} {p.isHandRaised && <span title="Hand Raised" style={{ marginLeft: '4px' }}>✋</span>}
                                                 </span>
-                                                <span style={{ fontSize: '0.65rem', color: '#94a3b8' }}>
-                                                    {p.isHost ? 'Host' : p.isCoHost ? 'Co-Host' : 'Participant'}
+                                                <span style={{ fontSize: '0.65rem', color: p.isHost ? '#38bdf8' : p.isCoHost ? '#34d399' : '#94a3b8', fontWeight: '700' }}>
+                                                    {p.isHost ? '👑 HOST' : p.isCoHost ? '🛡️ CO-HOST' : 'PARTICIPANT'}
                                                 </span>
                                             </div>
                                         )}
@@ -852,7 +898,8 @@ function MeetingStage({
                                             </button>
                                         )}
 
-                                        {isEffectiveModerator && !p.isSelf && (
+                                        {/* Point 4: Host cannot be muted or kicked by ANYONE */}
+                                        {isEffectiveModerator && !p.isSelf && !p.isHost && (
                                             <div style={{ position: 'relative' }}>
                                                 <button
                                                     onClick={() => setActiveMenuIdentity(activeMenuIdentity === p.identity ? null : p.identity)}
@@ -872,7 +919,7 @@ function MeetingStage({
                                                         <button onClick={() => handleHostMute(p.identity)} style={contextMenuItemStyle}>
                                                             <VolumeX size={14} color="#f59e0b" /> Mute Audio
                                                         </button>
-                                                        <button onClick={() => handleHostKick(p.identity)} style={{ ...contextMenuItemStyle, color: '#ef4444' }}>
+                                                        <button onClick={() => handleHostKick(p.identity, p.isHost)} style={{ ...contextMenuItemStyle, color: '#ef4444' }}>
                                                             <UserX size={14} color="#ef4444" /> Remove User
                                                         </button>
                                                     </div>
@@ -886,7 +933,7 @@ function MeetingStage({
                     </div>
                 )}
 
-                {/* In-Meeting Chat Drawer */}
+                {/* Chat Drawer */}
                 {showChat && (
                     <div style={sideDrawerStyle}>
                         <div style={drawerHeaderStyle}>
@@ -967,7 +1014,7 @@ function MeetingStage({
                 )}
             </div>
 
-            {/* Bottom Controls Bar */}
+            {/* Bottom Controls Bar (Point 1: Whiteboard always available for presenter) */}
             <div className="mobile-control-bar" style={bottomBarStyle}>
                 <button onClick={toggleMic} style={{ ...controlBtn, background: !isMicrophoneEnabled ? '#ef4444' : '#1e293b' }}>
                     {!isMicrophoneEnabled ? <MicOff size={18} /> : <Mic size={18} />}
@@ -998,7 +1045,8 @@ function MeetingStage({
                     <span className="mobile-hide" style={{ fontSize: '0.65rem' }}>{isScreenSharing ? 'Sharing' : 'Share'}</span>
                 </button>
 
-                {allowWhiteboard && (
+                {/* Whiteboard button: Available for everyone if host enabled, and always for host */}
+                {(allowWhiteboard || isEffectiveModerator) && (
                     <button onClick={() => setShowWhiteboard(!showWhiteboard)} style={{ ...controlBtn, background: showWhiteboard ? '#0284c7' : '#1e293b' }}>
                         <PenTool size={18} />
                         <span className="mobile-hide" style={{ fontSize: '0.65rem' }}>Board</span>
@@ -1056,16 +1104,16 @@ export default function App() {
     const [loading, setLoading] = useState(false);
     const [isInviteFlow, setIsInviteFlow] = useState(false);
 
-    // Pre-Flight Meeting Controls (Explicitly FALSE by default)
+    // Pre-Flight Meeting Controls (Defaults: Screenshare & Whiteboard default ON for utility, others manual)
     const [showPreSettingsModal, setShowPreSettingsModal] = useState(false);
     const [waitingMode, setWaitingMode] = useState('direct');
     const [chatLocked, setChatLocked] = useState(false);
-    const [allowScreenshare, setAllowScreenshare] = useState(false);
-    const [allowDirectChat, setAllowDirectChat] = useState(false);
+    const [allowScreenshare, setAllowScreenshare] = useState(true);
+    const [allowDirectChat, setAllowDirectChat] = useState(true);
     const [muteOnEntry, setMuteOnEntry] = useState(false);
     const [cameraOffOnEntry, setCameraOffOnEntry] = useState(false);
-    const [allowWhiteboard, setAllowWhiteboard] = useState(false);
-    const [allowReactions, setAllowReactions] = useState(false);
+    const [allowWhiteboard, setAllowWhiteboard] = useState(true);
+    const [allowReactions, setAllowReactions] = useState(true);
 
     // Scheduling System
     const [showScheduleModal, setShowScheduleModal] = useState(false);
@@ -1073,6 +1121,7 @@ export default function App() {
     const [scheduleDate, setScheduleDate] = useState('');
     const [scheduleTime, setScheduleTime] = useState('');
     const [scheduleDuration, setScheduleDuration] = useState(30);
+
     const [scheduledMeetings, setScheduledMeetings] = useState(() => {
         try {
             const saved = localStorage.getItem('meetmatrix_scheduled');
@@ -1261,7 +1310,7 @@ export default function App() {
                 allow_reactions: allowReactions
             });
             const newRoomId = res.data.room_id;
-            const hostDisplayName = participantName || user?.name || 'Host';
+            const hostDisplayName = `${participantName || user?.name || 'Host'} (Host)`;
 
             setRoomName(newRoomId);
             setIsHost(true);
@@ -1286,6 +1335,7 @@ export default function App() {
         }
     };
 
+    // Point 5: Schedule Meeting with Pre-flight Security
     const handleSaveScheduleMeeting = async (e) => {
         e.preventDefault();
         if (!scheduleDate || !scheduleTime) {
@@ -1297,7 +1347,7 @@ export default function App() {
             const generatedRoomId = `mm-${Math.random().toString(36).substring(2, 6)}-${Math.random().toString(36).substring(2, 6)}`;
             const newScheduled = {
                 room_id: generatedRoomId,
-                title: scheduleTitle.trim() || 'Team Meeting',
+                title: scheduleTitle.trim() || 'Scheduled Meeting',
                 scheduled_date: scheduleDate,
                 scheduled_time: scheduleTime,
                 duration_mins: scheduleDuration,
@@ -1319,7 +1369,7 @@ export default function App() {
 
             setShowScheduleModal(false);
             setScheduleTitle('');
-            alert(`Meeting scheduled successfully! Room Code: ${generatedRoomId}`);
+            alert(`Meeting scheduled! Room Code: ${generatedRoomId}`);
         } catch (err) {
             alert("Scheduling failed: " + err.message);
         } finally {
@@ -1367,7 +1417,7 @@ export default function App() {
     const joinRoomDirect = async (room, name, hostFlag) => {
         const res = await axios.post(`${BACKEND_URL}/api/get-token`, {
             room_name: room,
-            participant_name: name,
+            participant_name: hostFlag ? `${name} (Host)` : name,
             is_host: hostFlag,
             role: hostFlag ? "host" : "participant",
         });
@@ -1449,6 +1499,7 @@ export default function App() {
                         waitingMode={waitingMode}
                         setWaitingMode={setWaitingMode}
                         allowWhiteboard={allowWhiteboard}
+                        setAllowWhiteboard={setAllowWhiteboard}
                         allowReactions={allowReactions}
                         setAllowReactions={setAllowReactions}
                     />
@@ -1460,13 +1511,14 @@ export default function App() {
     return (
         <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'radial-gradient(circle at top, #1e293b 0%, #090d16 100%)', color: '#f8fafc', padding: '12px' }}>
 
+            {/* PRE-MEETING CONFIGURATION MODAL */}
             {showPreSettingsModal && (
                 <div style={modalBackdropStyle}>
                     <div style={modalCardStyle}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', borderBottom: '1px solid #334155', paddingBottom: '10px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <Sliders size={18} color="#38bdf8" />
-                                <h3 style={{ margin: 0, fontSize: '1.05rem', color: '#38bdf8', fontWeight: '700' }}>Pre-Meeting Security & Controls</h3>
+                                <h3 style={{ margin: 0, fontSize: '1.05rem', color: '#38bdf8', fontWeight: '700' }}>Meeting Security & Features</h3>
                             </div>
                             <button onClick={() => setShowPreSettingsModal(false)} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}><X size={18} /></button>
                         </div>
@@ -1476,13 +1528,13 @@ export default function App() {
                                 <label style={settingLabelStyle}>Waiting Room Admission Policy</label>
                                 <select value={waitingMode} onChange={(e) => setWaitingMode(e.target.value)} style={selectInputStyle}>
                                     <option value="direct">Direct Bypass (Instant Join without approval)</option>
-                                    <option value="strict">Strict (Host/Co-Host Approval Required)</option>
+                                    <option value="strict">Strict (Host Approval Required)</option>
                                     <option value="open">Open Collaboration Room</option>
                                 </select>
                             </div>
 
                             <div style={featureBoxStyle}>
-                                <span style={groupHeadingStyle}>COLLABORATION & SHARING</span>
+                                <span style={groupHeadingStyle}>COLLABORATION & WHITEBOARD</span>
                                 <label style={checkboxRowStyle}>
                                     <input type="checkbox" checked={allowScreenshare} onChange={(e) => setAllowScreenshare(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
                                     <span>Allow Participants to Share Screen</span>
@@ -1490,7 +1542,7 @@ export default function App() {
 
                                 <label style={checkboxRowStyle}>
                                     <input type="checkbox" checked={allowWhiteboard} onChange={(e) => setAllowWhiteboard(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
-                                    <span>Enable Interactive Whiteboard Feature</span>
+                                    <span>Enable Interactive Whiteboard</span>
                                 </label>
                             </div>
 
@@ -1508,7 +1560,7 @@ export default function App() {
 
                                 <label style={checkboxRowStyle}>
                                     <input type="checkbox" checked={allowReactions} onChange={(e) => setAllowReactions(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
-                                    <span>Allow Emoji Reactions (Floating Emojis)</span>
+                                    <span>Allow Floating Emoji Reactions</span>
                                 </label>
                             </div>
 
@@ -1533,24 +1585,25 @@ export default function App() {
                 </div>
             )}
 
+            {/* Point 5: SCHEDULE MEETING WITH EMBEDDED PRE-FLIGHT SETTINGS */}
             {showScheduleModal && (
                 <div style={modalBackdropStyle}>
                     <div style={modalCardStyle}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', borderBottom: '1px solid #334155', paddingBottom: '10px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <Calendar size={18} color="#38bdf8" />
-                                <h3 style={{ margin: 0, fontSize: '1.05rem', color: '#38bdf8', fontWeight: '700' }}>Schedule a Meeting</h3>
+                                <h3 style={{ margin: 0, fontSize: '1.05rem', color: '#38bdf8', fontWeight: '700' }}>Schedule Meeting & Set Controls</h3>
                             </div>
                             <button onClick={() => setShowScheduleModal(false)} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}><X size={18} /></button>
                         </div>
 
-                        <form onSubmit={handleSaveScheduleMeeting} style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '15px' }}>
+                        <form onSubmit={handleSaveScheduleMeeting} style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '65vh', overflowY: 'auto', paddingRight: '4px' }}>
                             <div>
                                 <label style={settingLabelStyle}>Meeting Topic / Title</label>
                                 <input
                                     type="text"
                                     value={scheduleTitle}
-                                    placeholder="e.g. Project Review / Viva Session"
+                                    placeholder="e.g. Project Sprint / Project Review"
                                     onChange={(e) => setScheduleTitle(e.target.value)}
                                     style={selectInputStyle}
                                     required
@@ -1595,6 +1648,27 @@ export default function App() {
                                 </select>
                             </div>
 
+                            {/* Embedded Pre-meeting security config in Schedule modal */}
+                            <div style={featureBoxStyle}>
+                                <span style={groupHeadingStyle}>PRE-SET MEETING SECURITY & FEATURES</span>
+                                <label style={checkboxRowStyle}>
+                                    <input type="checkbox" checked={allowScreenshare} onChange={(e) => setAllowScreenshare(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
+                                    <span>Allow Participants Screen Sharing</span>
+                                </label>
+                                <label style={checkboxRowStyle}>
+                                    <input type="checkbox" checked={allowWhiteboard} onChange={(e) => setAllowWhiteboard(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
+                                    <span>Enable Interactive Whiteboard</span>
+                                </label>
+                                <label style={checkboxRowStyle}>
+                                    <input type="checkbox" checked={!chatLocked} onChange={(e) => setChatLocked(!e.target.checked)} style={{ accentColor: '#38bdf8' }} />
+                                    <span>Allow Public Chat</span>
+                                </label>
+                                <label style={checkboxRowStyle}>
+                                    <input type="checkbox" checked={allowReactions} onChange={(e) => setAllowReactions(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
+                                    <span>Allow Emoji Reactions</span>
+                                </label>
+                            </div>
+
                             <button type="submit" disabled={loading} style={{ ...primaryBtnStyle, marginTop: '8px' }}>
                                 📅 Save & Schedule Meeting
                             </button>
@@ -1605,6 +1679,8 @@ export default function App() {
 
             <div style={{ background: '#131b2e', borderRadius: '16px', width: '100%', maxWidth: '840px', display: 'flex', flexDirection: 'column', border: '1px solid #1e293b', overflow: 'hidden' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' }}>
+
+                    {/* Green Room Preview Column */}
                     <div style={{ padding: '1.5rem', background: '#0c1222', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
                         <h3 style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: '0.8rem' }}>Green Room Hardware Preview</h3>
                         <div style={{ width: '100%', maxWidth: '320px', height: '190px', background: '#000', borderRadius: '10px', overflow: 'hidden', position: 'relative' }}>
@@ -1626,6 +1702,7 @@ export default function App() {
                         </div>
                     </div>
 
+                    {/* Controls & Meeting Options Column */}
                     <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                         <h1 style={{ fontSize: '1.6rem', fontWeight: '800', color: '#38bdf8', marginBottom: '0.4rem' }}>MeetMatrix</h1>
                         {isInviteFlow && (
@@ -1674,6 +1751,7 @@ export default function App() {
                                     </button>
                                 </form>
 
+                                {/* Scheduled Meetings Dashboard */}
                                 {scheduledMeetings.length > 0 && (
                                     <div style={{ background: '#090d16', borderRadius: '10px', padding: '10px', border: '1px solid #1e293b', maxHeight: '160px', overflowY: 'auto' }}>
                                         <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: '700', display: 'block', marginBottom: '6px' }}>UPCOMING SCHEDULED MEETINGS</span>
