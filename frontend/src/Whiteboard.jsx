@@ -2,13 +2,12 @@ import { useRef, useState, useEffect } from 'react';
 import { Pen, Eraser, RotateCcw, X, Share2, Square, Circle } from 'lucide-react';
 import { LocalVideoTrack } from 'livekit-client';
 
-// Keep drawing state in module memory across open/close
 let persistentDrawingHistory = [];
 
 export default function Whiteboard({ isHost, onClose, localParticipant }) {
     const canvasRef = useRef(null);
     const [isDrawing, setIsDrawing] = useState(false);
-    const [tool, setTool] = useState('pen'); // pen, eraser, rectangle, circle
+    const [tool, setTool] = useState('pen');
     const [color, setColor] = useState('#000000');
     const [brushSize, setBrushSize] = useState(4);
     const [isSharingBoard, setIsSharingBoard] = useState(false);
@@ -16,13 +15,11 @@ export default function Whiteboard({ isHost, onClose, localParticipant }) {
     const startPosRef = useRef({ x: 0, y: 0 });
     const snapshotRef = useRef(null);
 
-    // Fill white background cleanly
     const fillWhiteBackground = (ctx, width, height) => {
         ctx.fillStyle = '#ffffff';
         ctx.fillRect(0, 0, width, height);
     };
 
-    // Redraw saved persistent history
     const redrawHistory = (ctx) => {
         persistentDrawingHistory.forEach(action => {
             if (action.type === 'stroke') {
@@ -55,24 +52,20 @@ export default function Whiteboard({ isHost, onClose, localParticipant }) {
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
 
-        // Set dimensions
-        canvas.width = canvas.parentElement.clientWidth;
-        canvas.height = canvas.parentElement.clientHeight - 60;
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight - 56;
 
-        // Immediately paint clean white to prevent black-screen capture
         fillWhiteBackground(ctx, canvas.width, canvas.height);
 
-        // Restore past drawing if re-opening
         if (persistentDrawingHistory.length > 0) {
             redrawHistory(ctx);
         }
 
         const handleResize = () => {
             if (!canvas) return;
-            // Save state before resize
             const temp = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            canvas.width = canvas.parentElement.clientWidth;
-            canvas.height = canvas.parentElement.clientHeight - 60;
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight - 56;
             fillWhiteBackground(ctx, canvas.width, canvas.height);
             ctx.putImageData(temp, 0, 0);
         };
@@ -81,14 +74,13 @@ export default function Whiteboard({ isHost, onClose, localParticipant }) {
         return () => window.removeEventListener('resize', handleResize);
     }, []);
 
-    // Stop share helper
     const stopWhiteboardSharing = async () => {
         if (screenTrackRef.current && localParticipant) {
             try {
                 await localParticipant.unpublishTrack(screenTrackRef.current);
                 screenTrackRef.current.stop();
             } catch (e) {
-                console.error("Unpublish track error:", e);
+                console.error(e);
             }
             screenTrackRef.current = null;
         }
@@ -96,13 +88,12 @@ export default function Whiteboard({ isHost, onClose, localParticipant }) {
             try {
                 await localParticipant.setScreenShareEnabled(false);
             } catch (e) {
-                console.error("Screen share disable error:", e);
+                console.error(e);
             }
         }
         setIsSharingBoard(false);
     };
 
-    // Close and stop sharing simultaneously
     const handleCloseWhiteboard = async () => {
         await stopWhiteboardSharing();
         onClose();
@@ -115,7 +106,6 @@ export default function Whiteboard({ isHost, onClose, localParticipant }) {
         } else {
             try {
                 const canvas = canvasRef.current;
-                // Force white refresh before stream creation to guarantee no black screen
                 const ctx = canvas.getContext('2d');
                 if (persistentDrawingHistory.length === 0) {
                     fillWhiteBackground(ctx, canvas.width, canvas.height);
@@ -138,13 +128,11 @@ export default function Whiteboard({ isHost, onClose, localParticipant }) {
                 });
                 setIsSharingBoard(true);
             } catch (err) {
-                console.error("Failed to share canvas stream:", err);
                 alert("Could not share whiteboard: " + err.message);
             }
         }
     };
 
-    // Current stroke points tracker
     const currentPointsRef = useRef([]);
 
     const startDraw = (e) => {
@@ -216,7 +204,6 @@ export default function Whiteboard({ isHost, onClose, localParticipant }) {
         const x = clientX - rect.left;
         const y = clientY - rect.top;
 
-        // Save into persistent history
         if (tool === 'pen' || tool === 'eraser') {
             persistentDrawingHistory.push({
                 type: 'stroke',
@@ -259,11 +246,11 @@ export default function Whiteboard({ isHost, onClose, localParticipant }) {
     };
 
     return (
-        <div style={containerStyle}>
+        <div style={fixedContainerStyle}>
             {/* Whiteboard Header Toolbar */}
             <div style={toolbarStyle}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span style={{ fontWeight: '800', color: '#0284c7', fontSize: '0.9rem' }}>Collaborative Whiteboard</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    <span style={{ fontWeight: '800', color: '#38bdf8', fontSize: '0.85rem' }}>Whiteboard</span>
 
                     {/* Tools */}
                     <div style={{ display: 'flex', background: '#090d16', padding: '2px', borderRadius: '6px', border: '1px solid #334155' }}>
@@ -281,7 +268,6 @@ export default function Whiteboard({ isHost, onClose, localParticipant }) {
                         </button>
                     </div>
 
-                    {/* Color Picker & Sizes */}
                     {tool !== 'eraser' && (
                         <input
                             type="color"
@@ -308,7 +294,6 @@ export default function Whiteboard({ isHost, onClose, localParticipant }) {
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    {/* Share Whiteboard Live Button */}
                     <button
                         onClick={toggleShareCanvas}
                         style={{
@@ -319,17 +304,16 @@ export default function Whiteboard({ isHost, onClose, localParticipant }) {
                         }}
                     >
                         <Share2 size={14} />
-                        {isSharingBoard ? 'Stop Sharing Board' : 'Present Board Live'}
+                        {isSharingBoard ? 'Stop Sharing' : 'Share Board'}
                     </button>
 
-                    {/* Close (X) button with simultaneous screen unshare */}
                     <button onClick={handleCloseWhiteboard} style={closeBtnStyle} title="Close Whiteboard">
                         <X size={18} />
                     </button>
                 </div>
             </div>
 
-            {/* Canvas Surface with fixed solid white backdrop */}
+            {/* Canvas Area */}
             <div style={{ flex: 1, width: '100%', height: '100%', position: 'relative', background: '#ffffff', overflow: 'hidden' }}>
                 <canvas
                     ref={canvasRef}
@@ -347,25 +331,30 @@ export default function Whiteboard({ isHost, onClose, localParticipant }) {
     );
 }
 
-const containerStyle = {
-    position: 'absolute',
-    inset: 0,
-    zIndex: 900,
+const fixedContainerStyle = {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width: '100vw',
+    height: '100vh',
+    zIndex: 999999,
     background: '#ffffff',
     display: 'flex',
-    flexDirection: 'column',
-    boxShadow: '0 20px 45px rgba(0,0,0,0.8)'
+    flexDirection: 'column'
 };
 
 const toolbarStyle = {
-    height: '52px',
+    height: '56px',
     background: '#0f172a',
     color: '#ffffff',
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: '0 12px',
-    borderBottom: '1px solid #334155'
+    borderBottom: '2px solid #0284c7',
+    flexShrink: 0
 };
 
 const iconBtnStyle = {
@@ -394,10 +383,10 @@ const actionBtnStyle = {
 };
 
 const closeBtnStyle = {
-    background: '#1e293b',
-    border: '1px solid #334155',
-    color: '#ef4444',
-    padding: '6px',
+    background: '#ef4444',
+    border: 'none',
+    color: '#ffffff',
+    padding: '6px 8px',
     borderRadius: '6px',
     cursor: 'pointer',
     display: 'flex',
