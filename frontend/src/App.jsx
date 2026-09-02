@@ -100,7 +100,6 @@ function MeetingStage({
                 const data = JSON.parse(decoded);
 
                 if (data.type === 'chat') {
-                    // Direct chat filtering
                     if (data.recipient === 'Everyone' || data.recipient === localParticipant.identity || participant.identity === localParticipant.identity) {
                         setChatMessages(prev => [...prev, {
                             sender: participant.name || participant.identity,
@@ -197,27 +196,17 @@ function MeetingStage({
         setChatInput('');
     };
 
-    // Host Action: Force Mute
     const handleHostMutePeer = (identity) => {
         if (!isHost || !localParticipant?.room) return;
         const payload = JSON.stringify({ type: 'force_mute', targetIdentity: identity });
         localParticipant.room.localParticipant.publishData(new TextEncoder().encode(payload), { reliable: true });
     };
 
-    // Host Action: Kick Participant
     const handleHostKickPeer = (identity) => {
         if (!isHost || !localParticipant?.room) return;
         if (window.confirm("Remove this participant from the meeting?")) {
             const payload = JSON.stringify({ type: 'kick_user', targetIdentity: identity });
             localParticipant.room.localParticipant.publishData(new TextEncoder().encode(payload), { reliable: true });
-        }
-    };
-
-    const handleUpdateName = () => {
-        if (editNameValue.trim() && localParticipant) {
-            localParticipant.setName(editNameValue.trim());
-            setParticipantName(editNameValue.trim());
-            setIsEditingName(false);
         }
     };
 
@@ -314,7 +303,6 @@ function MeetingStage({
                             <button onClick={() => setShowChat(false)} style={drawerCloseBtn}><X size={16} /></button>
                         </div>
 
-                        {/* Recipient Selector (Direct 1-on-1 vs Everyone) */}
                         {allowDirectChat && (
                             <div style={{ padding: '6px 12px', background: '#090d16', borderBottom: '1px solid #1e293b' }}>
                                 <label style={{ fontSize: '0.68rem', color: '#94a3b8', display: 'block', marginBottom: '2px' }}>Send to:</label>
@@ -331,7 +319,6 @@ function MeetingStage({
                             </div>
                         )}
 
-                        {/* Message History */}
                         <div style={{ flex: 1, padding: '12px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                             {chatMessages.length === 0 ? (
                                 <div style={{ color: '#64748b', fontSize: '0.75rem', textAlign: 'center', marginTop: '40px' }}>No messages yet. Send a message to get started!</div>
@@ -339,9 +326,9 @@ function MeetingStage({
                                 chatMessages.map((msg, i) => (
                                     <div key={i} style={{ background: msg.recipient !== 'Everyone' ? '#1e1b4b' : '#1e293b', padding: '8px 10px', borderRadius: '8px', border: msg.recipient !== 'Everyone' ? '1px solid #818cf8' : 'none' }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px', fontSize: '0.7rem', color: '#94a3b8' }}>
-                      <span style={{ fontWeight: '700', color: msg.sender === 'You' ? '#38bdf8' : '#f8fafc' }}>
-                        {msg.sender} {msg.recipient !== 'Everyone' && <span style={{ color: '#a78bfa' }}>[Direct]</span>}
-                      </span>
+                                            <span style={{ fontWeight: '700', color: msg.sender === 'You' ? '#38bdf8' : '#f8fafc' }}>
+                                                {msg.sender} {msg.recipient !== 'Everyone' && <span style={{ color: '#a78bfa' }}>[Direct]</span>}
+                                            </span>
                                             <span>{msg.time}</span>
                                         </div>
                                         <p style={{ margin: 0, fontSize: '0.8rem', color: '#e2e8f0', wordBreak: 'break-word' }}>{msg.text}</p>
@@ -350,7 +337,6 @@ function MeetingStage({
                             )}
                         </div>
 
-                        {/* Chat Input */}
                         <form onSubmit={handleSendChat} style={{ padding: '8px 12px', background: '#090d16', borderTop: '1px solid #1e293b', display: 'flex', gap: '6px' }}>
                             <input
                                 type="text"
@@ -570,18 +556,32 @@ export default function App() {
         setShowPreSettingsModal(false);
         setLoading(true);
         try {
+            // Backend schema strict match to prevent 422
             const res = await axios.post(`${BACKEND_URL}/api/create-room`, {
                 waiting_mode: waitingMode,
                 chat_locked: chatLocked,
-                allow_participant_screenshare: allowScreenshare,
-                allow_direct_chat: allowDirectChat
+                allow_participant_screenshare: allowScreenshare
             });
             const newRoomId = res.data.room_id;
+            const hostDisplayName = participantName || user?.name || 'Host';
+
             setRoomName(newRoomId);
             setIsHost(true);
-            await joinRoomDirect(newRoomId, participantName || user?.name || 'Host', true);
+
+            // Directly retrieve token for host
+            const tokenRes = await axios.post(`${BACKEND_URL}/api/get-token`, {
+                room_name: newRoomId,
+                participant_name: hostDisplayName,
+                is_host: true,
+                role: "host"
+            });
+
+            setToken(tokenRes.data.token);
+            setServerUrl(tokenRes.data.server_url);
+            setInMeeting(true);
         } catch (e) {
-            alert("Create room failed: " + e.message);
+            console.error("Launch Error:", e);
+            alert("Create room failed: " + (e.response?.data?.detail || e.message));
         } finally {
             setLoading(false);
         }
@@ -595,6 +595,7 @@ export default function App() {
                 room_name: roomName.trim(),
                 participant_name: nameToUse,
                 is_host: false,
+                role: "participant"
             });
 
             if (res.data.status === 'waiting') {
@@ -625,18 +626,6 @@ export default function App() {
             setAuthAction('join');
             triggerGoogleAuth();
         }
-    };
-
-    const joinRoomDirect = async (room, name, hostFlag) => {
-        const res = await axios.post(`${BACKEND_URL}/api/get-token`, {
-            room_name: room,
-            participant_name: name,
-            is_host: hostFlag,
-            role: hostFlag ? "host" : "participant",
-        });
-        setToken(res.data.token);
-        setServerUrl(res.data.server_url);
-        setInMeeting(true);
     };
 
     const triggerReaction = (emoji) => {
@@ -738,7 +727,7 @@ export default function App() {
                         serverUrl={serverUrl}
                         data-lk-theme="default"
                         style={{ height: '100%', width: '100%' }}
-                        onDisconnected={isHost ? onTerminate : onLeave}
+                        onDisconnected={() => { setInMeeting(false); setToken(''); }}
                     >
                         <MeetingStage
                             roomName={roomName}
