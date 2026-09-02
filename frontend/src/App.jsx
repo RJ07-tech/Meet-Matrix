@@ -16,7 +16,7 @@ import {
     PenTool, Video, VideoOff, Mic, MicOff, Settings,
     UserCheck, UserX, Clock, MonitorUp, MessageSquare, PhoneOff, X, Plus,
     Users, Hand, Send, Edit3, VolumeX, MoreVertical, Smile, Shield, ShieldCheck,
-    Calendar, Trash2, Sliders, Play, DoorOpen, Lock
+    Calendar, Trash2, Sliders, Play, DoorOpen
 } from 'lucide-react';
 import { useGoogleLogin } from '@react-oauth/google';
 import EmojiPicker, { Theme } from 'emoji-picker-react';
@@ -55,21 +55,17 @@ function MeetingStage({
     const [isHandRaised, setIsHandRaised] = useState(false);
     const [raisedHandsMap, setRaisedHandsMap] = useState({});
 
-    // Co-Hosts mapping
     const [coHostsMap, setCoHostsMap] = useState({});
     const [waitingList, setWaitingList] = useState([]);
     const [showAdmitModal, setShowAdmitModal] = useState(false);
 
-    // Drawers & Modals
     const [showChat, setShowChat] = useState(false);
     const [showParticipants, setShowParticipants] = useState(false);
     const [showInMeetingSettings, setShowInMeetingSettings] = useState(false);
     const [activeMenuIdentity, setActiveMenuIdentity] = useState(null);
 
-    // Floating reaction emojis
     const [floatingEmojis, setFloatingEmojis] = useState([]);
 
-    // 5 Quick Customizable Emojis
     const [quickEmojis, setQuickEmojis] = useState(() => {
         try {
             const saved = localStorage.getItem('meetmatrix_quick_emojis');
@@ -107,24 +103,18 @@ function MeetingStage({
         }
     }, [quickEmojis]);
 
-    // Chat Drawer Emoji Picker
     const [showChatEmojiPicker, setShowChatEmojiPicker] = useState(false);
-
-    // In-Drawer Rename
     const [isEditingName, setIsEditingName] = useState(false);
     const [editNameValue, setEditNameValue] = useState(participantName);
 
-    // Chat
     const [chatMessages, setChatMessages] = useState([]);
     const [chatInput, setChatInput] = useState('');
     const [chatRecipient, setChatRecipient] = useState('Everyone');
 
-    // Recording
     const [isRecording, setIsRecording] = useState(false);
     const mediaRecorderRef = useRef(null);
     const recordedChunksRef = useRef([]);
 
-    // Role helpers
     const isCoHost = Boolean(coHostsMap[localParticipant?.identity]);
     const isEffectiveModerator = isHost || isCoHost;
 
@@ -153,7 +143,6 @@ function MeetingStage({
         }
     }, [localParticipant, initialCam, participantName]);
 
-    // Synchronize meeting settings across peers
     useEffect(() => {
         let interval;
         if (roomName) {
@@ -161,22 +150,19 @@ function MeetingStage({
                 try {
                     const res = await axios.get(`${BACKEND_URL}/api/room-settings/${roomName}`);
                     if (res.data) {
-                        setAllowScreenshare(res.data.allow_participant_screenshare);
-                        setChatLocked(res.data.chat_locked);
-                        setWaitingMode(res.data.waiting_mode);
+                        setAllowScreenshare(Boolean(res.data.allow_participant_screenshare));
+                        setChatLocked(Boolean(res.data.chat_locked));
+                        setWaitingMode(res.data.waiting_mode || 'direct');
                         if (res.data.allow_reactions !== undefined) {
-                            setAllowReactions(res.data.allow_reactions);
+                            setAllowReactions(Boolean(res.data.allow_reactions));
                         }
                     }
-                } catch (e) {
-                    console.error(e);
-                }
+                } catch (e) {}
             }, 3000);
         }
         return () => clearInterval(interval);
     }, [roomName, setAllowScreenshare, setChatLocked, setWaitingMode, setAllowReactions]);
 
-    // Waiting list auto-polling for Host & Co-Hosts
     useEffect(() => {
         let interval;
         if (isEffectiveModerator && roomName) {
@@ -185,9 +171,7 @@ function MeetingStage({
                     const res = await axios.get(`${BACKEND_URL}/api/waiting-list/${roomName}`);
                     const pending = res.data.waiting || [];
                     setWaitingList(pending);
-                } catch (e) {
-                    console.error(e);
-                }
+                } catch (e) {}
             }, 2500);
         }
         return () => clearInterval(interval);
@@ -240,7 +224,6 @@ function MeetingStage({
                 } else if (data.type === 'hand_raise') {
                     setRaisedHandsMap(prev => ({ ...prev, [participant.identity]: data.raised }));
                 } else if (data.type === 'chat') {
-                    // Filter chat: public, specific identity, or 'HostOnly' directed to moderators
                     const isForMe = data.recipient === 'Everyone' ||
                         data.recipient === localParticipant?.identity ||
                         participant.identity === localParticipant?.identity ||
@@ -256,7 +239,7 @@ function MeetingStage({
                     }
                 } else if (data.type === 'force_mute' && data.targetIdentity === localParticipant?.identity) {
                     localParticipant.setMicrophoneEnabled(false);
-                    alert("Your microphone was muted by a meeting moderator.");
+                    alert("Your microphone was muted by a moderator.");
                 } else if (data.type === 'mute_all' && !isEffectiveModerator) {
                     localParticipant.setMicrophoneEnabled(false);
                     alert("A moderator has muted all participants.");
@@ -531,7 +514,7 @@ function MeetingStage({
                 ))}
             </div>
 
-            {/* Top Header Bar */}
+            {/* Header */}
             <div className="mobile-header" style={headerBarStyle}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
                     <span style={{ fontWeight: '800', color: '#38bdf8', fontSize: '0.85rem' }}>MeetMatrix</span>
@@ -544,7 +527,6 @@ function MeetingStage({
                 </div>
 
                 <div style={{ display: 'flex', gap: '5px', alignItems: 'center', flexShrink: 0, position: 'relative' }}>
-                    {/* Emojis Toolbar (Visible only if allowReactions is true) */}
                     {allowReactions && (
                         <div style={{ display: 'flex', gap: '3px', background: '#1e293b', padding: '2px 5px', borderRadius: '8px', alignItems: 'center', border: '1px solid #334155' }}>
                             {quickEmojis.map((e, idx) => (
@@ -626,7 +608,7 @@ function MeetingStage({
                         </div>
                     )}
 
-                    {/* Point 5: Waiting Lobby Button Placed Right Next to Settings */}
+                    {/* Waiting Lobby Button: Exactly Next to Settings */}
                     {isEffectiveModerator && (
                         <button
                             onClick={() => setShowAdmitModal(!showAdmitModal)}
@@ -643,7 +625,6 @@ function MeetingStage({
                         </button>
                     )}
 
-                    {/* Settings Gear Icon (Restricted Controls for Co-Host) */}
                     {isEffectiveModerator && (
                         <button
                             onClick={() => setShowInMeetingSettings(!showInMeetingSettings)}
@@ -707,7 +688,7 @@ function MeetingStage({
                 </div>
             )}
 
-            {/* Point 7: In-Meeting Live Settings (Strict Host vs Co-Host Permissions) */}
+            {/* In-Meeting Live Settings: Host vs Co-Host Scoped Controls */}
             {showInMeetingSettings && isEffectiveModerator && (
                 <div style={{ position: 'fixed', top: '55px', right: '14px', background: '#1e293b', padding: '16px', borderRadius: '12px', border: '2px solid #38bdf8', boxShadow: '0 20px 30px rgba(0,0,0,0.85)', zIndex: 99999, width: '290px', color: '#f8fafc' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
@@ -717,7 +698,6 @@ function MeetingStage({
                         <button onClick={() => setShowInMeetingSettings(false)} style={{ background: 'transparent', border: 'none', color: '#f8fafc', cursor: 'pointer' }}><X size={16} /></button>
                     </div>
 
-                    {/* Common Moderator action: Mute All */}
                     <button
                         onClick={handleMuteAll}
                         style={{ width: '100%', background: '#ef4444', color: '#fff', border: 'none', padding: '8px', borderRadius: '6px', fontSize: '0.8rem', fontWeight: '600', cursor: 'pointer', marginBottom: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
@@ -725,7 +705,6 @@ function MeetingStage({
                         <VolumeX size={14} /> Mute All Participants
                     </button>
 
-                    {/* HOST ONLY PRIVILEGES: Screen Share, Chat Lock, Emoji Reaction, Waiting Mode */}
                     {isHost ? (
                         <>
                             <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', marginBottom: '10px', cursor: 'pointer', color: '#f8fafc' }}>
@@ -785,7 +764,7 @@ function MeetingStage({
                         </>
                     ) : (
                         <p style={{ fontSize: '0.72rem', color: '#94a3b8', margin: '4px 0 0 0' }}>
-                            ℹ️ Screen share policy, room lock, and reaction rules are managed exclusively by the meeting Host.
+                            ℹ️ Screen share, chat lock, and reactions are reserved for the Host. You can mute participants and admit users from the Lobby.
                         </p>
                     )}
                 </div>
@@ -907,7 +886,7 @@ function MeetingStage({
                     </div>
                 )}
 
-                {/* Point 4: Chat Drawer with "Host Only" and Public selection */}
+                {/* In-Meeting Chat Drawer */}
                 {showChat && (
                     <div style={sideDrawerStyle}>
                         <div style={drawerHeaderStyle}>
@@ -1000,7 +979,6 @@ function MeetingStage({
                     <span className="mobile-hide" style={{ fontSize: '0.65rem' }}>{!isCameraEnabled ? 'Start Video' : 'Stop Video'}</span>
                 </button>
 
-                {/* Point 2: Raise Hand always enabled regardless of emoji settings */}
                 {!isHost && (
                     <button
                         onClick={toggleHandRaise}
@@ -1078,18 +1056,18 @@ export default function App() {
     const [loading, setLoading] = useState(false);
     const [isInviteFlow, setIsInviteFlow] = useState(false);
 
-    // Point 1 & 2: Full Manual Pre-Meeting Controls (Auto-select completely OFF)
+    // Pre-Flight Meeting Controls (Explicitly FALSE by default)
     const [showPreSettingsModal, setShowPreSettingsModal] = useState(false);
     const [waitingMode, setWaitingMode] = useState('direct');
     const [chatLocked, setChatLocked] = useState(false);
-    const [allowScreenshare, setAllowScreenshare] = useState(false); // Default OFF
-    const [allowDirectChat, setAllowDirectChat] = useState(false);   // Default OFF
+    const [allowScreenshare, setAllowScreenshare] = useState(false);
+    const [allowDirectChat, setAllowDirectChat] = useState(false);
     const [muteOnEntry, setMuteOnEntry] = useState(false);
     const [cameraOffOnEntry, setCameraOffOnEntry] = useState(false);
-    const [allowWhiteboard, setAllowWhiteboard] = useState(false);   // Default OFF
-    const [allowReactions, setAllowReactions] = useState(false);     // Point 2: Reactions Default OFF
+    const [allowWhiteboard, setAllowWhiteboard] = useState(false);
+    const [allowReactions, setAllowReactions] = useState(false);
 
-    // Point 3: Scheduling System
+    // Scheduling System
     const [showScheduleModal, setShowScheduleModal] = useState(false);
     const [scheduleTitle, setScheduleTitle] = useState('');
     const [scheduleDate, setScheduleDate] = useState('');
@@ -1170,9 +1148,7 @@ export default function App() {
                         setIsWaiting(false);
                         setWaitingPid(null);
                     }
-                } catch (e) {
-                    console.error(e);
-                }
+                } catch (e) {}
             }, 2500);
         }
         return () => clearInterval(interval);
@@ -1192,7 +1168,7 @@ export default function App() {
                     previewStreamRef.current = stream;
                     if (videoPreviewRef.current) videoPreviewRef.current.srcObject = stream;
                 })
-                .catch((err) => console.log("Green room device notice:", err));
+                .catch((err) => console.log("Lobby device notice:", err));
         } else {
             stopLobbyPreviewTracks();
         }
@@ -1310,7 +1286,6 @@ export default function App() {
         }
     };
 
-    // Point 3: Robust Scheduler with instant Room generation
     const handleSaveScheduleMeeting = async (e) => {
         e.preventDefault();
         if (!scheduleDate || !scheduleTime) {
@@ -1336,29 +1311,8 @@ export default function App() {
                 allow_reactions: allowReactions
             };
 
-            // 1. Save to Backend DB
-            try {
-                await axios.post(`${BACKEND_URL}/api/schedule-meeting`, newScheduled);
-            } catch (backendErr) {
-                console.warn("Backend schedule save note:", backendErr);
-            }
+            await axios.post(`${BACKEND_URL}/api/schedule-meeting`, newScheduled);
 
-            // 2. Also register room in backend so room exists
-            try {
-                await axios.post(`${BACKEND_URL}/api/create-room`, {
-                    room_id: generatedRoomId,
-                    waiting_mode: waitingMode,
-                    chat_locked: chatLocked,
-                    allow_participant_screenshare: allowScreenshare,
-                    allow_direct_chat: allowDirectChat,
-                    allow_whiteboard: allowWhiteboard,
-                    allow_reactions: allowReactions
-                });
-            } catch (createErr) {
-                console.log("Room pre-registered");
-            }
-
-            // 3. Save to localStorage
             const updatedList = [newScheduled, ...scheduledMeetings];
             setScheduledMeetings(updatedList);
             localStorage.setItem('meetmatrix_scheduled', JSON.stringify(updatedList));
@@ -1376,9 +1330,7 @@ export default function App() {
     const deleteScheduledMeeting = async (roomId) => {
         try {
             await axios.delete(`${BACKEND_URL}/api/scheduled-meetings/${roomId}`);
-        } catch (e) {
-            console.log("Deleted locally");
-        }
+        } catch (e) {}
         const filtered = scheduledMeetings.filter(m => m.room_id !== roomId);
         setScheduledMeetings(filtered);
         localStorage.setItem('meetmatrix_scheduled', JSON.stringify(filtered));
@@ -1508,7 +1460,6 @@ export default function App() {
     return (
         <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'radial-gradient(circle at top, #1e293b 0%, #090d16 100%)', color: '#f8fafc', padding: '12px' }}>
 
-            {/* Point 1 & 2: Dedicated Pre-Meeting Controls Modal (NO AUTO-SELECTION) */}
             {showPreSettingsModal && (
                 <div style={modalBackdropStyle}>
                     <div style={modalCardStyle}>
@@ -1582,7 +1533,6 @@ export default function App() {
                 </div>
             )}
 
-            {/* Point 3: Working Schedule Meeting Modal */}
             {showScheduleModal && (
                 <div style={modalBackdropStyle}>
                     <div style={modalCardStyle}>
@@ -1655,8 +1605,6 @@ export default function App() {
 
             <div style={{ background: '#131b2e', borderRadius: '16px', width: '100%', maxWidth: '840px', display: 'flex', flexDirection: 'column', border: '1px solid #1e293b', overflow: 'hidden' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' }}>
-
-                    {/* Green Room Preview Column */}
                     <div style={{ padding: '1.5rem', background: '#0c1222', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
                         <h3 style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: '0.8rem' }}>Green Room Hardware Preview</h3>
                         <div style={{ width: '100%', maxWidth: '320px', height: '190px', background: '#000', borderRadius: '10px', overflow: 'hidden', position: 'relative' }}>
@@ -1678,7 +1626,6 @@ export default function App() {
                         </div>
                     </div>
 
-                    {/* Controls & Meeting Options Column */}
                     <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                         <h1 style={{ fontSize: '1.6rem', fontWeight: '800', color: '#38bdf8', marginBottom: '0.4rem' }}>MeetMatrix</h1>
                         {isInviteFlow && (
@@ -1727,7 +1674,6 @@ export default function App() {
                                     </button>
                                 </form>
 
-                                {/* Point 3: Working Upcoming Scheduled Meetings List */}
                                 {scheduledMeetings.length > 0 && (
                                     <div style={{ background: '#090d16', borderRadius: '10px', padding: '10px', border: '1px solid #1e293b', maxHeight: '160px', overflowY: 'auto' }}>
                                         <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: '700', display: 'block', marginBottom: '6px' }}>UPCOMING SCHEDULED MEETINGS</span>

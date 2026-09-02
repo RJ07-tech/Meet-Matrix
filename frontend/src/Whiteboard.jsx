@@ -7,7 +7,7 @@ let persistentDrawingHistory = [];
 export default function Whiteboard({ isModerator, onClose, localParticipant }) {
     const canvasRef = useRef(null);
     const [isDrawing, setIsDrawing] = useState(false);
-    const [tool, setTool] = useState('pen'); // pen, eraser, rectangle, circle, text
+    const [tool, setTool] = useState('pen');
     const [color, setColor] = useState('#000000');
     const [brushSize, setBrushSize] = useState(4);
     const [isSharingBoard, setIsSharingBoard] = useState(false);
@@ -16,10 +16,9 @@ export default function Whiteboard({ isModerator, onClose, localParticipant }) {
     const snapshotRef = useRef(null);
     const animFrameIdRef = useRef(null);
 
-    // Text Input State
-    const textInputRef = useRef(null);
     const [textPos, setTextPos] = useState(null);
-    const [textValue, setTextValue] = useState('');
+    const [textVal, setTextVal] = useState('');
+    const textInputRef = useRef(null);
 
     const fillWhiteBackground = (ctx, width, height) => {
         ctx.fillStyle = '#ffffff';
@@ -34,8 +33,8 @@ export default function Whiteboard({ isModerator, onClose, localParticipant }) {
                 ctx.lineCap = 'round';
                 ctx.lineJoin = 'round';
                 ctx.beginPath();
-                action.points.forEach((pt, index) => {
-                    if (index === 0) ctx.moveTo(pt.x, pt.y);
+                action.points.forEach((pt, idx) => {
+                    if (idx === 0) ctx.moveTo(pt.x, pt.y);
                     else ctx.lineTo(pt.x, pt.y);
                 });
                 ctx.stroke();
@@ -51,7 +50,7 @@ export default function Whiteboard({ isModerator, onClose, localParticipant }) {
                 ctx.stroke();
             } else if (action.type === 'text') {
                 ctx.fillStyle = action.color;
-                ctx.font = 'bold 18px Inter, system-ui, sans-serif';
+                ctx.font = 'bold 18px sans-serif';
                 ctx.fillText(action.text, action.x, action.y);
             }
         });
@@ -167,27 +166,27 @@ export default function Whiteboard({ isModerator, onClose, localParticipant }) {
         }
     };
 
-    const handleCommitText = () => {
-        if (!textPos || !textValue.trim()) {
+    const commitTextNote = () => {
+        if (!textPos || !textVal.trim()) {
             setTextPos(null);
             return;
         }
         const canvas = canvasRef.current;
         const ctx = canvas.getContext('2d');
         ctx.fillStyle = color;
-        ctx.font = 'bold 18px Inter, system-ui, sans-serif';
-        ctx.fillText(textValue, textPos.x, textPos.y + 14);
+        ctx.font = 'bold 18px sans-serif';
+        ctx.fillText(textVal, textPos.x, textPos.y + 16);
 
         persistentDrawingHistory.push({
             type: 'text',
-            text: textValue,
+            text: textVal,
             x: textPos.x,
-            y: textPos.y + 14,
+            y: textPos.y + 16,
             color
         });
 
         setTextPos(null);
-        setTextValue('');
+        setTextVal('');
     };
 
     const currentPointsRef = useRef([]);
@@ -199,8 +198,11 @@ export default function Whiteboard({ isModerator, onClose, localParticipant }) {
         const y = (e.clientY || e.touches?.[0]?.clientY) - rect.top;
 
         if (tool === 'text') {
+            if (textPos) {
+                commitTextNote();
+            }
             setTextPos({ x, y });
-            setTextValue('');
+            setTextVal('');
             setTimeout(() => textInputRef.current?.focus(), 50);
             return;
         }
@@ -238,21 +240,14 @@ export default function Whiteboard({ isModerator, onClose, localParticipant }) {
             ctx.putImageData(snapshotRef.current, 0, 0);
             ctx.strokeStyle = color;
             ctx.lineWidth = brushSize;
-            ctx.strokeRect(
-                startPosRef.current.x,
-                startPosRef.current.y,
-                x - startPosRef.current.x,
-                y - startPosRef.current.y
-            );
+            ctx.strokeRect(startPosRef.current.x, startPosRef.current.y, x - startPosRef.current.x, y - startPosRef.current.y);
         } else if (tool === 'circle') {
             ctx.putImageData(snapshotRef.current, 0, 0);
             ctx.strokeStyle = color;
             ctx.lineWidth = brushSize;
-            const radius = Math.sqrt(
-                Math.pow(x - startPosRef.current.x, 2) + Math.pow(y - startPosRef.current.y, 2)
-            );
+            const r = Math.hypot(x - startPosRef.current.x, y - startPosRef.current.y);
             ctx.beginPath();
-            ctx.arc(startPosRef.current.x, startPosRef.current.y, radius, 0, 2 * Math.PI);
+            ctx.arc(startPosRef.current.x, startPosRef.current.y, r, 0, 2 * Math.PI);
             ctx.stroke();
         }
     };
@@ -263,10 +258,8 @@ export default function Whiteboard({ isModerator, onClose, localParticipant }) {
 
         const canvas = canvasRef.current;
         const rect = canvas.getBoundingClientRect();
-        const clientX = e?.clientX || e?.changedTouches?.[0]?.clientX || startPosRef.current.x;
-        const clientY = e?.clientY || e?.changedTouches?.[0]?.clientY || startPosRef.current.y;
-        const x = clientX - rect.left;
-        const y = clientY - rect.top;
+        const x = ((e?.clientX || e?.changedTouches?.[0]?.clientX) || startPosRef.current.x) - rect.left;
+        const y = ((e?.clientY || e?.changedTouches?.[0]?.clientY) || startPosRef.current.y) - rect.top;
 
         if (tool === 'pen' || tool === 'eraser') {
             persistentDrawingHistory.push({
@@ -287,16 +280,14 @@ export default function Whiteboard({ isModerator, onClose, localParticipant }) {
                 h: y - startPosRef.current.y
             });
         } else if (tool === 'circle') {
-            const radius = Math.sqrt(
-                Math.pow(x - startPosRef.current.x, 2) + Math.pow(y - startPosRef.current.y, 2)
-            );
+            const r = Math.hypot(x - startPosRef.current.x, y - startPosRef.current.y);
             persistentDrawingHistory.push({
                 type: 'circle',
                 color,
                 size: brushSize,
                 x: startPosRef.current.x,
                 y: startPosRef.current.y,
-                r: radius
+                r
             });
         }
     };
@@ -307,6 +298,7 @@ export default function Whiteboard({ isModerator, onClose, localParticipant }) {
         const ctx = canvas.getContext('2d');
         fillWhiteBackground(ctx, canvas.width, canvas.height);
         persistentDrawingHistory = [];
+        setTextPos(null);
     };
 
     return (
@@ -319,7 +311,7 @@ export default function Whiteboard({ isModerator, onClose, localParticipant }) {
                         <button onClick={() => setTool('pen')} style={{ ...iconBtnStyle, background: tool === 'pen' ? '#0284c7' : 'transparent' }} title="Pen">
                             <Pen size={14} />
                         </button>
-                        <button onClick={() => setTool('text')} style={{ ...iconBtnStyle, background: tool === 'text' ? '#0284c7' : 'transparent' }} title="Text Note">
+                        <button onClick={() => setTool('text')} style={{ ...iconBtnStyle, background: tool === 'text' ? '#0284c7' : 'transparent' }} title="Text Tool">
                             <Type size={14} />
                         </button>
                         <button onClick={() => setTool('eraser')} style={{ ...iconBtnStyle, background: tool === 'eraser' ? '#0284c7' : 'transparent' }} title="Eraser">
@@ -339,7 +331,6 @@ export default function Whiteboard({ isModerator, onClose, localParticipant }) {
                             value={color}
                             onChange={(e) => setColor(e.target.value)}
                             style={{ width: '26px', height: '26px', border: 'none', background: 'transparent', cursor: 'pointer' }}
-                            title="Choose Color"
                         />
                     )}
 
@@ -350,7 +341,6 @@ export default function Whiteboard({ isModerator, onClose, localParticipant }) {
                         value={brushSize}
                         onChange={(e) => setBrushSize(parseInt(e.target.value))}
                         style={{ width: '60px', accentColor: '#38bdf8' }}
-                        title="Brush Size"
                     />
 
                     <button onClick={clearBoard} style={actionBtnStyle} title="Clear Canvas">
@@ -397,17 +387,17 @@ export default function Whiteboard({ isModerator, onClose, localParticipant }) {
                     <input
                         ref={textInputRef}
                         type="text"
-                        value={textValue}
+                        value={textVal}
                         placeholder="Type text & hit Enter"
-                        onChange={(e) => setTextValue(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === 'Enter') handleCommitText(); }}
-                        onBlur={handleCommitText}
+                        onChange={(e) => setTextVal(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') commitTextNote(); }}
+                        onBlur={commitTextNote}
                         style={{
                             position: 'absolute',
                             left: `${textPos.x}px`,
                             top: `${textPos.y}px`,
                             padding: '4px 8px',
-                            background: 'rgba(255,255,255,0.95)',
+                            background: '#ffffff',
                             border: '2px solid #0284c7',
                             borderRadius: '4px',
                             color: color,
