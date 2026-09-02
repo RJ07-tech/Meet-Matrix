@@ -48,12 +48,12 @@ function MeetingStage({
     const [isHandRaised, setIsHandRaised] = useState(false);
     const [raisedHandsMap, setRaisedHandsMap] = useState({});
 
-    // Drawers & Modals
+    // Drawers
     const [showChat, setShowChat] = useState(false);
     const [showParticipants, setShowParticipants] = useState(false);
     const [activeMenuIdentity, setActiveMenuIdentity] = useState(null);
 
-    // Floating reaction emojis state
+    // Floating reaction emojis
     const [floatingEmojis, setFloatingEmojis] = useState([]);
 
     // 5 Quick Customizable Emojis
@@ -66,9 +66,9 @@ function MeetingStage({
         }
     });
 
-    // Customization Mode: Target index (0 to 4) or null
-    const [editingTargetIndex, setEditingTargetIndex] = useState(null);
-    const [showReactionPicker, setShowReactionPicker] = useState(false);
+    // Customization Mode
+    const [isCustomizeOpen, setIsCustomizeOpen] = useState(false);
+    const [activeSlotToReplace, setActiveSlotToReplace] = useState(0);
 
     // Chat Drawer Emoji Picker
     const [showChatEmojiPicker, setShowChatEmojiPicker] = useState(false);
@@ -185,31 +185,13 @@ function MeetingStage({
         }
     };
 
-    // Slot click handler
-    const handleSlotClick = (index, emoji) => {
-        if (editingTargetIndex !== null) {
-            // Selecting slot to edit
-            setEditingTargetIndex(index);
-            setShowReactionPicker(true);
-        } else {
-            // Standard reaction click
-            triggerReactionBroadcast(emoji);
-        }
-    };
-
-    // Emoji picked from Library
-    const handleReactionEmojiPicked = (emojiData) => {
-        if (editingTargetIndex !== null) {
-            const updated = [...quickEmojis];
-            updated[editingTargetIndex] = emojiData.emoji;
-            setQuickEmojis(updated);
-            localStorage.setItem('meetmatrix_quick_emojis', JSON.stringify(updated));
-            setEditingTargetIndex(null);
-            setShowReactionPicker(false);
-        } else {
-            triggerReactionBroadcast(emojiData.emoji);
-            setShowReactionPicker(false);
-        }
+    // Slot Picker callback
+    const handleEmojiSelectedForSlot = (emojiData) => {
+        const updated = [...quickEmojis];
+        updated[activeSlotToReplace] = emojiData.emoji;
+        setQuickEmojis(updated);
+        localStorage.setItem('meetmatrix_quick_emojis', JSON.stringify(updated));
+        setIsCustomizeOpen(false);
     };
 
     const handleChatEmojiPicked = (emojiData) => {
@@ -393,7 +375,6 @@ function MeetingStage({
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', position: 'relative', overflow: 'hidden' }}>
             <RoomAudioRenderer />
 
-            {/* In-Meeting Floating Emojis Layer */}
             <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none', zIndex: 99999 }}>
                 {floatingEmojis.map(item => (
                     <div key={item.id} className="floating-emoji-item" style={{ left: `${item.left}%` }}>
@@ -403,7 +384,7 @@ function MeetingStage({
                 ))}
             </div>
 
-            {/* Header with Direct Slot-Replacement Mode */}
+            {/* Header with Visual Slot Replacement */}
             <div className="mobile-header" style={headerBarStyle}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
                     <span style={{ fontWeight: '800', color: '#38bdf8', fontSize: '0.85rem' }}>MeetMatrix</span>
@@ -413,41 +394,29 @@ function MeetingStage({
                 </div>
 
                 <div style={{ display: 'flex', gap: '5px', alignItems: 'center', flexShrink: 0, position: 'relative' }}>
-                    {/* Primary Emojis Toolbar */}
                     <div style={{ display: 'flex', gap: '3px', background: '#1e293b', padding: '2px 5px', borderRadius: '8px', alignItems: 'center', border: '1px solid #334155' }}>
                         {quickEmojis.map((e, idx) => (
                             <button
                                 key={idx}
-                                onClick={() => handleSlotClick(idx, e)}
-                                title={editingTargetIndex !== null ? `Tap to replace Slot #${idx + 1}` : 'Click to react'}
+                                onClick={() => triggerReactionBroadcast(e)}
+                                title="Click to react"
                                 style={{
-                                    background: editingTargetIndex === idx ? '#38bdf8' : (editingTargetIndex !== null ? '#334155' : 'transparent'),
-                                    border: editingTargetIndex === idx ? '2px solid #ffffff' : 'none',
+                                    background: 'transparent',
+                                    border: 'none',
                                     cursor: 'pointer',
                                     fontSize: '0.98rem',
                                     padding: '2px 4px',
-                                    borderRadius: '5px',
-                                    transform: editingTargetIndex === idx ? 'scale(1.15)' : 'scale(1)',
-                                    transition: 'all 0.15s ease'
+                                    borderRadius: '4px'
                                 }}
                             >
                                 {e}
                             </button>
                         ))}
 
-                        {/* Edit Button with Mode Indicator */}
                         <button
-                            onClick={() => {
-                                if (editingTargetIndex !== null) {
-                                    setEditingTargetIndex(null);
-                                    setShowReactionPicker(false);
-                                } else {
-                                    setEditingTargetIndex(0); // Default to first slot
-                                    setShowReactionPicker(true);
-                                }
-                            }}
+                            onClick={() => setIsCustomizeOpen(!isCustomizeOpen)}
                             style={{
-                                background: editingTargetIndex !== null ? '#ef4444' : '#0284c7',
+                                background: isCustomizeOpen ? '#ef4444' : '#0284c7',
                                 border: 'none',
                                 color: '#ffffff',
                                 borderRadius: '5px',
@@ -460,40 +429,44 @@ function MeetingStage({
                                 fontWeight: '700',
                                 marginLeft: '3px'
                             }}
-                            title="Edit / Replace Quick Emojis"
+                            title="Customize your 5 Quick Emojis"
                         >
-                            <Edit3 size={11} /> {editingTargetIndex !== null ? 'Done' : 'Edit'}
-                        </button>
-
-                        {/* Full Picker Button */}
-                        <button
-                            onClick={() => {
-                                setEditingTargetIndex(null);
-                                setShowReactionPicker(!showReactionPicker);
-                            }}
-                            style={{ background: '#334155', border: 'none', color: '#38bdf8', borderRadius: '4px', padding: '3px 5px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
-                            title="Open Full Reaction Library"
-                        >
-                            <Plus size={12} />
+                            <Edit3 size={11} /> {isCustomizeOpen ? 'Close' : 'Edit'}
                         </button>
                     </div>
 
-                    {/* Reaction Picker Popover */}
-                    {showReactionPicker && (
-                        <div style={{ position: 'absolute', top: '42px', right: 0, zIndex: 99999, boxShadow: '0 15px 35px rgba(0,0,0,0.8)', borderRadius: '8px', overflow: 'hidden' }}>
-                            <div style={{ background: '#0f172a', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', borderBottom: '1px solid #334155' }}>
-                                <span style={{ fontSize: '0.75rem', color: '#38bdf8', fontWeight: 'bold' }}>
-                                    {editingTargetIndex !== null ? `Replacing Slot #${editingTargetIndex + 1} (${quickEmojis[editingTargetIndex]})` : 'Pick Emoji Reaction'}
-                                </span>
-                                <button onClick={() => { setShowReactionPicker(false); setEditingTargetIndex(null); }} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}>
-                                    <X size={16} />
-                                </button>
+                    {/* Visual Slot Selector & Picker Popup */}
+                    {isCustomizeOpen && (
+                        <div style={{ position: 'absolute', top: '42px', right: 0, zIndex: 99999, boxShadow: '0 15px 35px rgba(0,0,0,0.8)', borderRadius: '8px', overflow: 'hidden', background: '#0f172a', border: '1px solid #334155' }}>
+                            <div style={{ padding: '8px 10px', borderBottom: '1px solid #334155' }}>
+                                <span style={{ fontSize: '0.72rem', color: '#94a3b8', display: 'block', marginBottom: '6px' }}>Select Slot to Replace:</span>
+                                <div style={{ display: 'flex', gap: '6px' }}>
+                                    {quickEmojis.map((em, i) => (
+                                        <button
+                                            key={i}
+                                            onClick={() => setActiveSlotToReplace(i)}
+                                            style={{
+                                                flex: 1,
+                                                padding: '6px',
+                                                background: activeSlotToReplace === i ? '#0284c7' : '#1e293b',
+                                                border: activeSlotToReplace === i ? '2px solid #38bdf8' : '1px solid #334155',
+                                                color: '#fff',
+                                                borderRadius: '6px',
+                                                fontSize: '0.9rem',
+                                                cursor: 'pointer'
+                                            }}
+                                        >
+                                            {em}
+                                            <span style={{ display: 'block', fontSize: '0.55rem', color: activeSlotToReplace === i ? '#fff' : '#94a3b8' }}>#{i + 1}</span>
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
                             <EmojiPicker
-                                onEmojiClick={handleReactionEmojiPicked}
+                                onEmojiClick={handleEmojiSelectedForSlot}
                                 theme={Theme.DARK}
                                 width={310}
-                                height={380}
+                                height={350}
                                 searchDisabled={false}
                                 previewConfig={{ showPreview: false }}
                             />
@@ -786,6 +759,7 @@ export default function App() {
     const [participantName, setParticipantName] = useState('');
     const [isHost, setIsHost] = useState(false);
     const [loading, setLoading] = useState(false);
+    const [isInviteFlow, setIsInviteFlow] = useState(false);
 
     const [showPreSettingsModal, setShowPreSettingsModal] = useState(false);
     const [waitingMode, setWaitingMode] = useState('direct');
@@ -823,11 +797,39 @@ export default function App() {
         return () => window.removeEventListener('beforeunload', handleBeforeUnload);
     }, [inMeeting, isHost, roomName]);
 
+    // Check if user came from an invite link
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
         const roomParam = params.get('room');
-        if (roomParam) setRoomName(roomParam);
+        if (roomParam) {
+            setRoomName(roomParam);
+            setIsInviteFlow(true);
+        }
     }, []);
+
+    // Waiting Room Poller for Guest
+    useEffect(() => {
+        let interval;
+        if (isWaiting && waitingPid && roomName) {
+            interval = setInterval(async () => {
+                try {
+                    const res = await axios.get(`${BACKEND_URL}/api/check-admission/${roomName}/${waitingPid}`);
+                    if (res.data.status === 'admitted') {
+                        setIsWaiting(false);
+                        const currentName = user ? user.name : participantName;
+                        await joinRoomDirect(roomName, currentName, false);
+                    } else if (res.data.status === 'rejected') {
+                        alert('Host denied your request.');
+                        setIsWaiting(false);
+                        setWaitingPid(null);
+                    }
+                } catch (e) {
+                    console.error(e);
+                }
+            }, 2500);
+        }
+        return () => clearInterval(interval);
+    }, [isWaiting, waitingPid, roomName, user, participantName]);
 
     useEffect(() => {
         if (!inMeeting && !isWaiting) {
@@ -880,7 +882,7 @@ export default function App() {
 
                 if (authAction === 'create') {
                     setShowPreSettingsModal(true);
-                } else if (authAction === 'join') {
+                } else if (authAction === 'join' || isInviteFlow) {
                     await proceedJoin(userData.name);
                 }
             } catch (err) {
@@ -964,8 +966,20 @@ export default function App() {
         }
     };
 
+    const joinRoomDirect = async (room, name, hostFlag) => {
+        const res = await axios.post(`${BACKEND_URL}/api/get-token`, {
+            room_name: room,
+            participant_name: name,
+            is_host: hostFlag,
+            role: hostFlag ? "host" : "participant",
+        });
+        setToken(res.data.token);
+        setServerUrl(res.data.server_url);
+        setInMeeting(true);
+    };
+
     const handleJoinClick = (e) => {
-        e.preventDefault();
+        e?.preventDefault();
         if (!roomName.trim()) {
             alert("Please enter a room code.");
             return;
@@ -991,6 +1005,17 @@ export default function App() {
             setRoomName('');
         }
     };
+
+    if (isWaiting) {
+        return (
+            <div style={{ height: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#090d16', color: '#f8fafc', flexDirection: 'column', padding: '20px', textAlign: 'center' }}>
+                <Clock size={44} color="#38bdf8" style={{ marginBottom: '1rem' }} />
+                <h2 style={{ fontSize: '1.3rem', marginBottom: '0.5rem' }}>Waiting for Host Approval...</h2>
+                <p style={{ color: '#94a3b8', fontSize: '0.85rem' }}>Room: {roomName}</p>
+                <button onClick={() => setIsWaiting(false)} style={{ marginTop: '1rem', background: '#ef4444', border: 'none', color: '#fff', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Cancel</button>
+            </div>
+        );
+    }
 
     if (inMeeting && token && serverUrl) {
         return (
@@ -1094,9 +1119,14 @@ export default function App() {
                         </div>
                     </div>
 
-                    {/* Controls */}
+                    {/* Clean Action Column */}
                     <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                        <h1 style={{ fontSize: '1.6rem', fontWeight: '800', color: '#38bdf8', marginBottom: '1rem' }}>MeetMatrix</h1>
+                        <h1 style={{ fontSize: '1.6rem', fontWeight: '800', color: '#38bdf8', marginBottom: '0.5rem' }}>MeetMatrix</h1>
+                        {isInviteFlow && (
+                            <p style={{ color: '#94a3b8', fontSize: '0.8rem', marginBottom: '1rem' }}>
+                                Joining Meeting: <strong style={{ color: '#38bdf8' }}>{roomName}</strong>
+                            </p>
+                        )}
 
                         {user && (
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#090d16', padding: '6px 12px', borderRadius: '20px', marginBottom: '12px', border: '1px solid #334155' }}>
@@ -1108,24 +1138,34 @@ export default function App() {
                             </div>
                         )}
 
-                        <button onClick={handleStartCreateMeeting} disabled={loading} style={{ ...primaryBtnStyle, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                            {!user && <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" style={{ width: '16px', height: '16px' }} />}
-                            {user ? `⚡ Configure & Create Meeting` : `Sign in & Create Meeting`}
-                        </button>
-
-                        <div style={{ display: 'flex', alignItems: 'center', margin: '1rem 0', color: '#475569' }}>
-                            <hr style={{ flex: 1, borderColor: '#1e293b' }} />
-                            <span style={{ padding: '0 8px', fontSize: '0.7rem' }}>OR JOIN EXISTING</span>
-                            <hr style={{ flex: 1, borderColor: '#1e293b' }} />
-                        </div>
-
-                        <form onSubmit={handleJoinClick}>
-                            <input type="text" placeholder="Enter Room Code (e.g. mm-xxxx-xxxx)" value={roomName} onChange={(e) => setRoomName(e.target.value)} style={{ ...inputStyle, marginBottom: '0.8rem' }} />
-                            <button type="submit" disabled={loading} style={{ ...secondaryBtnStyle, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                        {/* Invite link auto-mode: Only Join Action is shown */}
+                        {isInviteFlow ? (
+                            <button onClick={handleJoinClick} disabled={loading} style={{ ...primaryBtnStyle, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
                                 {!user && <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" style={{ width: '16px', height: '16px' }} />}
-                                {user ? `Join Meeting as ${user.name.split(' ')[0]}` : `Sign in & Join Meeting`}
+                                {user ? `Enter Meeting as ${user.name.split(' ')[0]}` : `Sign in & Enter Meeting`}
                             </button>
-                        </form>
+                        ) : (
+                            <>
+                                <button onClick={handleStartCreateMeeting} disabled={loading} style={{ ...primaryBtnStyle, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                                    {!user && <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" style={{ width: '16px', height: '16px' }} />}
+                                    {user ? `⚡ Configure & Create Meeting` : `Sign in & Create Meeting`}
+                                </button>
+
+                                <div style={{ display: 'flex', alignItems: 'center', margin: '1rem 0', color: '#475569' }}>
+                                    <hr style={{ flex: 1, borderColor: '#1e293b' }} />
+                                    <span style={{ padding: '0 8px', fontSize: '0.7rem' }}>OR JOIN EXISTING</span>
+                                    <hr style={{ flex: 1, borderColor: '#1e293b' }} />
+                                </div>
+
+                                <form onSubmit={handleJoinClick}>
+                                    <input type="text" placeholder="Enter Room Code (e.g. mm-xxxx-xxxx)" value={roomName} onChange={(e) => setRoomName(e.target.value)} style={{ ...inputStyle, marginBottom: '0.8rem' }} />
+                                    <button type="submit" disabled={loading} style={{ ...secondaryBtnStyle, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                                        {!user && <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" style={{ width: '16px', height: '16px' }} />}
+                                        {user ? `Join Meeting as ${user.name.split(' ')[0]}` : `Sign in & Join Meeting`}
+                                    </button>
+                                </form>
+                            </>
+                        )}
                     </div>
                 </div>
             </div>

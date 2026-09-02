@@ -14,6 +14,7 @@ export default function Whiteboard({ isHost, onClose, localParticipant }) {
     const screenTrackRef = useRef(null);
     const startPosRef = useRef({ x: 0, y: 0 });
     const snapshotRef = useRef(null);
+    const animFrameIdRef = useRef(null);
 
     const fillWhiteBackground = (ctx, width, height) => {
         ctx.fillStyle = '#ffffff';
@@ -47,6 +48,21 @@ export default function Whiteboard({ isHost, onClose, localParticipant }) {
         });
     };
 
+    // Frame pump: WebRTC captureStream requires constant frame commits to not show black
+    const startHeartbeatPump = () => {
+        const pump = () => {
+            const canvas = canvasRef.current;
+            if (canvas) {
+                const ctx = canvas.getContext('2d');
+                // Microscopic 1-pixel flip to force WebRTC encoder to emit frames continuously
+                const pixel = ctx.getImageData(0, 0, 1, 1);
+                ctx.putImageData(pixel, 0, 0);
+            }
+            animFrameIdRef.current = requestAnimationFrame(pump);
+        };
+        pump();
+    };
+
     useEffect(() => {
         const canvas = canvasRef.current;
         if (!canvas) return;
@@ -61,6 +77,8 @@ export default function Whiteboard({ isHost, onClose, localParticipant }) {
             redrawHistory(ctx);
         }
 
+        startHeartbeatPump();
+
         const handleResize = () => {
             if (!canvas) return;
             const temp = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -71,7 +89,10 @@ export default function Whiteboard({ isHost, onClose, localParticipant }) {
         };
 
         window.addEventListener('resize', handleResize);
-        return () => window.removeEventListener('resize', handleResize);
+        return () => {
+            window.removeEventListener('resize', handleResize);
+            if (animFrameIdRef.current) cancelAnimationFrame(animFrameIdRef.current);
+        };
     }, []);
 
     const stopWhiteboardSharing = async () => {
@@ -107,6 +128,8 @@ export default function Whiteboard({ isHost, onClose, localParticipant }) {
             try {
                 const canvas = canvasRef.current;
                 const ctx = canvas.getContext('2d');
+
+                // Force clean solid white refresh
                 if (persistentDrawingHistory.length === 0) {
                     fillWhiteBackground(ctx, canvas.width, canvas.height);
                 }
@@ -247,12 +270,10 @@ export default function Whiteboard({ isHost, onClose, localParticipant }) {
 
     return (
         <div style={fixedContainerStyle}>
-            {/* Whiteboard Header Toolbar */}
             <div style={toolbarStyle}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                     <span style={{ fontWeight: '800', color: '#38bdf8', fontSize: '0.85rem' }}>Whiteboard</span>
 
-                    {/* Tools */}
                     <div style={{ display: 'flex', background: '#090d16', padding: '2px', borderRadius: '6px', border: '1px solid #334155' }}>
                         <button onClick={() => setTool('pen')} style={{ ...iconBtnStyle, background: tool === 'pen' ? '#0284c7' : 'transparent' }} title="Pen">
                             <Pen size={14} />
@@ -304,7 +325,7 @@ export default function Whiteboard({ isHost, onClose, localParticipant }) {
                         }}
                     >
                         <Share2 size={14} />
-                        {isSharingBoard ? 'Stop Sharing' : 'Share Board'}
+                        {isSharingBoard ? 'Stop Sharing Board' : 'Present Board Live'}
                     </button>
 
                     <button onClick={handleCloseWhiteboard} style={closeBtnStyle} title="Close Whiteboard">
@@ -313,7 +334,6 @@ export default function Whiteboard({ isHost, onClose, localParticipant }) {
                 </div>
             </div>
 
-            {/* Canvas Area */}
             <div style={{ flex: 1, width: '100%', height: '100%', position: 'relative', background: '#ffffff', overflow: 'hidden' }}>
                 <canvas
                     ref={canvasRef}
