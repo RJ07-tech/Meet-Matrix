@@ -53,23 +53,16 @@ function MeetingStage({
     const [isHandRaised, setIsHandRaised] = useState(false);
     const [raisedHandsMap, setRaisedHandsMap] = useState({});
 
-    // Co-Hosts mapping
     const [coHostsMap, setCoHostsMap] = useState({});
-
-    // Waiting List Poller & Admit Modal
     const [waitingList, setWaitingList] = useState([]);
     const [showAdmitModal, setShowAdmitModal] = useState(false);
 
-    // Modals & Drawers
     const [showChat, setShowChat] = useState(false);
     const [showParticipants, setShowParticipants] = useState(false);
     const [showInMeetingSettings, setShowInMeetingSettings] = useState(false);
     const [activeMenuIdentity, setActiveMenuIdentity] = useState(null);
 
-    // Floating reaction emojis
     const [floatingEmojis, setFloatingEmojis] = useState([]);
-
-    // 5 Quick Customizable Emojis
     const [quickEmojis, setQuickEmojis] = useState(() => {
         try {
             const saved = localStorage.getItem('meetmatrix_quick_emojis');
@@ -79,28 +72,21 @@ function MeetingStage({
         }
     });
 
-    // Customization Mode & Target Slot (0 to 4)
     const [isCustomizeOpen, setIsCustomizeOpen] = useState(false);
     const [activeSlotToReplace, setActiveSlotToReplace] = useState(0);
 
-    // Chat Drawer Emoji Picker
     const [showChatEmojiPicker, setShowChatEmojiPicker] = useState(false);
-
-    // In-Drawer Rename
     const [isEditingName, setIsEditingName] = useState(false);
     const [editNameValue, setEditNameValue] = useState(participantName);
 
-    // Chat
     const [chatMessages, setChatMessages] = useState([]);
     const [chatInput, setChatInput] = useState('');
     const [chatRecipient, setChatRecipient] = useState('Everyone');
 
-    // Recording
     const [isRecording, setIsRecording] = useState(false);
     const mediaRecorderRef = useRef(null);
     const recordedChunksRef = useRef([]);
 
-    // Effective Moderator check: Owner Host OR Co-Host
     const isEffectiveModerator = isHost || Boolean(coHostsMap[localParticipant?.identity]);
 
     const allTracks = useTracks(
@@ -114,7 +100,27 @@ function MeetingStage({
     const screenShareTrack = allTracks.find(t => t.source === Track.Source.ScreenShare);
     const cameraTracks = allTracks.filter(t => t.source === Track.Source.Camera);
 
-    // Sync settings from Backend periodically for absolute parity across all devices
+    // Initial Mobile Camera & Mic Engagement
+    useEffect(() => {
+        if (localParticipant) {
+            localParticipant.setName(participantName);
+            if (initialCam) {
+                localParticipant.setCameraEnabled(true).catch(err => {
+                    console.warn("Retrying camera initialization:", err);
+                    setTimeout(() => localParticipant.setCameraEnabled(true).catch(() => {}), 500);
+                });
+            } else {
+                localParticipant.setCameraEnabled(false).catch(() => {});
+            }
+
+            if (initialMic) {
+                localParticipant.setMicrophoneEnabled(true).catch(() => {});
+            } else {
+                localParticipant.setMicrophoneEnabled(false).catch(() => {});
+            }
+        }
+    }, [localParticipant, initialCam, initialMic, participantName]);
+
     useEffect(() => {
         let interval;
         if (roomName) {
@@ -134,7 +140,6 @@ function MeetingStage({
         return () => clearInterval(interval);
     }, [roomName, setAllowScreenshare, setChatLocked, setWaitingMode]);
 
-    // Waiting list auto-polling for Host & Co-Hosts
     useEffect(() => {
         let interval;
         if (isEffectiveModerator && roomName) {
@@ -154,7 +159,6 @@ function MeetingStage({
         return () => clearInterval(interval);
     }, [isEffectiveModerator, roomName]);
 
-    // Screen Share Status Listener
     useEffect(() => {
         if (!localParticipant) return;
         const syncShareStatus = () => {
@@ -172,14 +176,6 @@ function MeetingStage({
         };
     }, [localParticipant, allTracks]);
 
-    useEffect(() => {
-        if (localParticipant) {
-            localParticipant.setCameraEnabled(initialCam);
-            localParticipant.setMicrophoneEnabled(initialMic);
-            localParticipant.setName(participantName);
-        }
-    }, [localParticipant]);
-
     const renderLocalFloatingEmoji = (emoji, sender) => {
         const baseId = Date.now() + Math.random();
         setFloatingEmojis(prev => [...prev, { id: baseId, emoji, sender, left: Math.random() * 50 + 25 }]);
@@ -188,7 +184,6 @@ function MeetingStage({
         }, 2800);
     };
 
-    // Real-Time LiveKit Data Channel Listener (Settings, Co-Host, Reactions, Chat)
     useEffect(() => {
         if (!room) return;
 
@@ -198,27 +193,15 @@ function MeetingStage({
                 const data = JSON.parse(decoded);
 
                 if (data.type === 'settings_update') {
-                    if (data.allow_participant_screenshare !== undefined) {
-                        setAllowScreenshare(data.allow_participant_screenshare);
-                    }
-                    if (data.chat_locked !== undefined) {
-                        setChatLocked(data.chat_locked);
-                    }
-                    if (data.waiting_mode !== undefined) {
-                        setWaitingMode(data.waiting_mode);
-                    }
+                    if (data.allow_participant_screenshare !== undefined) setAllowScreenshare(data.allow_participant_screenshare);
+                    if (data.chat_locked !== undefined) setChatLocked(data.chat_locked);
+                    if (data.waiting_mode !== undefined) setWaitingMode(data.waiting_mode);
                 } else if (data.type === 'co_host_update') {
-                    setCoHostsMap(prev => ({
-                        ...prev,
-                        [data.targetIdentity]: data.isCoHost
-                    }));
+                    setCoHostsMap(prev => ({ ...prev, [data.targetIdentity]: data.isCoHost }));
                 } else if (data.type === 'reaction') {
                     renderLocalFloatingEmoji(data.emoji, data.sender || participant.name || 'User');
                 } else if (data.type === 'hand_raise') {
-                    setRaisedHandsMap(prev => ({
-                        ...prev,
-                        [participant.identity]: data.raised
-                    }));
+                    setRaisedHandsMap(prev => ({ ...prev, [participant.identity]: data.raised }));
                 } else if (data.type === 'chat') {
                     if (data.recipient === 'Everyone' || data.recipient === localParticipant?.identity || participant.identity === localParticipant?.identity) {
                         setChatMessages(prev => [...prev, {
@@ -251,10 +234,7 @@ function MeetingStage({
 
         if (room?.localParticipant) {
             const payload = JSON.stringify({ type: 'reaction', emoji, sender });
-            room.localParticipant.publishData(
-                new TextEncoder().encode(payload),
-                { reliable: false }
-            );
+            room.localParticipant.publishData(new TextEncoder().encode(payload), { reliable: false });
         }
     };
 
@@ -315,16 +295,10 @@ function MeetingStage({
         const nextState = !isHandRaised;
         setIsHandRaised(nextState);
 
-        setRaisedHandsMap(prev => ({
-            ...prev,
-            [localParticipant.identity]: nextState
-        }));
+        setRaisedHandsMap(prev => ({ ...prev, [localParticipant.identity]: nextState }));
 
         const payload = JSON.stringify({ type: 'hand_raise', raised: nextState });
-        room.localParticipant.publishData(
-            new TextEncoder().encode(payload),
-            { reliable: true }
-        );
+        room.localParticipant.publishData(new TextEncoder().encode(payload), { reliable: true });
     };
 
     const handleSaveName = () => {
@@ -386,7 +360,6 @@ function MeetingStage({
         }
     };
 
-    // Instant Synced Settings Handler: updates backend & broadcasts live via DataChannel
     const handleUpdateLiveRoomSettings = async (updates) => {
         try {
             await axios.post(`${BACKEND_URL}/api/update-room-settings`, {
@@ -420,10 +393,7 @@ function MeetingStage({
             recipient: chatRecipient
         };
 
-        room.localParticipant.publishData(
-            new TextEncoder().encode(JSON.stringify(messageData)),
-            { reliable: true }
-        );
+        room.localParticipant.publishData(new TextEncoder().encode(JSON.stringify(messageData)), { reliable: true });
 
         setChatMessages(prev => [...prev, {
             sender: 'You',
@@ -562,13 +532,12 @@ function MeetingStage({
                                 fontWeight: '700',
                                 marginLeft: '3px'
                             }}
-                            title="Customize your 5 Quick Emojis"
+                            title="Customize Quick Emojis"
                         >
                             <Edit3 size={11} /> {isCustomizeOpen ? 'Close' : 'Edit'}
                         </button>
                     </div>
 
-                    {/* Emoji Slot Customizer Popup */}
                     {isCustomizeOpen && (
                         <div style={{ position: 'absolute', top: '42px', right: 0, zIndex: 99999, boxShadow: '0 15px 35px rgba(0,0,0,0.85)', borderRadius: '8px', overflow: 'hidden', background: '#0f172a', border: '1px solid #334155' }}>
                             <div style={{ padding: '8px 10px', borderBottom: '1px solid #334155' }}>
@@ -606,7 +575,6 @@ function MeetingStage({
                         </div>
                     )}
 
-                    {/* Waiting Room Admit Request Button Badge */}
                     {isEffectiveModerator && waitingList.length > 0 && (
                         <button
                             onClick={() => setShowAdmitModal(true)}
@@ -617,7 +585,6 @@ function MeetingStage({
                         </button>
                     )}
 
-                    {/* In-Meeting Settings Gear Icon (Synchronized for Host & Co-Host) */}
                     {isEffectiveModerator && (
                         <button
                             onClick={() => setShowInMeetingSettings(!showInMeetingSettings)}
@@ -641,7 +608,7 @@ function MeetingStage({
                 </div>
             </div>
 
-            {/* Waiting Room Admit Popup Modal */}
+            {/* Waiting Room Admit Modal */}
             {showAdmitModal && isEffectiveModerator && (
                 <div style={{ position: 'fixed', top: '55px', right: '14px', background: '#1e293b', padding: '14px', borderRadius: '12px', border: '2px solid #eab308', boxShadow: '0 20px 30px rgba(0,0,0,0.85)', zIndex: 99999, width: '280px', color: '#f8fafc' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
@@ -815,7 +782,6 @@ function MeetingStage({
                                             </button>
                                         )}
 
-                                        {/* Moderation Menu for Host & Co-Host */}
                                         {isEffectiveModerator && !p.isSelf && (
                                             <div style={{ position: 'relative' }}>
                                                 <button
@@ -1043,6 +1009,14 @@ export default function App() {
     const [authAction, setAuthAction] = useState(null);
     const [showWhiteboard, setShowWhiteboard] = useState(false);
 
+    // Completely stop and free up mobile hardware camera pipeline
+    const stopLobbyPreviewTracks = () => {
+        if (previewStreamRef.current) {
+            previewStreamRef.current.getTracks().forEach(t => t.stop());
+            previewStreamRef.current = null;
+        }
+    };
+
     useEffect(() => {
         const handleBeforeUnload = () => {
             if (inMeeting && isHost && roomName) {
@@ -1090,16 +1064,17 @@ export default function App() {
 
     useEffect(() => {
         if (!inMeeting && !isWaiting) {
-            navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+            navigator.mediaDevices.getUserMedia({
+                video: { facingMode: 'user' },
+                audio: true
+            })
                 .then((stream) => {
                     previewStreamRef.current = stream;
                     if (videoPreviewRef.current) videoPreviewRef.current.srcObject = stream;
                 })
                 .catch((err) => console.log("Green room device notice:", err));
         } else {
-            if (previewStreamRef.current) {
-                previewStreamRef.current.getTracks().forEach(t => t.stop());
-            }
+            stopLobbyPreviewTracks();
         }
     }, [inMeeting, isWaiting]);
 
@@ -1188,6 +1163,8 @@ export default function App() {
 
             setToken(tokenRes.data.token);
             setServerUrl(tokenRes.data.server_url);
+
+            stopLobbyPreviewTracks();
             setInMeeting(true);
         } catch (e) {
             console.error("Launch Error:", e);
@@ -1214,6 +1191,8 @@ export default function App() {
             } else {
                 setToken(res.data.token);
                 setServerUrl(res.data.server_url);
+
+                stopLobbyPreviewTracks();
                 setInMeeting(true);
             }
         } catch (err) {
@@ -1232,6 +1211,8 @@ export default function App() {
         });
         setToken(res.data.token);
         setServerUrl(res.data.server_url);
+
+        stopLobbyPreviewTracks();
         setInMeeting(true);
     };
 
@@ -1278,7 +1259,7 @@ export default function App() {
         return (
             <div style={{ height: '100dvh', width: '100vw', background: '#090d16', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                 <LiveKitRoom
-                    video={cameraEnabled}
+                    video={cameraEnabled ? { facingMode: 'user' } : false}
                     audio={micEnabled}
                     token={token}
                     serverUrl={serverUrl}
