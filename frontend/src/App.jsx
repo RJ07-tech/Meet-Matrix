@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
 import '@livekit/components-styles';
 import {
@@ -18,17 +18,10 @@ import {
     Users, Hand, Send, Edit3, VolumeX, MoreVertical
 } from 'lucide-react';
 import { useGoogleLogin } from '@react-oauth/google';
+import EmojiPicker, { Theme } from 'emoji-picker-react';
 import Whiteboard from './Whiteboard';
 
 const BACKEND_URL = 'https://meetmatrix-backend-3l9l.onrender.com';
-
-const EMOJI_PALETTE = [
-    '👍', '❤️', '👏', '🎉', '🔥', '😂',
-    '😮', '🙌', '💯', '🚀', '✨', '💡',
-    '😎', '🤔', '👋', '🥳', '🤝', '💪',
-    '🎯', '⭐', '🎈', '🤩', '😇', '💥',
-    '😍', '🙏', '⚡', '🏆', '👀', '🔥'
-];
 
 function MeetingStage({
                           roomName,
@@ -87,7 +80,6 @@ function MeetingStage({
     const screenShareTrack = allTracks.find(t => t.source === Track.Source.ScreenShare);
     const cameraTracks = allTracks.filter(t => t.source === Track.Source.Camera);
 
-    // Initial hardware sync
     useEffect(() => {
         if (localParticipant) {
             localParticipant.setCameraEnabled(initialCam);
@@ -96,16 +88,16 @@ function MeetingStage({
         }
     }, [localParticipant]);
 
-    // Local animated emoji floater
-    const renderLocalFloatingEmoji = (emoji) => {
+    // Local animated emoji floater with sender name
+    const renderLocalFloatingEmoji = (emoji, sender) => {
         const baseId = Date.now() + Math.random();
-        setFloatingEmojis(prev => [...prev, { id: baseId, emoji, left: Math.random() * 60 + 20 }]);
+        setFloatingEmojis(prev => [...prev, { id: baseId, emoji, sender, left: Math.random() * 55 + 20 }]);
         setTimeout(() => {
             setFloatingEmojis(prev => prev.filter(e => e.id !== baseId));
-        }, 2500);
+        }, 2800);
     };
 
-    // LiveKit DataChannel Listener for Reactions, Hand Raise, Chat, and Mod actions
+    // LiveKit DataChannel Listener
     useEffect(() => {
         if (!room) return;
 
@@ -115,7 +107,7 @@ function MeetingStage({
                 const data = JSON.parse(decoded);
 
                 if (data.type === 'reaction') {
-                    renderLocalFloatingEmoji(data.emoji);
+                    renderLocalFloatingEmoji(data.emoji, data.sender || participant.name || 'User');
                 } else if (data.type === 'hand_raise') {
                     setRaisedHandsMap(prev => ({
                         ...prev,
@@ -149,11 +141,12 @@ function MeetingStage({
 
     // Broadcast Reaction over Data Channel to ALL peers
     const triggerReactionBroadcast = (emoji) => {
-        renderLocalFloatingEmoji(emoji);
+        const sender = participantName || localParticipant?.name || 'You';
+        renderLocalFloatingEmoji(emoji, sender);
         setShowEmojiPicker(false);
 
         if (room?.localParticipant) {
-            const payload = JSON.stringify({ type: 'reaction', emoji });
+            const payload = JSON.stringify({ type: 'reaction', emoji, sender });
             room.localParticipant.publishData(
                 new TextEncoder().encode(payload),
                 { reliable: false }
@@ -193,7 +186,6 @@ function MeetingStage({
         }
     };
 
-    // Hand raise broadcast (Participants only)
     const toggleHandRaise = () => {
         if (!localParticipant || !room) return;
         const nextState = !isHandRaised;
@@ -333,16 +325,17 @@ function MeetingStage({
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', position: 'relative', overflow: 'hidden' }}>
             <RoomAudioRenderer />
 
-            {/* In-Meeting Floating Emojis Layer */}
+            {/* In-Meeting Floating Emojis Layer with Sender Tagging */}
             <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none', zIndex: 99999 }}>
                 {floatingEmojis.map(item => (
-                    <span key={item.id} className="floating-emoji-item" style={{ left: `${item.left}%` }}>
-                        {item.emoji}
-                    </span>
+                    <div key={item.id} className="floating-emoji-item" style={{ left: `${item.left}%` }}>
+                        <span className="floating-emoji-icon">{item.emoji}</span>
+                        <span className="floating-emoji-sender">{item.sender}</span>
+                    </div>
                 ))}
             </div>
 
-            {/* Clean Header */}
+            {/* Header with Full Emoji Picker */}
             <div className="mobile-header" style={headerBarStyle}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
                     <span style={{ fontWeight: '800', color: '#38bdf8', fontSize: '0.85rem' }}>MeetMatrix</span>
@@ -351,25 +344,30 @@ function MeetingStage({
                     {isHost && <span style={{ background: '#0284c7', color: '#fff', padding: '1px 4px', borderRadius: '4px', fontSize: '0.6rem', fontWeight: 'bold' }}>HOST</span>}
                 </div>
 
-                <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexShrink: 0 }}>
+                <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexShrink: 0, position: 'relative' }}>
                     <div style={{ display: 'flex', gap: '2px', background: '#1e293b', padding: '1px 3px', borderRadius: '6px', alignItems: 'center' }}>
                         {['👍', '❤️'].map(e => (
                             <button key={e} onClick={() => triggerReactionBroadcast(e)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '0.85rem', padding: '1px' }}>{e}</button>
                         ))}
-                        <button onClick={() => setShowEmojiPicker(!showEmojiPicker)} style={{ background: '#334155', border: 'none', color: '#38bdf8', borderRadius: '4px', padding: '2px', cursor: 'pointer' }}><Plus size={11} /></button>
+                        <button onClick={() => setShowEmojiPicker(!showEmojiPicker)} style={{ background: '#334155', border: 'none', color: '#38bdf8', borderRadius: '4px', padding: '2px', cursor: 'pointer' }} title="Full Emoji Picker">
+                            <Plus size={11} />
+                        </button>
                     </div>
 
+                    {/* Full Library Emoji Picker Popover */}
                     {showEmojiPicker && (
-                        <div className="emoji-popover">
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                                <span style={{ fontSize: '0.72rem', fontWeight: '700', color: '#94a3b8' }}>REACTIONS</span>
-                                <button onClick={() => setShowEmojiPicker(false)} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}><X size={14} /></button>
+                        <div style={{ position: 'absolute', top: '38px', right: 0, zIndex: 99999, boxShadow: '0 15px 35px rgba(0,0,0,0.7)' }}>
+                            <div style={{ background: '#0f172a', display: 'flex', justifyContent: 'flex-end', padding: '4px' }}>
+                                <button onClick={() => setShowEmojiPicker(false)} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}><X size={16} /></button>
                             </div>
-                            <div className="emoji-grid">
-                                {EMOJI_PALETTE.map((e, idx) => (
-                                    <button key={`${e}-${idx}`} onClick={() => triggerReactionBroadcast(e)} className="emoji-tile">{e}</button>
-                                ))}
-                            </div>
+                            <EmojiPicker
+                                onEmojiClick={(emojiData) => triggerReactionBroadcast(emojiData.emoji)}
+                                theme={Theme.DARK}
+                                width={300}
+                                height={380}
+                                searchDisabled={false}
+                                previewConfig={{ showPreview: false }}
+                            />
                         </div>
                     )}
 
@@ -565,7 +563,7 @@ function MeetingStage({
                     <span className="mobile-hide" style={{ fontSize: '0.65rem' }}>{isVideoMuted ? 'Start Video' : 'Stop Video'}</span>
                 </button>
 
-                {/* Hand Raise: Visible ONLY for Participants (NOT Host) */}
+                {/* Visible ONLY for Participants */}
                 {!isHost && (
                     <button
                         onClick={toggleHandRaise}
@@ -663,7 +661,6 @@ export default function App() {
     const [authAction, setAuthAction] = useState(null);
     const [showWhiteboard, setShowWhiteboard] = useState(false);
 
-    // Host Reload / Tab Close Detection: Auto-terminate for all
     useEffect(() => {
         const handleBeforeUnload = () => {
             if (inMeeting && isHost && roomName) {
@@ -690,7 +687,7 @@ export default function App() {
                     previewStreamRef.current = stream;
                     if (videoPreviewRef.current) videoPreviewRef.current.srcObject = stream;
                 })
-                .catch((err) => console.log("Green room device access:", err));
+                .catch((err) => console.log("Green room device notice:", err));
         } else {
             if (previewStreamRef.current) {
                 previewStreamRef.current.getTracks().forEach(t => t.stop());

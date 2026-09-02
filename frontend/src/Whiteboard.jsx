@@ -18,16 +18,18 @@ export default function Whiteboard({ isHost, onClose, localParticipant }) {
     const [textPos, setTextPos] = useState(null);
     const [textValue, setTextValue] = useState('');
 
-    useEffect(() => {
+    const initWhiteCanvas = () => {
         const canvas = canvasRef.current;
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
-
-        // Exact dimensions
-        canvas.width = canvas.parentElement.clientWidth || 800;
-        canvas.height = (canvas.parentElement.clientHeight || 550) - 65;
+        canvas.width = canvas.parentElement?.clientWidth || 900;
+        canvas.height = (canvas.parentElement?.clientHeight || 600) - 65;
         ctx.fillStyle = '#ffffff';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
+    };
+
+    useEffect(() => {
+        initWhiteCanvas();
     }, []);
 
     const getCanvasCoords = (e) => {
@@ -93,10 +95,7 @@ export default function Whiteboard({ isHost, onClose, localParticipant }) {
 
     const clearCanvas = () => {
         if (isLocked) return;
-        const canvas = canvasRef.current;
-        const ctx = canvas.getContext('2d');
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        initWhiteCanvas();
     };
 
     const savePNG = () => {
@@ -108,28 +107,33 @@ export default function Whiteboard({ isHost, onClose, localParticipant }) {
         a.click();
     };
 
-    // Fixed LiveKit Whiteboard Video Sharing
+    // Immediate Frame Render to prevent initial black screen on peers
     const toggleShareWhiteboardStream = async () => {
         if (!isHost) {
-            alert("Only the Host can broadcast the whiteboard to the meeting.");
+            alert("Only the Host can broadcast the whiteboard.");
             return;
         }
-        if (!localParticipant) {
-            alert("Local participant not ready.");
-            return;
-        }
+        if (!localParticipant) return;
 
         if (!isSharingBoard) {
             try {
-                const stream = canvasRef.current.captureStream(25); // 25 FPS
+                const canvas = canvasRef.current;
+                const ctx = canvas.getContext('2d');
+
+                // Force active frame paint before capture
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = '#f8fafc';
+                ctx.fillRect(0, 0, 1, 1); // trigger pixel update
+
+                const stream = canvas.captureStream(25);
                 const videoTrack = stream.getVideoTracks()[0];
 
                 if (!videoTrack) {
-                    alert("Canvas stream track generation failed.");
+                    alert("Could not generate video track from canvas.");
                     return;
                 }
 
-                // Tag properly as ScreenShare so LiveKit GridLayout renders it to all peers
                 const publication = await localParticipant.publishTrack(videoTrack, {
                     name: 'whiteboard-share',
                     source: Track.Source.ScreenShare,
@@ -139,8 +143,8 @@ export default function Whiteboard({ isHost, onClose, localParticipant }) {
                 publishedPublicationRef.current = publication;
                 setIsSharingBoard(true);
             } catch (err) {
-                console.error("Share board error:", err);
-                alert("Failed to share whiteboard: " + err.message);
+                console.error("Whiteboard stream error:", err);
+                alert("Share failed: " + err.message);
             }
         } else {
             try {
@@ -238,7 +242,7 @@ export default function Whiteboard({ isHost, onClose, localParticipant }) {
                             ref={textInputRef}
                             type="text"
                             value={textValue}
-                            placeholder="Type note & Enter"
+                            placeholder="Type note & hit Enter"
                             onChange={(e) => setTextValue(e.target.value)}
                             onKeyDown={(e) => { if (e.key === 'Enter') handleCommitText(); }}
                             onBlur={handleCommitText}

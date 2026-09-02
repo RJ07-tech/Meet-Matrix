@@ -475,3 +475,51 @@ video[data-lk-source="screen_share"] {
     transform: translateY(-380px) scale(0.8);
   }
 }
+/* Sender Tagged Floating Emoji Bubble */
+.floating-emoji-item {
+  position: absolute;
+  bottom: 60px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  pointer-events: none;
+  animation: floatUpAnim 2.8s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+  z-index: 99999;
+}
+
+.floating-emoji-icon {
+  font-size: 2.3rem;
+  filter: drop-shadow(0 4px 12px rgba(0,0,0,0.5));
+}
+
+.floating-emoji-sender {
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid #38bdf8;
+  color: #f8fafc;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 12px;
+  white-space: nowrap;
+  backdrop-filter: blur(4px);
+}
+
+@keyframes floatUpAnim {
+  0% {
+    opacity: 0;
+    transform: translateY(0) scale(0.6);
+  }
+  15% {
+    opacity: 1;
+    transform: translateY(-40px) scale(1.15);
+  }
+  75% {
+    opacity: 0.95;
+    transform: translateY(-280px) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-400px) scale(0.8);
+  }
+}
