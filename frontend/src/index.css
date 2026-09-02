@@ -376,3 +376,102 @@ video[data-lk-source="screen_share"] {
   50% { transform: scale(1.08); }
   100% { transform: scale(1); }
 }
+/* Responsive Dynamic Video Stage */
+.matrix-stage-grid {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  gap: 8px;
+  padding: 8px;
+  box-sizing: border-box;
+  justify-content: center;
+  align-items: center;
+}
+
+/* 1 Participant: Center-fit without distortion */
+.matrix-grid-1 .video-tile-wrapper {
+  width: 100%;
+  height: 100%;
+  max-width: 900px;
+  max-height: 85vh;
+}
+
+/* 2 Participants: Even distribution */
+.matrix-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  width: 100%;
+  height: 100%;
+}
+
+@media (max-width: 768px) {
+  .matrix-grid-2 {
+    grid-template-columns: 1fr !important;
+    grid-template-rows: 1fr 1fr !important;
+    gap: 6px !important;
+    padding: 4px !important;
+  }
+}
+
+/* 3+ Participants */
+.matrix-grid-multi {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  width: 100%;
+  height: 100%;
+}
+
+.video-tile-wrapper {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #0b0f19;
+  border: 1px solid #1e293b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.video-tile-wrapper .lk-participant-tile {
+  width: 100% !important;
+  height: 100% !important;
+  border: none !important;
+}
+
+.video-tile-wrapper video {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+}
+
+/* Floating Emoji Animation */
+.floating-emoji-item {
+  position: absolute;
+  bottom: 60px;
+  font-size: 2.2rem;
+  pointer-events: none;
+  animation: floatUpAnim 2.5s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+  z-index: 99999;
+}
+
+@keyframes floatUpAnim {
+  0% {
+    opacity: 0;
+    transform: translateY(0) scale(0.6);
+  }
+  15% {
+    opacity: 1;
+    transform: translateY(-40px) scale(1.2);
+  }
+  75% {
+    opacity: 0.9;
+    transform: translateY(-260px) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-380px) scale(0.8);
+  }
+}
