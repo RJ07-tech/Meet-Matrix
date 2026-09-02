@@ -1,9 +1,8 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import '@livekit/components-styles';
 import {
     LiveKitRoom,
-    GridLayout,
     ParticipantTile,
     useTracks,
     useLocalParticipant,
@@ -57,7 +56,7 @@ function MeetingStage({
     const [isScreenSharing, setIsScreenSharing] = useState(false);
     const [isHandRaised, setIsHandRaised] = useState(false);
 
-    // Persistent Hand Raise State Map
+    // Raised hands map: { [identity]: boolean }
     const [raisedHandsMap, setRaisedHandsMap] = useState({});
 
     // Drawers
@@ -87,11 +86,10 @@ function MeetingStage({
         { onlySubscribed: false }
     );
 
-    // Separate screenshare track from standard camera tracks for dominant view
     const screenShareTrack = allTracks.find(t => t.source === Track.Source.ScreenShare);
     const cameraTracks = allTracks.filter(t => t.source === Track.Source.Camera);
 
-    // Initial Hardware Setup
+    // Hardware sync on enter
     useEffect(() => {
         if (localParticipant) {
             localParticipant.setCameraEnabled(initialCam);
@@ -115,10 +113,9 @@ function MeetingStage({
                         [participant.identity]: data.raised
                     }));
                 } else if (data.type === 'reaction') {
-                    // Trigger animated emoji sent by peer
                     triggerReactionBroadcast(data.emoji, false);
                 } else if (data.type === 'chat') {
-                    if (data.recipient === 'Everyone' || data.recipient === localParticipant.identity || participant.identity === localParticipant.identity) {
+                    if (data.recipient === 'Everyone' || data.recipient === localParticipant?.identity || participant.identity === localParticipant?.identity) {
                         setChatMessages(prev => [...prev, {
                             sender: participant.name || participant.identity,
                             text: data.text,
@@ -126,11 +123,11 @@ function MeetingStage({
                             time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                         }]);
                     }
-                } else if (data.type === 'force_mute' && data.targetIdentity === localParticipant.identity) {
+                } else if (data.type === 'force_mute' && data.targetIdentity === localParticipant?.identity) {
                     localParticipant.setMicrophoneEnabled(false);
                     setIsMicMuted(true);
                     alert("The Host has muted your microphone.");
-                } else if (data.type === 'kick_user' && data.targetIdentity === localParticipant.identity) {
+                } else if (data.type === 'kick_user' && data.targetIdentity === localParticipant?.identity) {
                     alert("You were removed from the meeting by the Host.");
                     onLeave();
                 }
@@ -175,7 +172,6 @@ function MeetingStage({
         }
     };
 
-    // Reliable Hand Raise Toggle & Broadcast
     const toggleHandRaise = () => {
         if (!localParticipant || !room) return;
         const nextState = !isHandRaised;
@@ -305,6 +301,12 @@ function MeetingStage({
         }))
     ];
 
+    const getGridClass = () => {
+        if (cameraTracks.length <= 1) return 'matrix-grid-1';
+        if (cameraTracks.length === 2) return 'matrix-grid-2';
+        return 'matrix-grid-multi';
+    };
+
     return (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', position: 'relative', overflow: 'hidden' }}>
             <RoomAudioRenderer />
@@ -320,27 +322,21 @@ function MeetingStage({
 
             <div style={{ flex: 1, display: 'flex', position: 'relative', overflow: 'hidden', minHeight: 0 }}>
 
-                {/* DYNAMIC SCREENSHARE FOCUS STAGE */}
+                {/* SAFE VIDEO STAGE */}
                 <div style={{ flex: 1, height: '100%', width: '100%', position: 'relative' }}>
                     {screenShareTrack ? (
                         <div className="stage-focus-container">
-                            {/* Dominant Fullscreen Screenshare / Whiteboard */}
                             <div className="stage-screenshare-main">
                                 <ParticipantTile trackRef={screenShareTrack} />
                             </div>
 
-                            {/* Camera Thumbnails Strip at Bottom */}
                             <div className="stage-camera-strip">
                                 {cameraTracks.map(track => {
-                                    const peerId = track.participant.identity;
+                                    const peerId = track.participant?.identity;
                                     const hasHandRaised = !!raisedHandsMap[peerId];
                                     return (
-                                        <div key={track.publication.trackSid} style={{ position: 'relative', height: '100%' }}>
-                                            {hasHandRaised && (
-                                                <div className="video-hand-badge">
-                                                    ✋ Raised
-                                                </div>
-                                            )}
+                                        <div key={track.publication?.trackSid || peerId} style={{ position: 'relative', height: '100%' }}>
+                                            {hasHandRaised && <div className="video-hand-badge">✋ Raised</div>}
                                             <ParticipantTile trackRef={track} />
                                         </div>
                                     );
@@ -348,24 +344,17 @@ function MeetingStage({
                             </div>
                         </div>
                     ) : (
-                        /* Standard Grid Layout with Live Hand Raise Video Badges */
-                        <div style={{ height: '100%', width: '100%', padding: '4px' }}>
-                            <GridLayout tracks={cameraTracks} style={{ height: '100%', width: '100%' }}>
-                                {cameraTracks.map(track => {
-                                    const peerId = track.participant.identity;
-                                    const hasHandRaised = !!raisedHandsMap[peerId];
-                                    return (
-                                        <div key={track.publication.trackSid} style={{ position: 'relative', width: '100%', height: '100%' }}>
-                                            {hasHandRaised && (
-                                                <div className="video-hand-badge">
-                                                    ✋ Hand Raised
-                                                </div>
-                                            )}
-                                            <ParticipantTile trackRef={track} />
-                                        </div>
-                                    );
-                                })}
-                            </GridLayout>
+                        <div className={`matrix-stage-grid ${getGridClass()}`}>
+                            {cameraTracks.map(track => {
+                                const peerId = track.participant?.identity;
+                                const hasHandRaised = !!raisedHandsMap[peerId];
+                                return (
+                                    <div key={track.publication?.trackSid || peerId} className="video-tile-wrapper">
+                                        {hasHandRaised && <div className="video-hand-badge">✋ Hand Raised</div>}
+                                        <ParticipantTile trackRef={track} />
+                                    </div>
+                                );
+                            })}
                         </div>
                     )}
                 </div>
@@ -497,7 +486,7 @@ function MeetingStage({
                 )}
             </div>
 
-            {/* Mobile-Friendly Horizontal Dock */}
+            {/* Mobile Horizontal Dock */}
             <div className="mobile-control-bar" style={bottomBarStyle}>
                 <button onClick={toggleMic} style={{ ...controlBtn, background: isMicMuted ? '#ef4444' : '#1e293b' }}>
                     {isMicMuted ? <MicOff size={18} /> : <Mic size={18} />}
@@ -608,6 +597,20 @@ export default function App() {
     const [showWhiteboard, setShowWhiteboard] = useState(false);
     const activeRoomRef = useRef(null);
 
+    // Host Reload / Tab Close Detection: Auto-terminate for all
+    useEffect(() => {
+        const handleBeforeUnload = () => {
+            if (inMeeting && isHost && roomName) {
+                const payload = JSON.stringify({ room_name: roomName });
+                const blob = new Blob([payload], { type: 'application/json' });
+                navigator.sendBeacon(`${BACKEND_URL}/api/terminate-room`, blob);
+            }
+        };
+
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    }, [inMeeting, isHost, roomName]);
+
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
         const roomParam = params.get('room');
@@ -621,7 +624,7 @@ export default function App() {
                     previewStreamRef.current = stream;
                     if (videoPreviewRef.current) videoPreviewRef.current.srcObject = stream;
                 })
-                .catch((err) => console.log("Green room device access:", err));
+                .catch((err) => console.log("Green room device notice:", err));
         } else {
             if (previewStreamRef.current) {
                 previewStreamRef.current.getTracks().forEach(t => t.stop());
@@ -764,8 +767,7 @@ export default function App() {
         }
     };
 
-    // Broadcast Reaction Over LiveKit Data Channel
-    const triggerReactionBroadcast = (emoji, broadcast = true) => {
+    const triggerReactionBroadcast = useCallback((emoji, broadcast = true) => {
         const baseId = Date.now() + Math.random();
         setFloatingEmojis(prev => [...prev, { id: baseId, emoji, left: Math.random() * 60 + 20 }]);
         setShowEmojiPicker(false);
@@ -781,6 +783,19 @@ export default function App() {
         setTimeout(() => {
             setFloatingEmojis(prev => prev.filter(e => e.id !== baseId));
         }, 2600);
+    }, []);
+
+    const handleTerminateMeeting = async () => {
+        if (window.confirm("End meeting for everyone?")) {
+            try {
+                await axios.post(`${BACKEND_URL}/api/terminate-room`, { room_name: roomName });
+            } catch (err) {
+                console.error(err);
+            }
+            setInMeeting(false);
+            setToken('');
+            setRoomName('');
+        }
     };
 
     const copyInviteLink = () => {
@@ -793,7 +808,7 @@ export default function App() {
         return (
             <div style={{ height: '100dvh', width: '100vw', background: '#090d16', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
-                {/* Clean Responsive Header */}
+                {/* Header */}
                 <div className="mobile-header" style={headerBarStyle}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
                         <span style={{ fontWeight: '800', color: '#38bdf8', fontSize: '0.85rem' }}>MeetMatrix</span>
@@ -837,7 +852,7 @@ export default function App() {
                     </div>
                 </div>
 
-                {/* LiveKit Stage */}
+                {/* Safe LiveKit Stage */}
                 <div style={{ flex: 1, position: 'relative', overflow: 'hidden', minHeight: 0 }}>
                     <LiveKitRoom
                         video={cameraEnabled}
@@ -857,7 +872,7 @@ export default function App() {
                             initialCam={cameraEnabled}
                             initialMic={micEnabled}
                             onLeave={() => { setInMeeting(false); setToken(''); }}
-                            onTerminate={() => { setInMeeting(false); setToken(''); }}
+                            onTerminate={handleTerminateMeeting}
                             showWhiteboard={showWhiteboard}
                             setShowWhiteboard={setShowWhiteboard}
                             allowScreenshare={allowScreenshare}
@@ -872,11 +887,10 @@ export default function App() {
         );
     }
 
-    // Pre-Meeting Lobby
+    // Lobby
     return (
         <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'radial-gradient(circle at top, #1e293b 0%, #090d16 100%)', color: '#f8fafc', padding: '12px' }}>
 
-            {/* Pre-Flight Modal */}
             {showPreSettingsModal && (
                 <div style={modalBackdropStyle}>
                     <div style={modalCardStyle}>
@@ -943,7 +957,7 @@ export default function App() {
                         </div>
                     </div>
 
-                    {/* Lobby Controls */}
+                    {/* Controls */}
                     <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                         <h1 style={{ fontSize: '1.6rem', fontWeight: '800', color: '#38bdf8', marginBottom: '1rem' }}>MeetMatrix</h1>
 
