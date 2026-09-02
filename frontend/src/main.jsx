@@ -4,7 +4,7 @@ import App from './App.jsx';
 import './index.css';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 
-const GOOGLE_CLIENT_ID = "942556417050-uu4k...apps.googleusercontent.com"; // Apni poori Client ID yahan dalein
+const GOOGLE_CLIENT_ID = "942556417050-uu4kurg23nmvm94omk1r1j7ugstuiose.apps.googleusercontent.com"; // Apni poori Client ID yahan dalein
 
 ReactDOM.createRoot(document.getElementById('root')).render(
     <React.StrictMode>
