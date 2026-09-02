@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import '@livekit/components-styles';
 import {
@@ -53,16 +53,21 @@ function MeetingStage({
     const [isHandRaised, setIsHandRaised] = useState(false);
     const [raisedHandsMap, setRaisedHandsMap] = useState({});
 
+    // Co-Hosts mapping
     const [coHostsMap, setCoHostsMap] = useState({});
     const [waitingList, setWaitingList] = useState([]);
     const [showAdmitModal, setShowAdmitModal] = useState(false);
 
+    // Modals & Drawers
     const [showChat, setShowChat] = useState(false);
     const [showParticipants, setShowParticipants] = useState(false);
     const [showInMeetingSettings, setShowInMeetingSettings] = useState(false);
     const [activeMenuIdentity, setActiveMenuIdentity] = useState(null);
 
+    // Floating reaction emojis
     const [floatingEmojis, setFloatingEmojis] = useState([]);
+
+    // 5 Quick Customizable Emojis
     const [quickEmojis, setQuickEmojis] = useState(() => {
         try {
             const saved = localStorage.getItem('meetmatrix_quick_emojis');
@@ -75,14 +80,47 @@ function MeetingStage({
     const [isCustomizeOpen, setIsCustomizeOpen] = useState(false);
     const [activeSlotToReplace, setActiveSlotToReplace] = useState(0);
 
+    // Ref-based Synchronous Slot Tracking (Fixes Stale Closure Trap)
+    const activeSlotRef = useRef(activeSlotToReplace);
+
+    const selectSlot = (idx) => {
+        activeSlotRef.current = idx;
+        setActiveSlotToReplace(idx);
+    };
+
+    const handleEmojiSelectedForSlot = useCallback((emojiData) => {
+        const targetIdx = activeSlotRef.current;
+        setQuickEmojis(prev => {
+            if (prev[targetIdx] === emojiData.emoji) return prev;
+            const updated = [...prev];
+            updated[targetIdx] = emojiData.emoji;
+            return updated;
+        });
+        setIsCustomizeOpen(false);
+    }, []);
+
+    // Side-effect persistence decoupled from state updater
+    useEffect(() => {
+        try {
+            localStorage.setItem('meetmatrix_quick_emojis', JSON.stringify(quickEmojis));
+        } catch (e) {
+            console.error("Local storage sync error:", e);
+        }
+    }, [quickEmojis]);
+
+    // Chat Drawer Emoji Picker
     const [showChatEmojiPicker, setShowChatEmojiPicker] = useState(false);
+
+    // In-Drawer Rename
     const [isEditingName, setIsEditingName] = useState(false);
     const [editNameValue, setEditNameValue] = useState(participantName);
 
+    // Chat
     const [chatMessages, setChatMessages] = useState([]);
     const [chatInput, setChatInput] = useState('');
     const [chatRecipient, setChatRecipient] = useState('Everyone');
 
+    // Recording
     const [isRecording, setIsRecording] = useState(false);
     const mediaRecorderRef = useRef(null);
     const recordedChunksRef = useRef([]);
@@ -236,17 +274,6 @@ function MeetingStage({
             const payload = JSON.stringify({ type: 'reaction', emoji, sender });
             room.localParticipant.publishData(new TextEncoder().encode(payload), { reliable: false });
         }
-    };
-
-    const handleEmojiSelectedForSlot = (emojiData) => {
-        const targetIdx = Number(activeSlotToReplace);
-        setQuickEmojis(prev => {
-            const updated = [...prev];
-            updated[targetIdx] = emojiData.emoji;
-            localStorage.setItem('meetmatrix_quick_emojis', JSON.stringify(updated));
-            return updated;
-        });
-        setIsCustomizeOpen(false);
     };
 
     const handleChatEmojiPicked = (emojiData) => {
@@ -538,6 +565,7 @@ function MeetingStage({
                         </button>
                     </div>
 
+                    {/* Visual Slot Selector & Picker Popup */}
                     {isCustomizeOpen && (
                         <div style={{ position: 'absolute', top: '42px', right: 0, zIndex: 99999, boxShadow: '0 15px 35px rgba(0,0,0,0.85)', borderRadius: '8px', overflow: 'hidden', background: '#0f172a', border: '1px solid #334155' }}>
                             <div style={{ padding: '8px 10px', borderBottom: '1px solid #334155' }}>
@@ -546,7 +574,7 @@ function MeetingStage({
                                     {quickEmojis.map((em, i) => (
                                         <button
                                             key={i}
-                                            onClick={() => setActiveSlotToReplace(i)}
+                                            onClick={() => selectSlot(i)}
                                             style={{
                                                 flex: 1,
                                                 padding: '6px',
@@ -565,6 +593,7 @@ function MeetingStage({
                                 </div>
                             </div>
                             <EmojiPicker
+                                key={activeSlotToReplace}
                                 onEmojiClick={handleEmojiSelectedForSlot}
                                 theme={Theme.DARK}
                                 width={310}
@@ -1009,7 +1038,6 @@ export default function App() {
     const [authAction, setAuthAction] = useState(null);
     const [showWhiteboard, setShowWhiteboard] = useState(false);
 
-    // Completely stop and free up mobile hardware camera pipeline
     const stopLobbyPreviewTracks = () => {
         if (previewStreamRef.current) {
             previewStreamRef.current.getTracks().forEach(t => t.stop());
