@@ -28,7 +28,7 @@ const EMOJI_PALETTE = [
     '😮', '🙌', '💯', '🚀', '✨', '💡',
     '😎', '🤔', '👋', '🥳', '🤝', '💪',
     '🎯', '⭐', '🎈', '🤩', '😇', '💥',
-    '😍', '🙏', '⚡', '🏆', '👀', '💯'
+    '😍', '🙏', '⚡', '🏆', '👀', '🔥'
 ];
 
 function MeetingStage({
@@ -44,7 +44,9 @@ function MeetingStage({
                           setShowWhiteboard,
                           allowScreenshare,
                           allowDirectChat,
-                          chatLocked
+                          chatLocked,
+                          floatingEmojis,
+                          triggerReactionBroadcast
                       }) {
     const { localParticipant } = useLocalParticipant();
     const remoteParticipants = useRemoteParticipants();
@@ -55,10 +57,10 @@ function MeetingStage({
     const [isScreenSharing, setIsScreenSharing] = useState(false);
     const [isHandRaised, setIsHandRaised] = useState(false);
 
-    // Persistent Hand Raise State Map { [identity]: boolean }
+    // Persistent Hand Raise State Map
     const [raisedHandsMap, setRaisedHandsMap] = useState({});
 
-    // Drawers & Modals
+    // Drawers
     const [showChat, setShowChat] = useState(false);
     const [showParticipants, setShowParticipants] = useState(false);
     const [activeMenuIdentity, setActiveMenuIdentity] = useState(null);
@@ -77,7 +79,7 @@ function MeetingStage({
     const mediaRecorderRef = useRef(null);
     const recordedChunksRef = useRef([]);
 
-    const tracks = useTracks(
+    const allTracks = useTracks(
         [
             { source: Track.Source.Camera, withPlaceholder: true },
             { source: Track.Source.ScreenShare, withPlaceholder: false },
@@ -85,7 +87,11 @@ function MeetingStage({
         { onlySubscribed: false }
     );
 
-    // Initial Hardware Sync
+    // Separate screenshare track from standard camera tracks for dominant view
+    const screenShareTrack = allTracks.find(t => t.source === Track.Source.ScreenShare);
+    const cameraTracks = allTracks.filter(t => t.source === Track.Source.Camera);
+
+    // Initial Hardware Setup
     useEffect(() => {
         if (localParticipant) {
             localParticipant.setCameraEnabled(initialCam);
@@ -94,7 +100,7 @@ function MeetingStage({
         }
     }, [localParticipant]);
 
-    // LiveKit Reliable Data Channel Listener
+    // LiveKit Network Signal Receiver
     useEffect(() => {
         if (!room) return;
 
@@ -108,6 +114,9 @@ function MeetingStage({
                         ...prev,
                         [participant.identity]: data.raised
                     }));
+                } else if (data.type === 'reaction') {
+                    // Trigger animated emoji sent by peer
+                    triggerReactionBroadcast(data.emoji, false);
                 } else if (data.type === 'chat') {
                     if (data.recipient === 'Everyone' || data.recipient === localParticipant.identity || participant.identity === localParticipant.identity) {
                         setChatMessages(prev => [...prev, {
@@ -122,17 +131,17 @@ function MeetingStage({
                     setIsMicMuted(true);
                     alert("The Host has muted your microphone.");
                 } else if (data.type === 'kick_user' && data.targetIdentity === localParticipant.identity) {
-                    alert("You have been removed from the meeting by the Host.");
+                    alert("You were removed from the meeting by the Host.");
                     onLeave();
                 }
             } catch (err) {
-                console.error("Signal parse error:", err);
+                console.error("Signal reception error:", err);
             }
         };
 
         room.on('dataReceived', handleDataReceived);
         return () => room.off('dataReceived', handleDataReceived);
-    }, [room, localParticipant, onLeave]);
+    }, [room, localParticipant, onLeave, triggerReactionBroadcast]);
 
     const toggleMic = async () => {
         if (localParticipant) {
@@ -202,11 +211,9 @@ function MeetingStage({
         if (!isHost) return;
         if (window.confirm("Remove this participant from the meeting?")) {
             try {
-                // Inform client via data message
                 const payload = JSON.stringify({ type: 'kick_user', targetIdentity: identity });
                 room?.localParticipant?.publishData(new TextEncoder().encode(payload), { reliable: true });
 
-                // Direct Server-side Kick Request
                 await axios.post(`${BACKEND_URL}/api/kick-participant`, {
                     room_name: roomName,
                     participant_identity: identity
@@ -302,12 +309,65 @@ function MeetingStage({
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', position: 'relative', overflow: 'hidden' }}>
             <RoomAudioRenderer />
 
+            {/* In-Meeting Floating Emojis Across Peers */}
+            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none', zIndex: 9999 }}>
+                {floatingEmojis.map(item => (
+                    <span key={item.id} className="floating-emoji-item" style={{ left: `${item.left}%` }}>
+                        {item.emoji}
+                    </span>
+                ))}
+            </div>
+
             <div style={{ flex: 1, display: 'flex', position: 'relative', overflow: 'hidden', minHeight: 0 }}>
-                {/* Video Canvas Stage */}
-                <div style={{ flex: 1, height: '100%', width: '100%', padding: '4px' }}>
-                    <GridLayout tracks={tracks} style={{ height: '100%', width: '100%' }}>
-                        <ParticipantTile />
-                    </GridLayout>
+
+                {/* DYNAMIC SCREENSHARE FOCUS STAGE */}
+                <div style={{ flex: 1, height: '100%', width: '100%', position: 'relative' }}>
+                    {screenShareTrack ? (
+                        <div className="stage-focus-container">
+                            {/* Dominant Fullscreen Screenshare / Whiteboard */}
+                            <div className="stage-screenshare-main">
+                                <ParticipantTile trackRef={screenShareTrack} />
+                            </div>
+
+                            {/* Camera Thumbnails Strip at Bottom */}
+                            <div className="stage-camera-strip">
+                                {cameraTracks.map(track => {
+                                    const peerId = track.participant.identity;
+                                    const hasHandRaised = !!raisedHandsMap[peerId];
+                                    return (
+                                        <div key={track.publication.trackSid} style={{ position: 'relative', height: '100%' }}>
+                                            {hasHandRaised && (
+                                                <div className="video-hand-badge">
+                                                    ✋ Raised
+                                                </div>
+                                            )}
+                                            <ParticipantTile trackRef={track} />
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    ) : (
+                        /* Standard Grid Layout with Live Hand Raise Video Badges */
+                        <div style={{ height: '100%', width: '100%', padding: '4px' }}>
+                            <GridLayout tracks={cameraTracks} style={{ height: '100%', width: '100%' }}>
+                                {cameraTracks.map(track => {
+                                    const peerId = track.participant.identity;
+                                    const hasHandRaised = !!raisedHandsMap[peerId];
+                                    return (
+                                        <div key={track.publication.trackSid} style={{ position: 'relative', width: '100%', height: '100%' }}>
+                                            {hasHandRaised && (
+                                                <div className="video-hand-badge">
+                                                    ✋ Hand Raised
+                                                </div>
+                                            )}
+                                            <ParticipantTile trackRef={track} />
+                                        </div>
+                                    );
+                                })}
+                            </GridLayout>
+                        </div>
+                    )}
                 </div>
 
                 {/* Participants Drawer with 3-Dot Menu & Rename Option */}
@@ -344,14 +404,12 @@ function MeetingStage({
                                     </div>
 
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
-                                        {/* Rename option inside panel for self */}
                                         {p.isSelf && !isEditingName && (
                                             <button onClick={() => setIsEditingName(true)} style={drawerActionBtn} title="Rename self">
                                                 <Edit3 size={13} />
                                             </button>
                                         )}
 
-                                        {/* 3-Dot Options Menu for Host on Remote Participants */}
                                         {isHost && !p.isSelf && (
                                             <div style={{ position: 'relative' }}>
                                                 <button
@@ -548,6 +606,7 @@ export default function App() {
     const [showEmojiPicker, setShowEmojiPicker] = useState(false);
     const [floatingEmojis, setFloatingEmojis] = useState([]);
     const [showWhiteboard, setShowWhiteboard] = useState(false);
+    const activeRoomRef = useRef(null);
 
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
@@ -705,10 +764,20 @@ export default function App() {
         }
     };
 
-    const triggerReaction = (emoji) => {
-        const baseId = Date.now();
+    // Broadcast Reaction Over LiveKit Data Channel
+    const triggerReactionBroadcast = (emoji, broadcast = true) => {
+        const baseId = Date.now() + Math.random();
         setFloatingEmojis(prev => [...prev, { id: baseId, emoji, left: Math.random() * 60 + 20 }]);
         setShowEmojiPicker(false);
+
+        if (broadcast && activeRoomRef.current?.localParticipant) {
+            const payload = JSON.stringify({ type: 'reaction', emoji });
+            activeRoomRef.current.localParticipant.publishData(
+                new TextEncoder().encode(payload),
+                { reliable: false }
+            );
+        }
+
         setTimeout(() => {
             setFloatingEmojis(prev => prev.filter(e => e.id !== baseId));
         }, 2600);
@@ -724,14 +793,7 @@ export default function App() {
         return (
             <div style={{ height: '100dvh', width: '100vw', background: '#090d16', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
-                {/* Floating Reactions */}
-                <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none', zIndex: 9999 }}>
-                    {floatingEmojis.map(item => (
-                        <span key={item.id} className="floating-emoji-item" style={{ left: `${item.left}%` }}>{item.emoji}</span>
-                    ))}
-                </div>
-
-                {/* Clean Header */}
+                {/* Clean Responsive Header */}
                 <div className="mobile-header" style={headerBarStyle}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
                         <span style={{ fontWeight: '800', color: '#38bdf8', fontSize: '0.85rem' }}>MeetMatrix</span>
@@ -743,7 +805,7 @@ export default function App() {
                     <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexShrink: 0 }}>
                         <div style={{ display: 'flex', gap: '2px', background: '#1e293b', padding: '1px 3px', borderRadius: '6px', alignItems: 'center' }}>
                             {['👍', '❤️'].map(e => (
-                                <button key={e} onClick={() => triggerReaction(e)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '0.85rem', padding: '1px' }}>{e}</button>
+                                <button key={e} onClick={() => triggerReactionBroadcast(e, true)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '0.85rem', padding: '1px' }}>{e}</button>
                             ))}
                             <button onClick={() => setShowEmojiPicker(!showEmojiPicker)} style={{ background: '#334155', border: 'none', color: '#38bdf8', borderRadius: '4px', padding: '2px', cursor: 'pointer' }}><Plus size={11} /></button>
                         </div>
@@ -756,7 +818,7 @@ export default function App() {
                                 </div>
                                 <div className="emoji-grid">
                                     {EMOJI_PALETTE.map((e, idx) => (
-                                        <button key={`${e}-${idx}`} onClick={() => triggerReaction(e)} className="emoji-tile">{e}</button>
+                                        <button key={`${e}-${idx}`} onClick={() => triggerReactionBroadcast(e, true)} className="emoji-tile">{e}</button>
                                     ))}
                                 </div>
                             </div>
@@ -784,6 +846,7 @@ export default function App() {
                         serverUrl={serverUrl}
                         data-lk-theme="default"
                         style={{ height: '100%', width: '100%' }}
+                        onConnected={(roomInstance) => { activeRoomRef.current = roomInstance; }}
                         onDisconnected={() => { setInMeeting(false); setToken(''); }}
                     >
                         <MeetingStage
@@ -800,6 +863,8 @@ export default function App() {
                             allowScreenshare={allowScreenshare}
                             allowDirectChat={allowDirectChat}
                             chatLocked={chatLocked}
+                            floatingEmojis={floatingEmojis}
+                            triggerReactionBroadcast={triggerReactionBroadcast}
                         />
                     </LiveKitRoom>
                 </div>
