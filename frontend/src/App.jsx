@@ -16,9 +16,8 @@ import {
     PenTool, Video, VideoOff, Mic, MicOff, Settings,
     UserCheck, UserX, Clock, MonitorUp, MessageSquare, PhoneOff, X, Plus
 } from 'lucide-react';
+import { useGoogleLogin } from '@react-oauth/google';
 import Whiteboard from './Whiteboard';
-import { GoogleLogin } from '@react-oauth/google';
-import { jwtDecode } from 'jwt-decode';
 
 const BACKEND_URL = 'https://meetmatrix-backend-3l9l.onrender.com';
 
@@ -27,7 +26,7 @@ const EMOJI_PALETTE = [
     '😮', '🙌', '💯', '🚀', '✨', '💡',
     '😎', '🤔', '👋', '🥳', '🤝', '💪',
     '🎯', '⭐', '🎈', '🤩', '😇', '💥',
-    '😍', '🙏', '⚡', '🏆', '👀', '💯'
+    '😍', '🙏', '⚡', '🏆', '👀', '🔥'
 ];
 
 function MeetingStage({
@@ -78,7 +77,7 @@ function MeetingStage({
             return;
         }
         if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
-            alert("Screen sharing is not supported on this mobile browser. Please use a Desktop browser.");
+            alert("Screen sharing is not supported on mobile browsers.");
             return;
         }
         if (localParticipant) {
@@ -88,10 +87,9 @@ function MeetingStage({
         }
     };
 
-    // Safe Universal Recording Logic
     const startRecording = async () => {
         if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
-            alert("Local Screen Recording is supported on PC/Laptop browsers (Chrome, Brave, Edge). Mobile browsers restrict screen capturing.");
+            alert("Screen recording is supported on PC/Laptop browsers.");
             return;
         }
 
@@ -122,7 +120,7 @@ function MeetingStage({
             recorder.start();
             setIsRecording(true);
         } catch (err) {
-            console.log("Recording cancelled or error:", err);
+            console.log("Recording error:", err);
         }
     };
 
@@ -137,7 +135,6 @@ function MeetingStage({
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', position: 'relative', overflow: 'hidden' }}>
             <RoomAudioRenderer />
 
-            {/* Main Grid View */}
             <div style={{ flex: 1, display: 'flex', position: 'relative', overflow: 'hidden', minHeight: 0 }}>
                 <div style={{ flex: 1, height: '100%', width: '100%', padding: '4px' }}>
                     <GridLayout tracks={tracks} style={{ height: '100%', width: '100%' }}>
@@ -158,7 +155,6 @@ function MeetingStage({
                 )}
             </div>
 
-            {/* Bottom Sticky Control Bar */}
             <div style={{
                 background: '#0f172a',
                 borderTop: '1px solid #334155',
@@ -238,27 +234,14 @@ export default function App() {
     const [loading, setLoading] = useState(false);
     const [copied, setCopied] = useState(false);
 
-    // Google OAuth User State
-    const [user, setUser] = useState(null);
-
-    const handleGoogleSuccess = (credentialResponse) => {
-        try {
-            const decoded = jwtDecode(credentialResponse.credential);
-            setUser(decoded);
-            setParticipantName(decoded.name || '');
-        } catch (err) {
-            console.error("Token decode error:", err);
-        }
-    };
-
-    const handleGoogleError = () => {
-        alert("Google Sign-In failed. Please try again.");
-    };
-
+    // Settings State
     const [showSettingsModal, setShowSettingsModal] = useState(false);
     const [waitingMode, setWaitingMode] = useState('direct');
     const [chatLocked, setChatLocked] = useState(false);
     const [allowScreenshare, setAllowScreenshare] = useState(true);
+
+    // Pending action tracker for OAuth flow: "create" | "join"
+    const [authAction, setAuthAction] = useState(null);
 
     const [waitingList, setWaitingList] = useState([]);
     const [showAdmitModal, setShowAdmitModal] = useState(false);
@@ -347,62 +330,75 @@ export default function App() {
         return () => clearInterval(interval);
     }, [inMeeting, isHost, roomName]);
 
-    const handleCreateRoom = async () => {
-        if (!participantName.trim()) {
-            alert('Please enter your name or Sign in with Google');
-            return;
-        }
-        setLoading(true);
-        try {
-            const res = await axios.post(`${BACKEND_URL}/api/create-room`, {
-                waiting_mode: waitingMode,
-                chat_locked: chatLocked,
-                allow_participant_screenshare: allowScreenshare
-            });
-            const newRoomId = res.data.room_id;
-            setRoomName(newRoomId);
-            setIsHost(true);
-            await joinRoomDirect(newRoomId, participantName, true);
-        } catch (err) {
-            alert('Failed: ' + (err.response?.data?.detail || err.message));
-        } finally {
+    // Google Login Trigger
+    const triggerGoogleAuth = useGoogleLogin({
+        onSuccess: async (tokenResponse) => {
+            try {
+                setLoading(true);
+                // Fetch verified user profile from Google UserInfo endpoint
+                const userInfo = await axios.get('https://www.googleapis.com/oauth2/v3/userinfo', {
+                    headers: { Authorization: `Bearer ${tokenResponse.access_token}` },
+                });
+
+                const verifiedName = userInfo.data.name;
+                setParticipantName(verifiedName);
+
+                if (authAction === 'create') {
+                    const res = await axios.post(`${BACKEND_URL}/api/create-room`, {
+                        waiting_mode: waitingMode,
+                        chat_locked: chatLocked,
+                        allow_participant_screenshare: allowScreenshare
+                    });
+                    const newRoomId = res.data.room_id;
+                    setRoomName(newRoomId);
+                    setIsHost(true);
+                    await joinRoomDirect(newRoomId, verifiedName, true);
+                } else if (authAction === 'join') {
+                    setIsHost(false);
+                    const res = await axios.post(`${BACKEND_URL}/api/get-token`, {
+                        room_name: roomName.trim(),
+                        participant_name: verifiedName,
+                        is_host: false,
+                    });
+
+                    if (res.data.status === 'waiting') {
+                        setIsWaiting(true);
+                        setWaitingPid(res.data.participant_id);
+                    } else {
+                        setToken(res.data.token);
+                        setServerUrl(res.data.server_url);
+                        if (res.data.config) {
+                            setAllowScreenshare(res.data.config.allow_participant_screenshare);
+                            setChatLocked(res.data.config.chat_locked);
+                        }
+                        setInMeeting(true);
+                    }
+                }
+            } catch (err) {
+                alert("Google Verification Failed: " + err.message);
+            } finally {
+                setLoading(false);
+            }
+        },
+        onError: () => {
+            alert("Google Sign-In failed or was cancelled.");
             setLoading(false);
         }
+    });
+
+    const handleCreateMeetingClick = () => {
+        setAuthAction('create');
+        triggerGoogleAuth();
     };
 
-    const handleJoinExisting = async (e) => {
+    const handleJoinMeetingClick = (e) => {
         e.preventDefault();
-        if (!roomName.trim() || !participantName.trim()) {
-            alert('Enter Room Code and Name (or Sign in with Google)');
+        if (!roomName.trim()) {
+            alert('Please enter a Room Code');
             return;
         }
-        setLoading(true);
-        try {
-            setIsHost(false);
-            const res = await axios.post(`${BACKEND_URL}/api/get-token`, {
-                room_name: roomName.trim(),
-                participant_name: participantName.trim(),
-                is_host: false,
-                email: user ? user.email : ""
-            });
-
-            if (res.data.status === 'waiting') {
-                setIsWaiting(true);
-                setWaitingPid(res.data.participant_id);
-            } else {
-                setToken(res.data.token);
-                setServerUrl(res.data.server_url);
-                if (res.data.config) {
-                    setAllowScreenshare(res.data.config.allow_participant_screenshare);
-                    setChatLocked(res.data.config.chat_locked);
-                }
-                setInMeeting(true);
-            }
-        } catch (err) {
-            alert(err.response?.data?.detail || 'Invalid Room Code');
-        } finally {
-            setLoading(false);
-        }
+        setAuthAction('join');
+        triggerGoogleAuth();
     };
 
     const joinRoomDirect = async (room, name, hostFlag) => {
@@ -411,7 +407,6 @@ export default function App() {
             participant_name: name,
             is_host: hostFlag,
             role: hostFlag ? "host" : "participant",
-            email: user ? user.email : ""
         });
         setToken(res.data.token);
         setServerUrl(res.data.server_url);
@@ -507,7 +502,6 @@ export default function App() {
         return (
             <div style={{ height: '100dvh', width: '100vw', background: '#090d16', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
-                {/* Floating Emojis Layer */}
                 <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none', zIndex: 9999 }}>
                     {floatingEmojis.map(item => (
                         <span key={item.id} className="floating-emoji-item" style={{ left: `${item.left}%` }}>
@@ -516,7 +510,6 @@ export default function App() {
                     ))}
                 </div>
 
-                {/* Top Header */}
                 <div style={{
                     background: '#0f172a',
                     color: '#f8fafc',
@@ -548,17 +541,12 @@ export default function App() {
                         {showEmojiPicker && (
                             <div className="emoji-popover">
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', padding: '0 4px' }}>
-                                    <span style={{ fontSize: '0.72rem', fontWeight: '700', color: '#94a3b8', letterSpacing: '0.5px' }}>REACTIONS</span>
-                                    <span style={{ fontSize: '0.65rem', color: '#64748b' }}>Click to react</span>
+                                    <span style={{ fontSize: '0.72rem', fontWeight: '700', color: '#94a3b8' }}>REACTIONS</span>
+                                    <button onClick={() => setShowEmojiPicker(false)} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}><X size={14} /></button>
                                 </div>
                                 <div className="emoji-grid">
                                     {EMOJI_PALETTE.map((e, idx) => (
-                                        <button
-                                            key={`${e}-${idx}`}
-                                            onClick={() => triggerReaction(e)}
-                                            className="emoji-tile"
-                                            title={`React ${e}`}
-                                        >
+                                        <button key={`${e}-${idx}`} onClick={() => triggerReaction(e)} className="emoji-tile">
                                             {e}
                                         </button>
                                     ))}
@@ -634,7 +622,6 @@ export default function App() {
 
                 {showWhiteboard && <Whiteboard isHost={isHost} onClose={() => setShowWhiteboard(false)} />}
 
-                {/* LiveKit Video Stage */}
                 <div style={{ flex: 1, position: 'relative', overflow: 'hidden', minHeight: 0 }}>
                     <LiveKitRoom
                         video={cameraEnabled}
@@ -684,9 +671,9 @@ export default function App() {
                         </div>
                     </div>
 
-                    {/* Join Form */}
+                    {/* Join / Create Form */}
                     <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                             <h1 style={{ fontSize: '1.5rem', fontWeight: '800', color: '#38bdf8', margin: 0 }}>MeetMatrix</h1>
                             <button onClick={() => setShowSettingsModal(!showSettingsModal)} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }} title="Host Settings">
                                 <Settings size={18} />
@@ -713,72 +700,38 @@ export default function App() {
                             </div>
                         )}
 
-                        {/* Google Sign-In Block */}
-                        <div style={{ marginBottom: '1.2rem', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                            {!user ? (
-                                <div style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
-                                    <GoogleLogin
-                                        onSuccess={handleGoogleSuccess}
-                                        onError={handleGoogleError}
-                                        theme="filled_black"
-                                        shape="pill"
-                                        size="large"
-                                    />
-                                </div>
-                            ) : (
-                                <div style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '10px',
-                                    background: '#090d16',
-                                    border: '1px solid #334155',
-                                    padding: '8px 14px',
-                                    borderRadius: '24px',
-                                    width: '100%',
-                                    boxSizing: 'border-box'
-                                }}>
-                                    <img
-                                        src={user.picture}
-                                        alt="Avatar"
-                                        style={{ width: '32px', height: '32px', borderRadius: '50%' }}
-                                    />
-                                    <div style={{ flex: 1, overflow: 'hidden' }}>
-                                        <p style={{ fontSize: '0.85rem', fontWeight: '600', color: '#f8fafc', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                            {user.name}
-                                        </p>
-                                        <p style={{ fontSize: '0.7rem', color: '#94a3b8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                            {user.email}
-                                        </p>
-                                    </div>
-                                    <button
-                                        onClick={() => { setUser(null); setParticipantName(''); }}
-                                        style={{ background: 'transparent', border: 'none', color: '#ef4444', fontSize: '0.75rem', cursor: 'pointer', fontWeight: 'bold' }}
-                                    >
-                                        Sign Out
-                                    </button>
-                                </div>
-                            )}
-                        </div>
-
-                        <div style={{ marginBottom: '0.8rem' }}>
-                            <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '4px' }}>Your Name</label>
-                            <input type="text" placeholder="e.g. Raj" value={participantName} onChange={(e) => setParticipantName(e.target.value)} style={inputStyle} />
-                        </div>
-
-                        <button onClick={handleCreateRoom} disabled={loading} style={primaryBtnStyle}>
-                            {loading ? 'Starting...' : '⚡ Create New Meeting'}
+                        {/* Direct Google Action: Create */}
+                        <button
+                            onClick={handleCreateMeetingClick}
+                            disabled={loading}
+                            style={{ ...primaryBtnStyle, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                        >
+                            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="G" style={{ width: '16px', height: '16px' }} />
+                            {loading && authAction === 'create' ? 'Authenticating...' : 'Sign in & Create Meeting'}
                         </button>
 
-                        <div style={{ display: 'flex', alignItems: 'center', margin: '0.8rem 0', color: '#475569' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', margin: '1rem 0', color: '#475569' }}>
                             <hr style={{ flex: 1, borderColor: '#1e293b' }} />
                             <span style={{ padding: '0 8px', fontSize: '0.7rem' }}>OR JOIN EXISTING</span>
                             <hr style={{ flex: 1, borderColor: '#1e293b' }} />
                         </div>
 
-                        <form onSubmit={handleJoinExisting}>
-                            <input type="text" placeholder="Enter Room Code (e.g. mm-xxxx-xxxx)" value={roomName} onChange={(e) => setRoomName(e.target.value)} style={{ ...inputStyle, marginBottom: '0.6rem' }} />
-                            <button type="submit" disabled={loading} style={secondaryBtnStyle}>
-                                Join Meeting
+                        {/* Direct Google Action: Join */}
+                        <form onSubmit={handleJoinMeetingClick}>
+                            <input
+                                type="text"
+                                placeholder="Enter Room Code (e.g. mm-xxxx-xxxx)"
+                                value={roomName}
+                                onChange={(e) => setRoomName(e.target.value)}
+                                style={{ ...inputStyle, marginBottom: '0.8rem' }}
+                            />
+                            <button
+                                type="submit"
+                                disabled={loading}
+                                style={{ ...secondaryBtnStyle, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                            >
+                                <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="G" style={{ width: '16px', height: '16px' }} />
+                                {loading && authAction === 'join' ? 'Verifying & Joining...' : 'Sign in & Join Meeting'}
                             </button>
                         </form>
                     </div>
