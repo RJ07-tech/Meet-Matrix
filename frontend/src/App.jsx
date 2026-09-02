@@ -53,8 +53,12 @@ function MeetingStage({
     const [isHandRaised, setIsHandRaised] = useState(false);
     const [raisedHandsMap, setRaisedHandsMap] = useState({});
 
-    // Co-Hosts mapping: { [identity]: boolean }
+    // Co-Hosts mapping
     const [coHostsMap, setCoHostsMap] = useState({});
+
+    // Waiting List Poller & Admit Modal for Host/Co-Host
+    const [waitingList, setWaitingList] = useState([]);
+    const [showAdmitModal, setShowAdmitModal] = useState(false);
 
     // Modals & Drawers
     const [showChat, setShowChat] = useState(false);
@@ -62,8 +66,10 @@ function MeetingStage({
     const [showInMeetingSettings, setShowInMeetingSettings] = useState(false);
     const [activeMenuIdentity, setActiveMenuIdentity] = useState(null);
 
-    // Reactions
+    // Floating reaction emojis
     const [floatingEmojis, setFloatingEmojis] = useState([]);
+
+    // 5 Quick Customizable Emojis
     const [quickEmojis, setQuickEmojis] = useState(() => {
         try {
             const saved = localStorage.getItem('meetmatrix_quick_emojis');
@@ -73,7 +79,7 @@ function MeetingStage({
         }
     });
 
-    // Customization & Slot selection
+    // Customization Mode & Target Slot (0 to 4)
     const [isCustomizeOpen, setIsCustomizeOpen] = useState(false);
     const [activeSlotToReplace, setActiveSlotToReplace] = useState(0);
 
@@ -94,7 +100,6 @@ function MeetingStage({
     const mediaRecorderRef = useRef(null);
     const recordedChunksRef = useRef([]);
 
-    // Effective Moderator check: Host or Co-Host
     const isEffectiveModerator = isHost || Boolean(coHostsMap[localParticipant?.identity]);
 
     const allTracks = useTracks(
@@ -108,6 +113,28 @@ function MeetingStage({
     const screenShareTrack = allTracks.find(t => t.source === Track.Source.ScreenShare);
     const cameraTracks = allTracks.filter(t => t.source === Track.Source.Camera);
 
+    // Waiting list auto-polling for Host / Co-Host
+    useEffect(() => {
+        let interval;
+        if (isEffectiveModerator && roomName) {
+            interval = setInterval(async () => {
+                try {
+                    const res = await axios.get(`${BACKEND_URL}/api/waiting-list/${roomName}`);
+                    const pending = res.data.waiting || [];
+                    setWaitingList(pending);
+                    // Automatically pop up admit modal if someone arrives
+                    if (pending.length > 0) {
+                        setShowAdmitModal(true);
+                    }
+                } catch (e) {
+                    console.error("Waiting list poll error:", e);
+                }
+            }, 3000);
+        }
+        return () => clearInterval(interval);
+    }, [isEffectiveModerator, roomName]);
+
+    // Screen Share Status Listener
     useEffect(() => {
         if (!localParticipant) return;
         const syncShareStatus = () => {
@@ -201,11 +228,12 @@ function MeetingStage({
         }
     };
 
-    // Instant slot replace with zero-lag state update
+    // Replace selected quick emoji slot with 100% precision
     const handleEmojiSelectedForSlot = (emojiData) => {
+        const targetIdx = Number(activeSlotToReplace);
         setQuickEmojis(prev => {
             const updated = [...prev];
-            updated[activeSlotToReplace] = emojiData.emoji;
+            updated[targetIdx] = emojiData.emoji;
             localStorage.setItem('meetmatrix_quick_emojis', JSON.stringify(updated));
             return updated;
         });
@@ -302,7 +330,6 @@ function MeetingStage({
         }
     };
 
-    // Make or Revoke Co-Host action
     const handleToggleCoHost = (identity) => {
         if (!isHost || !room) return;
         const nextStatus = !coHostsMap[identity];
@@ -315,6 +342,19 @@ function MeetingStage({
         });
         room.localParticipant.publishData(new TextEncoder().encode(payload), { reliable: true });
         setActiveMenuIdentity(null);
+    };
+
+    const handleAdmitAction = async (pid, action) => {
+        try {
+            await axios.post(`${BACKEND_URL}/api/admit-participant`, {
+                room_name: roomName,
+                participant_id: pid,
+                action,
+            });
+            setWaitingList(prev => prev.filter(p => p.participant_id !== pid));
+        } catch (e) {
+            alert("Admission failed: " + e.message);
+        }
     };
 
     const handleUpdateLiveRoomSettings = async (updates) => {
@@ -492,9 +532,9 @@ function MeetingStage({
 
                     {/* Emoji Slot Customizer Popup */}
                     {isCustomizeOpen && (
-                        <div style={{ position: 'absolute', top: '42px', right: 0, zIndex: 99999, boxShadow: '0 15px 35px rgba(0,0,0,0.8)', borderRadius: '8px', overflow: 'hidden', background: '#0f172a', border: '1px solid #334155' }}>
+                        <div style={{ position: 'absolute', top: '42px', right: 0, zIndex: 99999, boxShadow: '0 15px 35px rgba(0,0,0,0.85)', borderRadius: '8px', overflow: 'hidden', background: '#0f172a', border: '1px solid #334155' }}>
                             <div style={{ padding: '8px 10px', borderBottom: '1px solid #334155' }}>
-                                <span style={{ fontSize: '0.72rem', color: '#94a3b8', display: 'block', marginBottom: '6px' }}>Click Slot to Replace:</span>
+                                <span style={{ fontSize: '0.72rem', color: '#94a3b8', display: 'block', marginBottom: '6px' }}>Click a Slot to Replace:</span>
                                 <div style={{ display: 'flex', gap: '6px' }}>
                                     {quickEmojis.map((em, i) => (
                                         <button
@@ -528,12 +568,23 @@ function MeetingStage({
                         </div>
                     )}
 
-                    {/* In-Meeting Settings Gear Icon (Restored for Host / Co-Host) */}
+                    {/* Waiting Room Admit Request Button Badge */}
+                    {isEffectiveModerator && waitingList.length > 0 && (
+                        <button
+                            onClick={() => setShowAdmitModal(true)}
+                            style={{ ...topBtnStyle, background: '#eab308', color: '#0f172a', fontWeight: '800' }}
+                            title="Participants Waiting in Lobby"
+                        >
+                            Requests ({waitingList.length})
+                        </button>
+                    )}
+
+                    {/* In-Meeting Settings Gear Icon */}
                     {isEffectiveModerator && (
                         <button
                             onClick={() => setShowInMeetingSettings(!showInMeetingSettings)}
                             style={topBtnStyle}
-                            title="Meeting Security & Settings"
+                            title="Meeting Settings"
                         >
                             <Settings size={14} />
                         </button>
@@ -551,6 +602,46 @@ function MeetingStage({
                     </button>
                 </div>
             </div>
+
+            {/* Waiting Room Admit Popup Modal */}
+            {showAdmitModal && isEffectiveModerator && (
+                <div style={{ position: 'fixed', top: '55px', right: '14px', background: '#1e293b', padding: '14px', borderRadius: '12px', border: '2px solid #eab308', boxShadow: '0 20px 30px rgba(0,0,0,0.85)', zIndex: 99999, width: '280px', color: '#f8fafc' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                        <h4 style={{ margin: 0, fontSize: '0.85rem', color: '#eab308', fontWeight: '700' }}>Waiting Lobby ({waitingList.length})</h4>
+                        <button onClick={() => setShowAdmitModal(false)} style={{ background: 'transparent', border: 'none', color: '#f8fafc', cursor: 'pointer' }}><X size={16} /></button>
+                    </div>
+
+                    <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+                        {waitingList.length === 0 ? (
+                            <p style={{ fontSize: '0.75rem', color: '#94a3b8', margin: '10px 0', textAlign: 'center' }}>No participants waiting.</p>
+                        ) : (
+                            waitingList.map(p => (
+                                <div key={p.participant_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #334155' }}>
+                                    <span style={{ fontSize: '0.8rem', color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '140px' }}>
+                                        {p.name}
+                                    </span>
+                                    <div style={{ display: 'flex', gap: '4px' }}>
+                                        <button
+                                            onClick={() => handleAdmitAction(p.participant_id, 'admit')}
+                                            style={{ background: '#10b981', border: 'none', color: '#fff', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer' }}
+                                            title="Admit"
+                                        >
+                                            <UserCheck size={14} />
+                                        </button>
+                                        <button
+                                            onClick={() => handleAdmitAction(p.participant_id, 'reject')}
+                                            style={{ background: '#ef4444', border: 'none', color: '#fff', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer' }}
+                                            title="Deny"
+                                        >
+                                            <UserX size={14} />
+                                        </button>
+                                    </div>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </div>
+            )}
 
             {/* In-Meeting Live Settings Modal */}
             {showInMeetingSettings && isEffectiveModerator && (
@@ -686,7 +777,6 @@ function MeetingStage({
                                             </button>
                                         )}
 
-                                        {/* 3-Dot Moderation Menu for Host & Co-Host */}
                                         {isEffectiveModerator && !p.isSelf && (
                                             <div style={{ position: 'relative' }}>
                                                 <button
@@ -816,7 +906,6 @@ function MeetingStage({
                     <span className="mobile-hide" style={{ fontSize: '0.65rem' }}>{isVideoMuted ? 'Start Video' : 'Stop Video'}</span>
                 </button>
 
-                {/* Hand Raise: Visible for participants and co-hosts (Not Owner Host) */}
                 {!isHost && (
                     <button
                         onClick={toggleHandRaise}
