@@ -1,274 +1,406 @@
-import React, { useRef, useState, useEffect } from 'react';
-import {
-    Pencil, Eraser, Trash2, Download, Lock, Unlock,
-    X, Type, MonitorUp, StopCircle
-} from 'lucide-react';
-import { Track } from 'livekit-client';
+import { useRef, useState, useEffect } from 'react';
+import { Pen, Eraser, RotateCcw, X, Share2, Square, Circle } from 'lucide-react';
+import { LocalVideoTrack } from 'livekit-client';
+
+// Keep drawing state in module memory across open/close
+let persistentDrawingHistory = [];
 
 export default function Whiteboard({ isHost, onClose, localParticipant }) {
     const canvasRef = useRef(null);
     const [isDrawing, setIsDrawing] = useState(false);
-    const [tool, setTool] = useState('pen');
-    const [color, setColor] = useState('#1e293b');
-    const [lineWidth, setLineWidth] = useState(3);
-    const [isLocked, setIsLocked] = useState(false);
+    const [tool, setTool] = useState('pen'); // pen, eraser, rectangle, circle
+    const [color, setColor] = useState('#000000');
+    const [brushSize, setBrushSize] = useState(4);
     const [isSharingBoard, setIsSharingBoard] = useState(false);
-    const publishedPublicationRef = useRef(null);
-    const textInputRef = useRef(null);
-    const [textPos, setTextPos] = useState(null);
-    const [textValue, setTextValue] = useState('');
+    const screenTrackRef = useRef(null);
+    const startPosRef = useRef({ x: 0, y: 0 });
+    const snapshotRef = useRef(null);
 
-    const initWhiteCanvas = () => {
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-        const ctx = canvas.getContext('2d');
-        canvas.width = canvas.parentElement?.clientWidth || 900;
-        canvas.height = (canvas.parentElement?.clientHeight || 600) - 65;
+    // Fill white background cleanly
+    const fillWhiteBackground = (ctx, width, height) => {
         ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillRect(0, 0, width, height);
+    };
+
+    // Redraw saved persistent history
+    const redrawHistory = (ctx) => {
+        persistentDrawingHistory.forEach(action => {
+            if (action.type === 'stroke') {
+                ctx.strokeStyle = action.color;
+                ctx.lineWidth = action.size;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+                ctx.beginPath();
+                action.points.forEach((pt, index) => {
+                    if (index === 0) ctx.moveTo(pt.x, pt.y);
+                    else ctx.lineTo(pt.x, pt.y);
+                });
+                ctx.stroke();
+            } else if (action.type === 'rect') {
+                ctx.strokeStyle = action.color;
+                ctx.lineWidth = action.size;
+                ctx.strokeRect(action.x, action.y, action.w, action.h);
+            } else if (action.type === 'circle') {
+                ctx.strokeStyle = action.color;
+                ctx.lineWidth = action.size;
+                ctx.beginPath();
+                ctx.arc(action.x, action.y, action.r, 0, 2 * Math.PI);
+                ctx.stroke();
+            }
+        });
     };
 
     useEffect(() => {
-        initWhiteCanvas();
-    }, []);
-
-    const getCanvasCoords = (e) => {
         const canvas = canvasRef.current;
-        const rect = canvas.getBoundingClientRect();
-        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-        return {
-            x: clientX - rect.left,
-            y: clientY - rect.top,
-        };
-    };
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
 
-    const startDraw = (e) => {
-        if (isLocked) return;
-        if (tool === 'text') {
-            const coords = getCanvasCoords(e);
-            setTextPos(coords);
-            setTextValue('');
-            setTimeout(() => textInputRef.current?.focus(), 50);
-            return;
+        // Set dimensions
+        canvas.width = canvas.parentElement.clientWidth;
+        canvas.height = canvas.parentElement.clientHeight - 60;
+
+        // Immediately paint clean white to prevent black-screen capture
+        fillWhiteBackground(ctx, canvas.width, canvas.height);
+
+        // Restore past drawing if re-opening
+        if (persistentDrawingHistory.length > 0) {
+            redrawHistory(ctx);
         }
 
-        const { x, y } = getCanvasCoords(e);
-        const ctx = canvasRef.current.getContext('2d');
-        ctx.beginPath();
-        ctx.moveTo(x, y);
+        const handleResize = () => {
+            if (!canvas) return;
+            // Save state before resize
+            const temp = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            canvas.width = canvas.parentElement.clientWidth;
+            canvas.height = canvas.parentElement.clientHeight - 60;
+            fillWhiteBackground(ctx, canvas.width, canvas.height);
+            ctx.putImageData(temp, 0, 0);
+        };
+
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
+
+    // Stop share helper
+    const stopWhiteboardSharing = async () => {
+        if (screenTrackRef.current && localParticipant) {
+            try {
+                await localParticipant.unpublishTrack(screenTrackRef.current);
+                screenTrackRef.current.stop();
+            } catch (e) {
+                console.error("Unpublish track error:", e);
+            }
+            screenTrackRef.current = null;
+        }
+        if (localParticipant?.isScreenShareEnabled) {
+            try {
+                await localParticipant.setScreenShareEnabled(false);
+            } catch (e) {
+                console.error("Screen share disable error:", e);
+            }
+        }
+        setIsSharingBoard(false);
+    };
+
+    // Close and stop sharing simultaneously
+    const handleCloseWhiteboard = async () => {
+        await stopWhiteboardSharing();
+        onClose();
+    };
+
+    const toggleShareCanvas = async () => {
+        if (!localParticipant) return;
+        if (isSharingBoard) {
+            await stopWhiteboardSharing();
+        } else {
+            try {
+                const canvas = canvasRef.current;
+                // Force white refresh before stream creation to guarantee no black screen
+                const ctx = canvas.getContext('2d');
+                if (persistentDrawingHistory.length === 0) {
+                    fillWhiteBackground(ctx, canvas.width, canvas.height);
+                }
+
+                const stream = canvas.captureStream(30);
+                const track = stream.getVideoTracks()[0];
+                if (!track) return;
+
+                const localVideoTrack = new LocalVideoTrack(track, { name: 'whiteboard' });
+                screenTrackRef.current = localVideoTrack;
+
+                track.onended = () => {
+                    setIsSharingBoard(false);
+                };
+
+                await localParticipant.publishTrack(localVideoTrack, {
+                    name: 'whiteboard-share',
+                    source: 'screen_share'
+                });
+                setIsSharingBoard(true);
+            } catch (err) {
+                console.error("Failed to share canvas stream:", err);
+                alert("Could not share whiteboard: " + err.message);
+            }
+        }
+    };
+
+    // Current stroke points tracker
+    const currentPointsRef = useRef([]);
+
+    const startDraw = (e) => {
+        const canvas = canvasRef.current;
+        const rect = canvas.getBoundingClientRect();
+        const x = (e.clientX || e.touches?.[0]?.clientX) - rect.left;
+        const y = (e.clientY || e.touches?.[0]?.clientY) - rect.top;
+
         setIsDrawing(true);
+        startPosRef.current = { x, y };
+
+        const ctx = canvas.getContext('2d');
+        snapshotRef.current = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+        if (tool === 'pen' || tool === 'eraser') {
+            currentPointsRef.current = [{ x, y }];
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            ctx.strokeStyle = tool === 'eraser' ? '#ffffff' : color;
+            ctx.lineWidth = tool === 'eraser' ? brushSize * 4 : brushSize;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+        }
     };
 
     const draw = (e) => {
-        if (!isDrawing || isLocked || tool === 'text') return;
-        const { x, y } = getCanvasCoords(e);
-        const ctx = canvasRef.current.getContext('2d');
-
-        ctx.strokeStyle = tool === 'eraser' ? '#ffffff' : color;
-        ctx.lineWidth = tool === 'eraser' ? 24 : lineWidth;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        ctx.lineTo(x, y);
-        ctx.stroke();
-    };
-
-    const stopDraw = () => {
         if (!isDrawing) return;
-        const ctx = canvasRef.current.getContext('2d');
-        ctx.closePath();
-        setIsDrawing(false);
-    };
-
-    const handleCommitText = () => {
-        if (!textPos || !textValue.trim()) {
-            setTextPos(null);
-            return;
-        }
-        const ctx = canvasRef.current.getContext('2d');
-        ctx.fillStyle = color;
-        ctx.font = 'bold 18px Inter, system-ui, sans-serif';
-        ctx.fillText(textValue, textPos.x, textPos.y + 14);
-        setTextPos(null);
-        setTextValue('');
-    };
-
-    const clearCanvas = () => {
-        if (isLocked) return;
-        initWhiteCanvas();
-    };
-
-    const savePNG = () => {
         const canvas = canvasRef.current;
-        const image = canvas.toDataURL('image/png');
-        const a = document.createElement('a');
-        a.href = image;
-        a.download = `MeetMatrix-Whiteboard-${Date.now()}.png`;
-        a.click();
+        const ctx = canvas.getContext('2d');
+        const rect = canvas.getBoundingClientRect();
+        const x = (e.clientX || e.touches?.[0]?.clientX) - rect.left;
+        const y = (e.clientY || e.touches?.[0]?.clientY) - rect.top;
+
+        if (tool === 'pen' || tool === 'eraser') {
+            ctx.lineTo(x, y);
+            ctx.stroke();
+            currentPointsRef.current.push({ x, y });
+        } else if (tool === 'rectangle') {
+            ctx.putImageData(snapshotRef.current, 0, 0);
+            ctx.strokeStyle = color;
+            ctx.lineWidth = brushSize;
+            ctx.strokeRect(
+                startPosRef.current.x,
+                startPosRef.current.y,
+                x - startPosRef.current.x,
+                y - startPosRef.current.y
+            );
+        } else if (tool === 'circle') {
+            ctx.putImageData(snapshotRef.current, 0, 0);
+            ctx.strokeStyle = color;
+            ctx.lineWidth = brushSize;
+            const radius = Math.sqrt(
+                Math.pow(x - startPosRef.current.x, 2) + Math.pow(y - startPosRef.current.y, 2)
+            );
+            ctx.beginPath();
+            ctx.arc(startPosRef.current.x, startPosRef.current.y, radius, 0, 2 * Math.PI);
+            ctx.stroke();
+        }
     };
 
-    // Immediate Frame Render to prevent initial black screen on peers
-    const toggleShareWhiteboardStream = async () => {
-        if (!isHost) {
-            alert("Only the Host can broadcast the whiteboard.");
-            return;
+    const stopDraw = (e) => {
+        if (!isDrawing) return;
+        setIsDrawing(false);
+
+        const canvas = canvasRef.current;
+        const rect = canvas.getBoundingClientRect();
+        const clientX = e?.clientX || e?.changedTouches?.[0]?.clientX || startPosRef.current.x;
+        const clientY = e?.clientY || e?.changedTouches?.[0]?.clientY || startPosRef.current.y;
+        const x = clientX - rect.left;
+        const y = clientY - rect.top;
+
+        // Save into persistent history
+        if (tool === 'pen' || tool === 'eraser') {
+            persistentDrawingHistory.push({
+                type: 'stroke',
+                color: tool === 'eraser' ? '#ffffff' : color,
+                size: tool === 'eraser' ? brushSize * 4 : brushSize,
+                points: [...currentPointsRef.current]
+            });
+            currentPointsRef.current = [];
+        } else if (tool === 'rectangle') {
+            persistentDrawingHistory.push({
+                type: 'rect',
+                color,
+                size: brushSize,
+                x: startPosRef.current.x,
+                y: startPosRef.current.y,
+                w: x - startPosRef.current.x,
+                h: y - startPosRef.current.y
+            });
+        } else if (tool === 'circle') {
+            const radius = Math.sqrt(
+                Math.pow(x - startPosRef.current.x, 2) + Math.pow(y - startPosRef.current.y, 2)
+            );
+            persistentDrawingHistory.push({
+                type: 'circle',
+                color,
+                size: brushSize,
+                x: startPosRef.current.x,
+                y: startPosRef.current.y,
+                r: radius
+            });
         }
-        if (!localParticipant) return;
+    };
 
-        if (!isSharingBoard) {
-            try {
-                const canvas = canvasRef.current;
-                const ctx = canvas.getContext('2d');
-
-                // Force active frame paint before capture
-                ctx.fillStyle = '#ffffff';
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-                ctx.fillStyle = '#f8fafc';
-                ctx.fillRect(0, 0, 1, 1); // trigger pixel update
-
-                const stream = canvas.captureStream(25);
-                const videoTrack = stream.getVideoTracks()[0];
-
-                if (!videoTrack) {
-                    alert("Could not generate video track from canvas.");
-                    return;
-                }
-
-                const publication = await localParticipant.publishTrack(videoTrack, {
-                    name: 'whiteboard-share',
-                    source: Track.Source.ScreenShare,
-                    simulcast: false,
-                });
-
-                publishedPublicationRef.current = publication;
-                setIsSharingBoard(true);
-            } catch (err) {
-                console.error("Whiteboard stream error:", err);
-                alert("Share failed: " + err.message);
-            }
-        } else {
-            try {
-                if (publishedPublicationRef.current) {
-                    await localParticipant.unpublishTrack(publishedPublicationRef.current.track);
-                    publishedPublicationRef.current = null;
-                }
-            } catch (err) {
-                console.error("Unpublish error:", err);
-            }
-            setIsSharingBoard(false);
-        }
+    const clearBoard = () => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        fillWhiteBackground(ctx, canvas.width, canvas.height);
+        persistentDrawingHistory = [];
     };
 
     return (
-        <div style={wbOverlayStyle}>
-            <div style={wbModalStyle}>
-                {/* Toolbar Header */}
-                <div style={wbToolbarStyle}>
-                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
-                        <button
-                            onClick={() => { setTool('pen'); setColor('#1e293b'); }}
-                            style={{ ...wbBtnStyle, background: tool === 'pen' ? '#0284c7' : '#1e293b' }}
-                        >
-                            <Pencil size={15} /> Pen
-                        </button>
-                        <button
-                            onClick={() => setTool('text')}
-                            style={{ ...wbBtnStyle, background: tool === 'text' ? '#0284c7' : '#1e293b' }}
-                        >
-                            <Type size={15} /> Text Note
-                        </button>
-                        <button
-                            onClick={() => setTool('eraser')}
-                            style={{ ...wbBtnStyle, background: tool === 'eraser' ? '#0284c7' : '#1e293b' }}
-                        >
-                            <Eraser size={15} /> Eraser
-                        </button>
+        <div style={containerStyle}>
+            {/* Whiteboard Header Toolbar */}
+            <div style={toolbarStyle}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontWeight: '800', color: '#0284c7', fontSize: '0.9rem' }}>Collaborative Whiteboard</span>
 
-                        {tool === 'pen' && (
-                            <input
-                                type="color"
-                                value={color}
-                                onChange={(e) => setColor(e.target.value)}
-                                style={{ width: '28px', height: '28px', border: 'none', borderRadius: '4px', cursor: 'pointer', background: 'transparent' }}
-                            />
-                        )}
-
-                        <button onClick={clearCanvas} style={{ ...wbBtnStyle, background: '#334155' }}>
-                            <Trash2 size={15} /> Clear
+                    {/* Tools */}
+                    <div style={{ display: 'flex', background: '#090d16', padding: '2px', borderRadius: '6px', border: '1px solid #334155' }}>
+                        <button onClick={() => setTool('pen')} style={{ ...iconBtnStyle, background: tool === 'pen' ? '#0284c7' : 'transparent' }} title="Pen">
+                            <Pen size={14} />
                         </button>
-                        <button onClick={savePNG} style={{ ...wbBtnStyle, background: '#059669' }}>
-                            <Download size={15} /> Save PNG
+                        <button onClick={() => setTool('eraser')} style={{ ...iconBtnStyle, background: tool === 'eraser' ? '#0284c7' : 'transparent' }} title="Eraser">
+                            <Eraser size={14} />
                         </button>
-
-                        {isHost && (
-                            <button
-                                onClick={toggleShareWhiteboardStream}
-                                style={{ ...wbBtnStyle, background: isSharingBoard ? '#ef4444' : '#0284c7' }}
-                            >
-                                {isSharingBoard ? <StopCircle size={15} /> : <MonitorUp size={15} />}
-                                {isSharingBoard ? 'Stop Sharing' : 'Share Board'}
-                            </button>
-                        )}
-
-                        {isHost && (
-                            <button onClick={() => setIsLocked(!isLocked)} style={{ ...wbBtnStyle, background: isLocked ? '#e11d48' : '#10b981' }}>
-                                {isLocked ? <Lock size={15} /> : <Unlock size={15} />}
-                                {isLocked ? 'Locked' : 'Unlocked'}
-                            </button>
-                        )}
+                        <button onClick={() => setTool('rectangle')} style={{ ...iconBtnStyle, background: tool === 'rectangle' ? '#0284c7' : 'transparent' }} title="Rectangle">
+                            <Square size={14} />
+                        </button>
+                        <button onClick={() => setTool('circle')} style={{ ...iconBtnStyle, background: tool === 'circle' ? '#0284c7' : 'transparent' }} title="Circle">
+                            <Circle size={14} />
+                        </button>
                     </div>
 
-                    <button onClick={onClose} style={{ background: '#ef4444', border: 'none', color: '#fff', borderRadius: '6px', padding: '6px 10px', cursor: 'pointer' }}>
-                        <X size={18} />
+                    {/* Color Picker & Sizes */}
+                    {tool !== 'eraser' && (
+                        <input
+                            type="color"
+                            value={color}
+                            onChange={(e) => setColor(e.target.value)}
+                            style={{ width: '26px', height: '26px', border: 'none', background: 'transparent', cursor: 'pointer' }}
+                            title="Choose Color"
+                        />
+                    )}
+
+                    <input
+                        type="range"
+                        min="2"
+                        max="24"
+                        value={brushSize}
+                        onChange={(e) => setBrushSize(parseInt(e.target.value))}
+                        style={{ width: '60px', accentColor: '#38bdf8' }}
+                        title="Brush Size"
+                    />
+
+                    <button onClick={clearBoard} style={actionBtnStyle} title="Clear Canvas">
+                        <RotateCcw size={14} /> Clear
                     </button>
                 </div>
 
-                {/* Canvas Body */}
-                <div style={{ position: 'relative', flex: 1, width: '100%', height: '100%', background: '#fff' }}>
-                    <canvas
-                        ref={canvasRef}
-                        onMouseDown={startDraw}
-                        onMouseMove={draw}
-                        onMouseUp={stopDraw}
-                        onMouseLeave={stopDraw}
-                        onTouchStart={startDraw}
-                        onTouchMove={draw}
-                        onTouchEnd={stopDraw}
-                        style={{ display: 'block', width: '100%', height: '100%', cursor: tool === 'text' ? 'text' : 'crosshair' }}
-                    />
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {/* Share Whiteboard Live Button */}
+                    <button
+                        onClick={toggleShareCanvas}
+                        style={{
+                            ...actionBtnStyle,
+                            background: isSharingBoard ? '#ef4444' : '#0284c7',
+                            color: '#ffffff',
+                            fontWeight: '600'
+                        }}
+                    >
+                        <Share2 size={14} />
+                        {isSharingBoard ? 'Stop Sharing Board' : 'Present Board Live'}
+                    </button>
 
-                    {textPos && (
-                        <input
-                            ref={textInputRef}
-                            type="text"
-                            value={textValue}
-                            placeholder="Type note & hit Enter"
-                            onChange={(e) => setTextValue(e.target.value)}
-                            onKeyDown={(e) => { if (e.key === 'Enter') handleCommitText(); }}
-                            onBlur={handleCommitText}
-                            style={{
-                                position: 'absolute',
-                                left: `${textPos.x}px`,
-                                top: `${textPos.y}px`,
-                                padding: '4px 8px',
-                                background: 'rgba(255,255,255,0.95)',
-                                border: '1px solid #0284c7',
-                                borderRadius: '4px',
-                                color: color,
-                                fontSize: '16px',
-                                outline: 'none',
-                                zIndex: 10,
-                                boxShadow: '0 4px 10px rgba(0,0,0,0.15)'
-                            }}
-                        />
-                    )}
+                    {/* Close (X) button with simultaneous screen unshare */}
+                    <button onClick={handleCloseWhiteboard} style={closeBtnStyle} title="Close Whiteboard">
+                        <X size={18} />
+                    </button>
                 </div>
+            </div>
+
+            {/* Canvas Surface with fixed solid white backdrop */}
+            <div style={{ flex: 1, width: '100%', height: '100%', position: 'relative', background: '#ffffff', overflow: 'hidden' }}>
+                <canvas
+                    ref={canvasRef}
+                    onMouseDown={startDraw}
+                    onMouseMove={draw}
+                    onMouseUp={stopDraw}
+                    onMouseLeave={stopDraw}
+                    onTouchStart={startDraw}
+                    onTouchMove={draw}
+                    onTouchEnd={stopDraw}
+                    style={{ display: 'block', width: '100%', height: '100%', cursor: tool === 'eraser' ? 'cell' : 'crosshair', touchAction: 'none', background: '#ffffff' }}
+                />
             </div>
         </div>
     );
 }
 
-const wbOverlayStyle = { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '12px' };
-const wbModalStyle = { width: '96vw', height: '90vh', background: '#ffffff', borderRadius: '12px', border: '2px solid #38bdf8', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 25px 50px rgba(0,0,0,0.7)' };
-const wbToolbarStyle = { background: '#0f172a', padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #334155' };
-const wbBtnStyle = { display: 'flex', alignItems: 'center', gap: '6px', border: 'none', color: '#f8fafc', padding: '6px 12px', borderRadius: '6px', fontSize: '0.8rem', cursor: 'pointer', fontWeight: '600' };
+const containerStyle = {
+    position: 'absolute',
+    inset: 0,
+    zIndex: 900,
+    background: '#ffffff',
+    display: 'flex',
+    flexDirection: 'column',
+    boxShadow: '0 20px 45px rgba(0,0,0,0.8)'
+};
+
+const toolbarStyle = {
+    height: '52px',
+    background: '#0f172a',
+    color: '#ffffff',
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '0 12px',
+    borderBottom: '1px solid #334155'
+};
+
+const iconBtnStyle = {
+    background: 'transparent',
+    border: 'none',
+    color: '#f8fafc',
+    padding: '6px',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center'
+};
+
+const actionBtnStyle = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '5px',
+    background: '#1e293b',
+    border: '1px solid #334155',
+    color: '#f8fafc',
+    padding: '6px 10px',
+    borderRadius: '6px',
+    fontSize: '0.75rem',
+    cursor: 'pointer'
+};
+
+const closeBtnStyle = {
+    background: '#1e293b',
+    border: '1px solid #334155',
+    color: '#ef4444',
+    padding: '6px',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center'
+};

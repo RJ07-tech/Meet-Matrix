@@ -15,7 +15,7 @@ import {
     Copy, Check, Disc, Square, Download,
     PenTool, Video, VideoOff, Mic, MicOff, Settings,
     UserCheck, UserX, Clock, MonitorUp, MessageSquare, PhoneOff, X, Plus,
-    Users, Hand, Send, Edit3, VolumeX, MoreVertical
+    Users, Hand, Send, Edit3, VolumeX, MoreVertical, Smile
 } from 'lucide-react';
 import { useGoogleLogin } from '@react-oauth/google';
 import EmojiPicker, { Theme } from 'emoji-picker-react';
@@ -52,10 +52,11 @@ function MeetingStage({
     const [showChat, setShowChat] = useState(false);
     const [showParticipants, setShowParticipants] = useState(false);
     const [activeMenuIdentity, setActiveMenuIdentity] = useState(null);
-    const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+
+    // Floating reaction emojis state
     const [floatingEmojis, setFloatingEmojis] = useState([]);
 
-    // Customizable Quick Emojis State
+    // 5 Quick Customizable Emojis
     const [quickEmojis, setQuickEmojis] = useState(() => {
         try {
             const saved = localStorage.getItem('meetmatrix_quick_emojis');
@@ -64,7 +65,14 @@ function MeetingStage({
             return ['👍', '❤️', '👏', '🔥', '🎉'];
         }
     });
-    const [editingSlotIndex, setEditingSlotIndex] = useState(null);
+
+    // Customization & Picker states
+    const [isEditingQuickEmojis, setIsEditingQuickEmojis] = useState(false);
+    const [selectedSlotIndex, setSelectedSlotIndex] = useState(0);
+    const [showReactionPicker, setShowReactionPicker] = useState(false);
+
+    // Chat Drawer Emoji Picker
+    const [showChatEmojiPicker, setShowChatEmojiPicker] = useState(false);
 
     // In-Drawer Rename State
     const [isEditingName, setIsEditingName] = useState(false);
@@ -91,21 +99,21 @@ function MeetingStage({
     const screenShareTrack = allTracks.find(t => t.source === Track.Source.ScreenShare);
     const cameraTracks = allTracks.filter(t => t.source === Track.Source.Camera);
 
-    // Screen Share Real-time Hardware Track Sync (Browser native stop & Whiteboard sync)
+    // Native Browser & livekit stop share hardware event listener
     useEffect(() => {
         if (!localParticipant) return;
-        const checkShareStatus = () => {
+        const syncShareStatus = () => {
             setIsScreenSharing(Boolean(localParticipant.isScreenShareEnabled));
         };
-        checkShareStatus();
-        localParticipant.on('trackPublished', checkShareStatus);
-        localParticipant.on('trackUnpublished', checkShareStatus);
-        localParticipant.on('localTrackUnpublished', checkShareStatus);
+        syncShareStatus();
+        localParticipant.on('trackPublished', syncShareStatus);
+        localParticipant.on('trackUnpublished', syncShareStatus);
+        localParticipant.on('localTrackUnpublished', syncShareStatus);
 
         return () => {
-            localParticipant.off('trackPublished', checkShareStatus);
-            localParticipant.off('trackUnpublished', checkShareStatus);
-            localParticipant.off('localTrackUnpublished', checkShareStatus);
+            localParticipant.off('trackPublished', syncShareStatus);
+            localParticipant.off('trackUnpublished', syncShareStatus);
+            localParticipant.off('localTrackUnpublished', syncShareStatus);
         };
     }, [localParticipant, allTracks]);
 
@@ -118,10 +126,10 @@ function MeetingStage({
         }
     }, [localParticipant]);
 
-    // Local animated emoji floater with sender name
+    // Local animated floating emoji
     const renderLocalFloatingEmoji = (emoji, sender) => {
         const baseId = Date.now() + Math.random();
-        setFloatingEmojis(prev => [...prev, { id: baseId, emoji, sender, left: Math.random() * 55 + 20 }]);
+        setFloatingEmojis(prev => [...prev, { id: baseId, emoji, sender, left: Math.random() * 50 + 25 }]);
         setTimeout(() => {
             setFloatingEmojis(prev => prev.filter(e => e.id !== baseId));
         }, 2800);
@@ -173,8 +181,6 @@ function MeetingStage({
     const triggerReactionBroadcast = (emoji) => {
         const sender = participantName || localParticipant?.name || 'You';
         renderLocalFloatingEmoji(emoji, sender);
-        setShowEmojiPicker(false);
-        setEditingSlotIndex(null);
 
         if (room?.localParticipant) {
             const payload = JSON.stringify({ type: 'reaction', emoji, sender });
@@ -185,18 +191,26 @@ function MeetingStage({
         }
     };
 
-    // Replace Quick Emoji in Toolbar
-    const handleEmojiSelected = (emojiData) => {
-        if (editingSlotIndex !== null) {
+    // Handler when an emoji is picked from Reaction Picker
+    const handleReactionEmojiPicked = (emojiData) => {
+        if (isEditingQuickEmojis) {
+            // Replace selected slot
             const updated = [...quickEmojis];
-            updated[editingSlotIndex] = emojiData.emoji;
+            updated[selectedSlotIndex] = emojiData.emoji;
             setQuickEmojis(updated);
             localStorage.setItem('meetmatrix_quick_emojis', JSON.stringify(updated));
-            setEditingSlotIndex(null);
-            setShowEmojiPicker(false);
+            setShowReactionPicker(false);
+            setIsEditingQuickEmojis(false);
         } else {
             triggerReactionBroadcast(emojiData.emoji);
+            setShowReactionPicker(false);
         }
+    };
+
+    // Handler for Chat input emoji insertion
+    const handleChatEmojiPicked = (emojiData) => {
+        setChatInput(prev => prev + emojiData.emoji);
+        setShowChatEmojiPicker(false);
     };
 
     const toggleMic = async () => {
@@ -278,7 +292,7 @@ function MeetingStage({
                     participant_identity: identity
                 });
             } catch (err) {
-                console.log("Kick handled");
+                console.log("Kick error handled");
             }
             setActiveMenuIdentity(null);
         }
@@ -311,6 +325,7 @@ function MeetingStage({
         }]);
 
         setChatInput('');
+        setShowChatEmojiPicker(false);
     };
 
     const startRecording = async () => {
@@ -374,7 +389,7 @@ function MeetingStage({
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', position: 'relative', overflow: 'hidden' }}>
             <RoomAudioRenderer />
 
-            {/* In-Meeting Floating Emojis Layer */}
+            {/* Floating Emojis Overlay */}
             <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none', zIndex: 99999 }}>
                 {floatingEmojis.map(item => (
                     <div key={item.id} className="floating-emoji-item" style={{ left: `${item.left}%` }}>
@@ -384,7 +399,7 @@ function MeetingStage({
                 ))}
             </div>
 
-            {/* Header with 5 Customizable Quick Emojis */}
+            {/* Header with 5 Emojis + Explicit Edit Mode */}
             <div className="mobile-header" style={headerBarStyle}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
                     <span style={{ fontWeight: '800', color: '#38bdf8', fontSize: '0.85rem' }}>MeetMatrix</span>
@@ -393,25 +408,20 @@ function MeetingStage({
                     {isHost && <span style={{ background: '#0284c7', color: '#fff', padding: '1px 4px', borderRadius: '4px', fontSize: '0.6rem', fontWeight: 'bold' }}>HOST</span>}
                 </div>
 
-                <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexShrink: 0, position: 'relative' }}>
-                    {/* Customizable 5 Emojis Dock */}
-                    <div style={{ display: 'flex', gap: '3px', background: '#1e293b', padding: '2px 4px', borderRadius: '8px', alignItems: 'center', border: '1px solid #334155' }}>
+                <div style={{ display: 'flex', gap: '5px', alignItems: 'center', flexShrink: 0, position: 'relative' }}>
+                    {/* Primary Emojis Toolbar */}
+                    <div style={{ display: 'flex', gap: '3px', background: '#1e293b', padding: '2px 5px', borderRadius: '8px', alignItems: 'center', border: '1px solid #334155' }}>
                         {quickEmojis.map((e, idx) => (
                             <button
                                 key={idx}
                                 onClick={() => triggerReactionBroadcast(e)}
-                                onContextMenu={(ev) => {
-                                    ev.preventDefault();
-                                    setEditingSlotIndex(idx);
-                                    setShowEmojiPicker(true);
-                                }}
-                                title="Click to react, Right-click/hold to replace"
+                                title="Click to react"
                                 style={{
                                     background: 'transparent',
                                     border: 'none',
                                     cursor: 'pointer',
-                                    fontSize: '0.95rem',
-                                    padding: '2px',
+                                    fontSize: '0.98rem',
+                                    padding: '2px 4px',
                                     borderRadius: '4px',
                                     transition: 'transform 0.1s'
                                 }}
@@ -419,32 +429,74 @@ function MeetingStage({
                                 {e}
                             </button>
                         ))}
+
+                        {/* Explicit Edit Emojis Button */}
                         <button
                             onClick={() => {
-                                setEditingSlotIndex(null);
-                                setShowEmojiPicker(!showEmojiPicker);
+                                setIsEditingQuickEmojis(true);
+                                setShowReactionPicker(true);
+                            }}
+                            style={{
+                                background: '#0284c7',
+                                border: 'none',
+                                color: '#ffffff',
+                                borderRadius: '5px',
+                                padding: '3px 6px',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '3px',
+                                fontSize: '0.68rem',
+                                fontWeight: '600',
+                                marginLeft: '3px'
+                            }}
+                            title="Edit / Replace Quick Emojis"
+                        >
+                            <Edit3 size={11} /> Edit
+                        </button>
+
+                        {/* Full Picker Button */}
+                        <button
+                            onClick={() => {
+                                setIsEditingQuickEmojis(false);
+                                setShowReactionPicker(!showReactionPicker);
                             }}
                             style={{ background: '#334155', border: 'none', color: '#38bdf8', borderRadius: '4px', padding: '3px 5px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
-                            title="Open All Emojis / Customize"
+                            title="Open Full Reaction Library"
                         >
                             <Plus size={12} />
                         </button>
                     </div>
 
-                    {/* Full Library Emoji Picker Popover */}
-                    {showEmojiPicker && (
-                        <div style={{ position: 'absolute', top: '42px', right: 0, zIndex: 99999, boxShadow: '0 15px 35px rgba(0,0,0,0.8)' }}>
-                            <div style={{ background: '#0f172a', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 10px', borderBottom: '1px solid #334155' }}>
-                                <span style={{ fontSize: '0.75rem', color: '#38bdf8', fontWeight: '600' }}>
-                                    {editingSlotIndex !== null ? `Select to replace slot #${editingSlotIndex + 1}` : 'Pick an Emoji Reaction'}
-                                </span>
-                                <button onClick={() => { setShowEmojiPicker(false); setEditingSlotIndex(null); }} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}><X size={16} /></button>
+                    {/* Reaction & Edit Emoji Popover */}
+                    {showReactionPicker && (
+                        <div style={{ position: 'absolute', top: '42px', right: 0, zIndex: 99999, boxShadow: '0 15px 35px rgba(0,0,0,0.8)', borderRadius: '8px', overflow: 'hidden' }}>
+                            <div style={{ background: '#0f172a', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', borderBottom: '1px solid #334155' }}>
+                                {isEditingQuickEmojis ? (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <span style={{ fontSize: '0.75rem', color: '#38bdf8', fontWeight: 'bold' }}>Replace Slot:</span>
+                                        <select
+                                            value={selectedSlotIndex}
+                                            onChange={(e) => setSelectedSlotIndex(parseInt(e.target.value))}
+                                            style={{ background: '#1e293b', color: '#fff', border: '1px solid #0284c7', borderRadius: '4px', padding: '2px 6px', fontSize: '0.72rem' }}
+                                        >
+                                            {quickEmojis.map((em, i) => (
+                                                <option key={i} value={i}>Slot #{i + 1} ({em})</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                ) : (
+                                    <span style={{ fontSize: '0.75rem', color: '#38bdf8', fontWeight: '600' }}>Pick Emoji Reaction</span>
+                                )}
+                                <button onClick={() => { setShowReactionPicker(false); setIsEditingQuickEmojis(false); }} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}>
+                                    <X size={16} />
+                                </button>
                             </div>
                             <EmojiPicker
-                                onEmojiClick={handleEmojiSelected}
+                                onEmojiClick={handleReactionEmojiPicked}
                                 theme={Theme.DARK}
                                 width={310}
-                                height={390}
+                                height={380}
                                 searchDisabled={false}
                                 previewConfig={{ showPreview: false }}
                             />
@@ -464,17 +516,14 @@ function MeetingStage({
                 </div>
             </div>
 
-            {/* Video Stage & Side Panels */}
+            {/* Video Viewport & Drawers */}
             <div style={{ flex: 1, display: 'flex', position: 'relative', overflow: 'hidden', minHeight: 0 }}>
-
-                {/* Viewport */}
                 <div style={{ flex: 1, height: '100%', width: '100%', position: 'relative' }}>
                     {screenShareTrack ? (
                         <div className="stage-focus-container">
                             <div className="stage-screenshare-main">
                                 <ParticipantTile trackRef={screenShareTrack} />
                             </div>
-
                             <div className="stage-camera-strip">
                                 {cameraTracks.map(track => {
                                     const peerId = track.participant?.identity;
@@ -504,7 +553,7 @@ function MeetingStage({
                     )}
                 </div>
 
-                {/* Participants Drawer with 3-Dot Menu */}
+                {/* Participants Drawer */}
                 {showParticipants && (
                     <div style={sideDrawerStyle}>
                         <div style={drawerHeaderStyle}>
@@ -572,7 +621,7 @@ function MeetingStage({
                     </div>
                 )}
 
-                {/* Chat Drawer */}
+                {/* In-Meeting Chat Drawer with Integrated Emoji Picker */}
                 {showChat && (
                     <div style={sideDrawerStyle}>
                         <div style={drawerHeaderStyle}>
@@ -598,7 +647,7 @@ function MeetingStage({
 
                         <div style={{ flex: 1, padding: '12px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                             {chatMessages.length === 0 ? (
-                                <div style={{ color: '#64748b', fontSize: '0.75rem', textAlign: 'center', marginTop: '40px' }}>No messages yet. Send a message to get started!</div>
+                                <div style={{ color: '#64748b', fontSize: '0.75rem', textAlign: 'center', marginTop: '40px' }}>No messages yet. Say hello! 👋</div>
                             ) : (
                                 chatMessages.map((msg, i) => (
                                     <div key={i} style={{ background: msg.recipient !== 'Everyone' ? '#1e1b4b' : '#1e293b', padding: '8px 10px', borderRadius: '8px', border: msg.recipient !== 'Everyone' ? '1px solid #818cf8' : 'none' }}>
@@ -614,7 +663,32 @@ function MeetingStage({
                             )}
                         </div>
 
-                        <form onSubmit={handleSendChat} style={{ padding: '8px 12px', background: '#090d16', borderTop: '1px solid #1e293b', display: 'flex', gap: '6px' }}>
+                        {/* Chat Emoji Popover */}
+                        {showChatEmojiPicker && (
+                            <div style={{ position: 'absolute', bottom: '60px', right: '10px', zIndex: 99999 }}>
+                                <div style={{ display: 'flex', justifyContent: 'flex-end', background: '#0f172a', padding: '4px' }}>
+                                    <button onClick={() => setShowChatEmojiPicker(false)} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}><X size={14} /></button>
+                                </div>
+                                <EmojiPicker
+                                    onEmojiClick={handleChatEmojiPicked}
+                                    theme={Theme.DARK}
+                                    width={290}
+                                    height={330}
+                                    searchDisabled={false}
+                                    previewConfig={{ showPreview: false }}
+                                />
+                            </div>
+                        )}
+
+                        <form onSubmit={handleSendChat} style={{ padding: '8px 12px', background: '#090d16', borderTop: '1px solid #1e293b', display: 'flex', gap: '6px', alignItems: 'center' }}>
+                            <button
+                                type="button"
+                                onClick={() => setShowChatEmojiPicker(!showChatEmojiPicker)}
+                                style={{ background: 'transparent', border: 'none', color: '#f59e0b', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center' }}
+                                title="Insert emoji into chat"
+                            >
+                                <Smile size={18} />
+                            </button>
                             <input
                                 type="text"
                                 value={chatInput}
@@ -631,7 +705,7 @@ function MeetingStage({
                 )}
             </div>
 
-            {/* Mobile Horizontal Dock */}
+            {/* Bottom Controls Bar */}
             <div className="mobile-control-bar" style={bottomBarStyle}>
                 <button onClick={toggleMic} style={{ ...controlBtn, background: isMicMuted ? '#ef4444' : '#1e293b' }}>
                     {isMicMuted ? <MicOff size={18} /> : <Mic size={18} />}
@@ -643,7 +717,7 @@ function MeetingStage({
                     <span className="mobile-hide" style={{ fontSize: '0.65rem' }}>{isVideoMuted ? 'Start Video' : 'Stop Video'}</span>
                 </button>
 
-                {/* Hand Raise: Visible ONLY for Participants (Not Host) */}
+                {/* Hand Raise: Visible only for participants */}
                 {!isHost && (
                     <button
                         onClick={toggleHandRaise}
@@ -655,7 +729,7 @@ function MeetingStage({
                     </button>
                 )}
 
-                {/* Screen Share Button with Accurate LiveKit State */}
+                {/* Screen Share Button */}
                 <button
                     onClick={toggleScreenShare}
                     style={{ ...controlBtn, background: isScreenSharing ? '#0284c7' : '#1e293b', opacity: (!isHost && !allowScreenshare) ? 0.4 : 1 }}
@@ -664,7 +738,7 @@ function MeetingStage({
                     <span className="mobile-hide" style={{ fontSize: '0.65rem' }}>{isScreenSharing ? 'Sharing' : 'Share'}</span>
                 </button>
 
-                <button onClick={() => setShowWhiteboard(!showWhiteboard)} style={controlBtn}>
+                <button onClick={() => setShowWhiteboard(!showWhiteboard)} style={{ ...controlBtn, background: showWhiteboard ? '#0284c7' : '#1e293b' }}>
                     <PenTool size={18} />
                     <span className="mobile-hide" style={{ fontSize: '0.65rem' }}>Board</span>
                 </button>
