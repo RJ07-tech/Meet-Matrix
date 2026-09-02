@@ -5,6 +5,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from livekit import api
+from livekit.api import AccessToken, VideoGrants
 
 app = FastAPI(title="MeetMatrix Backend API")
 
@@ -109,9 +110,8 @@ async def get_token(req: TokenRequest):
     cfg = room_settings_db.get(req.room_name, {})
     waiting_mode = cfg.get("waiting_mode", "direct")
 
-    # Strict check: agar participant host nahi hai aur strict approval mode hai
+    # Strict waiting room check for participants
     if waiting_mode == "strict" and not req.is_host:
-        # Check if already admitted
         current_list = waiting_room_db.get(req.room_name, [])
         admitted_record = next(
             (p for p in current_list if p.get("name") == req.participant_name and p.get("status") == "admitted"),
@@ -119,12 +119,10 @@ async def get_token(req: TokenRequest):
         )
 
         if not admitted_record:
-            # Register in waiting lobby
             new_pid = str(uuid.uuid4())
             if req.room_name not in waiting_room_db:
                 waiting_room_db[req.room_name] = []
 
-            # Prevent duplicates
             existing = next((p for p in waiting_room_db[req.room_name] if p.get("name") == req.participant_name), None)
             if not existing:
                 waiting_room_db[req.room_name].append({
@@ -141,9 +139,10 @@ async def get_token(req: TokenRequest):
                 "message": "Waiting for host approval"
             }
 
-    # Generate LiveKit Access Token
+    # Generate LiveKit Access Token using VideoGrants (with 's')
     try:
-        grant = api.VideoGrant(
+        # Notice: VideoGrants (plural 's')
+        grants = VideoGrants(
             room_join=True,
             room=req.room_name,
             can_publish=True,
@@ -151,10 +150,10 @@ async def get_token(req: TokenRequest):
             can_publish_data=True
         )
 
-        token = api.AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET) \
+        token = AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET) \
             .with_identity(f"{req.participant_name}_{uuid.uuid4().hex[:4]}") \
             .with_name(req.participant_name) \
-            .with_grants(grant)
+            .with_grants(grants)
 
         jwt_token = token.to_jwt()
 
@@ -165,7 +164,6 @@ async def get_token(req: TokenRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 
 # --- Waiting Room Lobby Management ---
 
