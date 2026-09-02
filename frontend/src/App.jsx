@@ -166,13 +166,11 @@ function MeetingStage({
         const nextState = !isHandRaised;
         setIsHandRaised(nextState);
 
-        // Update locally
         setRaisedHandsMap(prev => ({
             ...prev,
             [localParticipant.identity]: nextState
         }));
 
-        // Broadcast to all peers
         const payload = JSON.stringify({ type: 'hand_raise', raised: nextState });
         localParticipant.room.localParticipant.publishData(
             new TextEncoder().encode(payload),
@@ -375,66 +373,64 @@ function MeetingStage({
                 )}
             </div>
 
-            {/* Synchronized Bottom Controls */}
-            <div style={bottomBarStyle}>
-                <button onClick={toggleMic} className="mobile-compact-btn" style={{ ...controlBtn, background: isMicMuted ? '#ef4444' : '#1e293b' }}>
+            {/* Synchronized Bottom Controls (Mobile-first Horizontal Dock) */}
+            <div className="mobile-control-bar" style={bottomBarStyle}>
+                <button onClick={toggleMic} style={{ ...controlBtn, background: isMicMuted ? '#ef4444' : '#1e293b' }}>
                     {isMicMuted ? <MicOff size={18} /> : <Mic size={18} />}
-                    <span className="btn-label">{isMicMuted ? 'Unmute' : 'Mute'}</span>
+                    <span className="mobile-hide" style={{ fontSize: '0.65rem' }}>{isMicMuted ? 'Unmute' : 'Mute'}</span>
                 </button>
 
-                <button onClick={toggleVideo} className="mobile-compact-btn" style={{ ...controlBtn, background: isVideoMuted ? '#ef4444' : '#1e293b' }}>
+                <button onClick={toggleVideo} style={{ ...controlBtn, background: isVideoMuted ? '#ef4444' : '#1e293b' }}>
                     {isVideoMuted ? <VideoOff size={18} /> : <Video size={18} />}
-                    <span className="btn-label">{isVideoMuted ? 'Start Video' : 'Stop Video'}</span>
+                    <span className="mobile-hide" style={{ fontSize: '0.65rem' }}>{isVideoMuted ? 'Start Video' : 'Stop Video'}</span>
                 </button>
 
                 <button
                     onClick={toggleHandRaise}
-                    className="mobile-compact-btn"
                     style={{ ...controlBtn, background: isHandRaised ? '#eab308' : '#1e293b', color: isHandRaised ? '#000' : '#fff' }}
                     title={isHandRaised ? 'Lower Hand' : 'Raise Hand'}
                 >
                     <Hand size={18} />
-                    <span className="btn-label">{isHandRaised ? 'Lower' : 'Raise'}</span>
+                    <span className="mobile-hide" style={{ fontSize: '0.65rem' }}>{isHandRaised ? 'Lower' : 'Raise'}</span>
                 </button>
 
                 <button
                     onClick={toggleScreenShare}
-                    className="mobile-compact-btn"
                     style={{ ...controlBtn, background: isScreenSharing ? '#0284c7' : '#1e293b', opacity: (!isHost && !allowScreenshare) ? 0.4 : 1 }}
                 >
                     <MonitorUp size={18} />
-                    <span className="btn-label">Share</span>
+                    <span className="mobile-hide" style={{ fontSize: '0.65rem' }}>Share</span>
                 </button>
 
-                <button onClick={() => setShowWhiteboard(!showWhiteboard)} className="mobile-compact-btn" style={controlBtn}>
+                <button onClick={() => setShowWhiteboard(!showWhiteboard)} style={controlBtn}>
                     <PenTool size={18} />
-                    <span className="btn-label">Board</span>
+                    <span className="mobile-hide" style={{ fontSize: '0.65rem' }}>Board</span>
                 </button>
 
-                <button onClick={() => { setShowParticipants(!showParticipants); setShowChat(false); }} className="mobile-compact-btn" style={{ ...controlBtn, background: showParticipants ? '#0284c7' : '#1e293b' }}>
+                <button onClick={() => { setShowParticipants(!showParticipants); setShowChat(false); }} style={{ ...controlBtn, background: showParticipants ? '#0284c7' : '#1e293b' }}>
                     <Users size={18} />
-                    <span className="btn-label">People</span>
+                    <span className="mobile-hide" style={{ fontSize: '0.65rem' }}>People</span>
                 </button>
 
-                <button onClick={() => { setShowChat(!showChat); setShowParticipants(false); }} className="mobile-compact-btn" style={{ ...controlBtn, background: showChat ? '#0284c7' : '#1e293b' }}>
+                <button onClick={() => { setShowChat(!showChat); setShowParticipants(false); }} style={{ ...controlBtn, background: showChat ? '#0284c7' : '#1e293b' }}>
                     <MessageSquare size={18} />
-                    <span className="btn-label">Chat</span>
+                    <span className="mobile-hide" style={{ fontSize: '0.65rem' }}>Chat</span>
                 </button>
 
-                <button onClick={isRecording ? stopRecording : startRecording} className="mobile-compact-btn" style={{ ...controlBtn, background: isRecording ? '#ef4444' : '#1e293b' }}>
+                <button onClick={isRecording ? stopRecording : startRecording} className="mobile-hide" style={{ ...controlBtn, background: isRecording ? '#ef4444' : '#1e293b' }}>
                     {isRecording ? <Square size={18} /> : <Disc size={18} />}
-                    <span className="btn-label">{isRecording ? 'Rec' : 'Record'}</span>
+                    <span style={{ fontSize: '0.65rem' }}>{isRecording ? 'Rec' : 'Record'}</span>
                 </button>
 
                 {isHost ? (
-                    <button onClick={onTerminate} className="mobile-compact-btn" style={{ ...controlBtn, background: '#ef4444', color: '#fff' }}>
+                    <button onClick={onTerminate} style={{ ...controlBtn, background: '#ef4444', color: '#fff' }}>
                         <PhoneOff size={18} />
-                        <span className="btn-label">End</span>
+                        <span className="mobile-hide" style={{ fontSize: '0.65rem' }}>End</span>
                     </button>
                 ) : (
-                    <button onClick={onLeave} className="mobile-compact-btn" style={{ ...controlBtn, background: '#e11d48', color: '#fff' }}>
+                    <button onClick={onLeave} style={{ ...controlBtn, background: '#e11d48', color: '#fff' }}>
                         <PhoneOff size={18} />
-                        <span className="btn-label">Leave</span>
+                        <span className="mobile-hide" style={{ fontSize: '0.65rem' }}>Leave</span>
                     </button>
                 )}
             </div>
@@ -672,39 +668,40 @@ export default function App() {
                     ))}
                 </div>
 
-                {/* Meeting Header */}
-                <div style={headerBarStyle}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
-                        <span style={{ fontWeight: '800', color: '#38bdf8', fontSize: '0.9rem' }}>MeetMatrix</span>
+                {/* Responsive Meeting Header */}
+                <div className="mobile-header" style={headerBarStyle}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+                        <span style={{ fontWeight: '800', color: '#38bdf8', fontSize: '0.85rem' }}>MeetMatrix</span>
                         <span style={{ color: '#475569' }}>|</span>
-                        <span style={{ fontSize: '0.75rem', color: '#cbd5e1' }}>{roomName}</span>
+                        <span className="mobile-room-pill" style={{ fontSize: '0.72rem', color: '#cbd5e1' }}>{roomName}</span>
 
                         {editingHeaderName ? (
-                            <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                            <div style={{ display: 'flex', gap: '3px', alignItems: 'center' }}>
                                 <input
                                     type="text"
                                     value={tempName}
                                     onChange={(e) => setTempName(e.target.value)}
-                                    style={{ background: '#090d16', border: '1px solid #38bdf8', color: '#fff', padding: '2px 6px', borderRadius: '4px', fontSize: '0.75rem' }}
+                                    style={{ background: '#090d16', border: '1px solid #38bdf8', color: '#fff', padding: '1px 4px', borderRadius: '4px', fontSize: '0.7rem', width: '70px' }}
                                 />
-                                <button onClick={() => { setParticipantName(tempName); setEditingHeaderName(false); }} style={{ background: '#10b981', border: 'none', color: '#fff', padding: '2px 6px', borderRadius: '4px', cursor: 'pointer' }}><Check size={12} /></button>
+                                <button onClick={() => { setParticipantName(tempName); setEditingHeaderName(false); }} style={{ background: '#10b981', border: 'none', color: '#fff', padding: '2px 5px', borderRadius: '4px', cursor: 'pointer' }}><Check size={10} /></button>
                             </div>
                         ) : (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>({participantName})</span>
-                                <button onClick={() => { setTempName(participantName); setEditingHeaderName(true); }} style={{ background: 'transparent', border: 'none', color: '#64748b', cursor: 'pointer' }} title="Change name"><Edit3 size={12} /></button>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+                                <span className="mobile-room-pill" style={{ fontSize: '0.72rem', color: '#94a3b8' }}>({participantName.split(' ')[0]})</span>
+                                <button onClick={() => { setTempName(participantName); setEditingHeaderName(true); }} style={{ background: 'transparent', border: 'none', color: '#64748b', cursor: 'pointer', padding: '2px' }} title="Change name"><Edit3 size={11} /></button>
                             </div>
                         )}
 
-                        {isHost && <span style={{ background: '#0284c7', color: '#fff', padding: '1px 6px', borderRadius: '4px', fontSize: '0.65rem', fontWeight: 'bold' }}>HOST</span>}
+                        {isHost && <span style={{ background: '#0284c7', color: '#fff', padding: '1px 4px', borderRadius: '4px', fontSize: '0.6rem', fontWeight: 'bold' }}>HOST</span>}
                     </div>
 
-                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                        <div style={{ display: 'flex', gap: '2px', background: '#1e293b', padding: '2px 4px', borderRadius: '6px', alignItems: 'center' }}>
-                            {['👍', '❤️', '🔥'].map(e => (
-                                <button key={e} onClick={() => triggerReaction(e)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '0.95rem' }}>{e}</button>
+                    <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexShrink: 0 }}>
+                        {/* Compact Emoji Reaction Toolbar */}
+                        <div style={{ display: 'flex', gap: '2px', background: '#1e293b', padding: '1px 3px', borderRadius: '6px', alignItems: 'center' }}>
+                            {['👍', '❤️'].map(e => (
+                                <button key={e} onClick={() => triggerReaction(e)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '0.85rem', padding: '1px' }}>{e}</button>
                             ))}
-                            <button onClick={() => setShowEmojiPicker(!showEmojiPicker)} style={{ background: '#334155', border: 'none', color: '#38bdf8', borderRadius: '4px', padding: '2px', cursor: 'pointer' }}><Plus size={12} /></button>
+                            <button onClick={() => setShowEmojiPicker(!showEmojiPicker)} style={{ background: '#334155', border: 'none', color: '#38bdf8', borderRadius: '4px', padding: '2px', cursor: 'pointer' }}><Plus size={11} /></button>
                         </div>
 
                         {showEmojiPicker && (
@@ -722,14 +719,14 @@ export default function App() {
                         )}
 
                         {isHost && (
-                            <button onClick={() => window.open(`${BACKEND_URL}/api/attendance/export/${roomName}`, '_blank')} className="desktop-only" style={topBtnStyle}>
-                                <Download size={13} /> CSV
+                            <button onClick={() => window.open(`${BACKEND_URL}/api/attendance/export/${roomName}`, '_blank')} className="mobile-hide" style={topBtnStyle}>
+                                <Download size={12} /> CSV
                             </button>
                         )}
 
-                        <button onClick={copyInviteLink} style={{ ...topBtnStyle, background: copied ? '#10b981' : '#0284c7' }}>
-                            {copied ? <Check size={13} /> : <Copy size={13} />}
-                            <span className="btn-label">{copied ? 'Copied' : 'Invite'}</span>
+                        <button onClick={copyInviteLink} style={{ ...topBtnStyle, padding: '4px 6px', background: copied ? '#10b981' : '#0284c7' }}>
+                            {copied ? <Check size={12} /> : <Copy size={12} />}
+                            <span className="mobile-hide">{copied ? 'Copied' : 'Invite'}</span>
                         </button>
                     </div>
                 </div>
@@ -882,7 +879,7 @@ const primaryBtnStyle = { width: '100%', padding: '11px', background: '#0284c7',
 const secondaryBtnStyle = { width: '100%', padding: '10px', background: 'transparent', border: '1px solid #0284c7', color: '#38bdf8', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '0.85rem' };
 const topBtnStyle = { display: 'flex', alignItems: 'center', gap: '4px', background: '#1e293b', color: '#ffffff', border: '1px solid #334155', padding: '5px 8px', borderRadius: '6px', fontSize: '0.75rem', cursor: 'pointer', fontWeight: '500' };
 const toggleBtnStyle = { display: 'flex', alignItems: 'center', gap: '6px', color: '#ffffff', border: 'none', padding: '7px 12px', borderRadius: '6px', fontSize: '0.75rem', cursor: 'pointer', fontWeight: '600' };
-const controlBtn = { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', background: '#1e293b', color: '#ffffff', border: '1px solid #334155', padding: '6px 10px', borderRadius: '8px', fontSize: '0.65rem', cursor: 'pointer', minWidth: '46px', fontWeight: '500' };
+const controlBtn = { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', background: '#1e293b', color: '#ffffff', border: '1px solid #334155', padding: '6px 10px', borderRadius: '8px', cursor: 'pointer', minWidth: '44px', fontWeight: '500' };
 const bottomBarStyle = { background: '#0f172a', borderTop: '1px solid #334155', padding: '8px 12px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', zIndex: 100, flexShrink: 0 };
 const headerBarStyle = { background: '#0f172a', color: '#f8fafc', padding: '6px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #334155', zIndex: 1000, flexShrink: 0 };
 const sideDrawerStyle = { width: '320px', maxWidth: '85vw', background: '#0f172a', borderLeft: '1px solid #334155', height: '100%', zIndex: 50, position: 'absolute', right: 0, top: 0, bottom: 0, display: 'flex', flexDirection: 'column' };
@@ -892,4 +889,5 @@ const peerActionBtn = { background: '#334155', border: 'none', color: '#fff', bo
 const modalBackdropStyle = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(4px)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' };
 const modalCardStyle = { background: '#131b2e', border: '1px solid #38bdf8', borderRadius: '14px', padding: '20px', width: '100%', maxWidth: '420px', boxShadow: '0 25px 50px rgba(0,0,0,0.7)' };
 const settingLabelStyle = { fontSize: '0.78rem', color: '#94a3b8', display: 'block', marginBottom: '6px', fontWeight: '600' };
-const selectInputStyle = {
+const selectInputStyle = { width: '100%', padding: '8px', background: '#090d16', border: '1px solid #334155', color: '#fff', borderRadius: '6px', fontSize: '0.8rem' };
+const checkboxRowStyle = { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', cursor: 'pointer', color: '#f8fafc' };

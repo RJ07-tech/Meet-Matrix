@@ -146,3 +146,41 @@ html, body, #root {
 .emoji-tile:active {
   transform: scale(0.95);
 }
+/* Mobile Optimizations for MeetMatrix */
+@media (max-width: 768px) {
+  .mobile-header {
+    padding: 6px 8px !important;
+    gap: 4px !important;
+  }
+  .mobile-hide {
+    display: none !important;
+  }
+  .mobile-room-pill {
+    max-width: 85px !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+    font-size: 0.7rem !important;
+  }
+  .mobile-control-bar {
+    padding: 6px 8px !important;
+    gap: 6px !important;
+    justify-content: flex-start !important;
+    overflow-x: auto !important;
+    white-space: nowrap !important;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .mobile-control-bar::-webkit-scrollbar {
+    display: none;
+  }
+  .mobile-control-bar button {
+    flex-shrink: 0 !important;
+    padding: 8px 10px !important;
+    min-width: 44px !important;
+    height: 42px !important;
+  }
+  .lk-participant-tile video {
+    object-fit: cover !important;
+  }
+}
