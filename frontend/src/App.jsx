@@ -16,7 +16,7 @@ import {
     PenTool, Video, VideoOff, Mic, MicOff, Settings,
     UserCheck, UserX, Clock, MonitorUp, MessageSquare, PhoneOff, X, Plus,
     Users, Hand, Send, Edit3, VolumeX, MoreVertical, Smile, Shield, ShieldCheck,
-    Calendar, Trash2, Sliders, Play, DoorOpen, PauseCircle, AlertTriangle
+    Calendar, Trash2, Sliders, Play, DoorOpen, PauseCircle, AlertTriangle, MicOff as MicLockedIcon
 } from 'lucide-react';
 import { useGoogleLogin } from '@react-oauth/google';
 import EmojiPicker, { Theme } from 'emoji-picker-react';
@@ -46,7 +46,9 @@ function MeetingStage({
                           allowWhiteboard,
                           setAllowWhiteboard,
                           allowReactions,
-                          setAllowReactions
+                          setAllowReactions,
+                          micLocked,
+                          setMicLocked
                       }) {
     const { localParticipant, isCameraEnabled, isMicrophoneEnabled } = useLocalParticipant();
     const remoteParticipants = useRemoteParticipants();
@@ -57,6 +59,7 @@ function MeetingStage({
     const [raisedHandsMap, setRaisedHandsMap] = useState({});
     const [holdParticipantsMap, setHoldParticipantsMap] = useState({});
 
+    // Co-Hosts mapping
     const [coHostsMap, setCoHostsMap] = useState({});
     const [waitingList, setWaitingList] = useState([]);
     const [showAdmitModal, setShowAdmitModal] = useState(false);
@@ -129,19 +132,18 @@ function MeetingStage({
     const screenShareTrack = allTracks.find(t => t.source === Track.Source.ScreenShare);
     const cameraTracks = allTracks.filter(t => t.source === Track.Source.Camera);
 
-    // Mute on entry and Camera setup
+    // Initial setup
     useEffect(() => {
         if (!localParticipant) return;
         localParticipant.setName(participantName);
 
-        // Respect mute on entry flag
-        if (!initialMic) {
+        if (!initialMic || (micLocked && !isEffectiveModerator)) {
             localParticipant.setMicrophoneEnabled(false).catch(() => {});
         }
         if (!initialCam) {
             localParticipant.setCameraEnabled(false).catch(() => {});
         }
-    }, [localParticipant, initialCam, initialMic, participantName]);
+    }, [localParticipant, initialCam, initialMic, participantName, micLocked, isEffectiveModerator]);
 
     // Track user hold and log to backend attendance
     useEffect(() => {
@@ -191,12 +193,20 @@ function MeetingStage({
                         if (res.data.allow_reactions !== undefined) setAllowReactions(Boolean(res.data.allow_reactions));
                         if (res.data.allow_whiteboard !== undefined) setAllowWhiteboard(Boolean(res.data.allow_whiteboard));
                         if (res.data.allow_direct_chat !== undefined) setAllowDirectChat(Boolean(res.data.allow_direct_chat));
+
+                        if (res.data.mic_locked !== undefined) {
+                            setMicLocked(Boolean(res.data.mic_locked));
+                            // If mic is locked and user is not moderator, auto-mute
+                            if (res.data.mic_locked && !isEffectiveModerator && localParticipant) {
+                                localParticipant.setMicrophoneEnabled(false).catch(() => {});
+                            }
+                        }
                     }
                 } catch (e) {}
             }, 1200);
         }
         return () => clearInterval(interval);
-    }, [roomName, setAllowScreenshare, setChatLocked, setWaitingMode, setAllowReactions, setAllowWhiteboard, setAllowDirectChat]);
+    }, [roomName, setAllowScreenshare, setChatLocked, setWaitingMode, setAllowReactions, setAllowWhiteboard, setAllowDirectChat, setMicLocked, isEffectiveModerator, localParticipant]);
 
     // Waiting List Poller
     useEffect(() => {
@@ -257,6 +267,12 @@ function MeetingStage({
                     if (data.allow_reactions !== undefined) setAllowReactions(data.allow_reactions);
                     if (data.allow_whiteboard !== undefined) setAllowWhiteboard(data.allow_whiteboard);
                     if (data.allow_direct_chat !== undefined) setAllowDirectChat(data.allow_direct_chat);
+                    if (data.mic_locked !== undefined) {
+                        setMicLocked(data.mic_locked);
+                        if (data.mic_locked && !isEffectiveModerator) {
+                            localParticipant.setMicrophoneEnabled(false);
+                        }
+                    }
                 } else if (data.type === 'user_hold_status') {
                     setHoldParticipantsMap(prev => ({
                         ...prev,
@@ -289,7 +305,6 @@ function MeetingStage({
                         localParticipant.setMicrophoneEnabled(false);
                     }
                 } else if (data.type === 'mute_all') {
-                    // Direct Instant Mute for all non-hosts (Zero Dialogs)
                     if (!isHost) {
                         localParticipant.setMicrophoneEnabled(false);
                     }
@@ -304,7 +319,7 @@ function MeetingStage({
 
         room.on('dataReceived', handleDataReceived);
         return () => room.off('dataReceived', handleDataReceived);
-    }, [room, localParticipant, onLeave, setAllowScreenshare, setChatLocked, setWaitingMode, setAllowReactions, setAllowWhiteboard, setAllowDirectChat, allowReactions, isEffectiveModerator, isHost]);
+    }, [room, localParticipant, onLeave, setAllowScreenshare, setChatLocked, setWaitingMode, setAllowReactions, setAllowWhiteboard, setAllowDirectChat, setMicLocked, allowReactions, isEffectiveModerator, isHost]);
 
     const triggerReactionBroadcast = (emoji) => {
         if (!allowReactions) {
@@ -332,8 +347,13 @@ function MeetingStage({
         } catch (err) {}
     };
 
+    // Point 2: Prevent unmuting if mic_locked is ON and user is not Host/Co-Host
     const toggleMic = async () => {
         if (!localParticipant) return;
+        if (!isMicrophoneEnabled && micLocked && !isEffectiveModerator) {
+            alert("Microphone is permanently locked by the Host. Only Host and Co-Hosts can unmute.");
+            return;
+        }
         try {
             await localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled);
         } catch (err) {}
@@ -384,7 +404,6 @@ function MeetingStage({
         setActiveMenuIdentity(null);
     };
 
-    // Direct Instant Mute All (No alerts, zero delay)
     const handleMuteAll = () => {
         if (!isEffectiveModerator || !room) return;
         const payload = JSON.stringify({ type: 'mute_all' });
@@ -467,6 +486,18 @@ function MeetingStage({
         } catch (e) {}
     };
 
+    // Point 1: Safe background CSV download without page navigation / disconnect
+    const handleDownloadAttendanceSafe = () => {
+        const downloadUrl = `${BACKEND_URL}/api/attendance/export/${roomName}`;
+        const a = document.createElement('a');
+        a.href = downloadUrl;
+        a.setAttribute('download', `attendance-${roomName}.csv`);
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+    };
+
     const handleSendChat = (e) => {
         e.preventDefault();
         if (!chatInput.trim() || !room) return;
@@ -532,7 +563,6 @@ function MeetingStage({
         }
     };
 
-    // Participants list
     const allPeers = [
         {
             identity: localParticipant?.identity,
@@ -657,7 +687,7 @@ function MeetingStage({
                         <span>People ({allPeers.length})</span>
                     </button>
 
-                    {/* Lobby Button: Only shown if not in direct bypass */}
+                    {/* Lobby Button */}
                     {isEffectiveModerator && waitingMode !== 'direct' && (
                         <button
                             onClick={() => setShowAdmitModal(!showAdmitModal)}
@@ -684,12 +714,10 @@ function MeetingStage({
                         </button>
                     )}
 
-                    {/* Attendance Export Button */}
+                    {/* Point 1: Safe background Attendance Export Button */}
                     {isHost && (
                         <button
-                            onClick={() => {
-                                window.location.href = `${BACKEND_URL}/api/attendance/export/${roomName}`;
-                            }}
+                            onClick={handleDownloadAttendanceSafe}
                             className="mobile-hide"
                             style={topBtnStyle}
                             title="Download CSV Attendance Report"
@@ -746,7 +774,7 @@ function MeetingStage({
                 </div>
             )}
 
-            {/* Host Security Live Controls */}
+            {/* Host Security Live Controls (Point 2: Permanent Mic Lock Toggle) */}
             {showInMeetingSettings && isHost && (
                 <div style={{ position: 'fixed', top: '55px', right: '14px', background: 'rgba(30, 41, 59, 0.95)', backdropFilter: 'blur(16px)', padding: '16px', borderRadius: '14px', border: '2px solid #38bdf8', boxShadow: '0 25px 50px rgba(0,0,0,0.85)', zIndex: 99999, width: '310px', color: '#f8fafc' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
@@ -754,7 +782,6 @@ function MeetingStage({
                         <button onClick={() => setShowInMeetingSettings(false)} style={{ background: 'transparent', border: 'none', color: '#f8fafc', cursor: 'pointer' }}><X size={16} /></button>
                     </div>
 
-                    {/* Direct Instant Mute All */}
                     <button
                         onClick={handleMuteAll}
                         style={{ width: '100%', background: '#ef4444', color: '#fff', border: 'none', padding: '8px', borderRadius: '8px', fontSize: '0.8rem', fontWeight: '700', cursor: 'pointer', marginBottom: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
@@ -763,6 +790,21 @@ function MeetingStage({
                     </button>
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '9px', marginBottom: '12px' }}>
+                        {/* Permanent Mic Lock: Only host & co-hosts can unmute */}
+                        <label style={{ ...checkboxRowStyle, background: micLocked ? 'rgba(239, 68, 68, 0.2)' : 'transparent', padding: '4px', borderRadius: '6px' }}>
+                            <input
+                                type="checkbox"
+                                checked={micLocked}
+                                onChange={(e) => {
+                                    setMicLocked(e.target.checked);
+                                    handleUpdateLiveRoomSettings({ mic_locked: e.target.checked });
+                                    if (e.target.checked) handleMuteAll();
+                                }}
+                                style={{ accentColor: '#ef4444' }}
+                            />
+                            <span style={{ fontWeight: '700', color: micLocked ? '#f87171' : '#f8fafc' }}>🔒 Permanent Mic Lock (Participants Cannot Unmute)</span>
+                        </label>
+
                         <label style={checkboxRowStyle}>
                             <input
                                 type="checkbox"
@@ -1055,9 +1097,19 @@ function MeetingStage({
 
             {/* Bottom Controls Bar */}
             <div className="mobile-control-bar" style={bottomBarStyle}>
-                <button onClick={toggleMic} style={{ ...controlBtn, background: !isMicrophoneEnabled ? '#ef4444' : '#1e293b' }}>
+                <button
+                    onClick={toggleMic}
+                    style={{
+                        ...controlBtn,
+                        background: !isMicrophoneEnabled ? '#ef4444' : '#1e293b',
+                        opacity: (micLocked && !isEffectiveModerator) ? 0.6 : 1
+                    }}
+                    title={micLocked && !isEffectiveModerator ? "Mic locked by host" : "Toggle Mic"}
+                >
                     {!isMicrophoneEnabled ? <MicOff size={18} /> : <Mic size={18} />}
-                    <span className="mobile-hide" style={{ fontSize: '0.65rem' }}>{!isMicrophoneEnabled ? 'Unmute' : 'Mute'}</span>
+                    <span className="mobile-hide" style={{ fontSize: '0.65rem' }}>
+                        {micLocked && !isEffectiveModerator ? 'Locked' : (!isMicrophoneEnabled ? 'Unmute' : 'Mute')}
+                    </span>
                 </button>
 
                 <button onClick={toggleVideo} style={{ ...controlBtn, background: !isCameraEnabled ? '#ef4444' : '#1e293b' }}>
@@ -1144,6 +1196,7 @@ export default function App() {
     const [showPreSettingsModal, setShowPreSettingsModal] = useState(false);
     const [waitingMode, setWaitingMode] = useState('direct');
     const [chatLocked, setChatLocked] = useState(false);
+    const [micLocked, setMicLocked] = useState(false);
     const [allowScreenshare, setAllowScreenshare] = useState(false);
     const [allowDirectChat, setAllowDirectChat] = useState(false);
     const [muteOnEntry, setMuteOnEntry] = useState(false);
@@ -1338,6 +1391,7 @@ export default function App() {
             const res = await axios.post(`${BACKEND_URL}/api/create-room`, {
                 waiting_mode: waitingMode,
                 chat_locked: chatLocked,
+                mic_locked: micLocked,
                 allow_participant_screenshare: allowScreenshare,
                 allow_direct_chat: allowDirectChat,
                 mute_on_entry: muteOnEntry,
@@ -1389,6 +1443,7 @@ export default function App() {
                 host_email: user?.email || null,
                 waiting_mode: waitingMode,
                 chat_locked: chatLocked,
+                mic_locked: micLocked,
                 allow_participant_screenshare: allowScreenshare,
                 allow_direct_chat: allowDirectChat,
                 allow_whiteboard: allowWhiteboard,
@@ -1439,7 +1494,7 @@ export default function App() {
             } else {
                 setToken(res.data.token);
                 setServerUrl(res.data.server_url);
-                // Respect mute_on_entry from backend
+
                 if (res.data.mute_on_entry) {
                     setInitialMuteAudio(true);
                     setMicEnabled(false);
@@ -1556,6 +1611,8 @@ export default function App() {
                         setAllowWhiteboard={setAllowWhiteboard}
                         allowReactions={allowReactions}
                         setAllowReactions={setAllowReactions}
+                        micLocked={micLocked}
+                        setMicLocked={setMicLocked}
                     />
                 </LiveKitRoom>
             </div>
@@ -1588,6 +1645,22 @@ export default function App() {
                             </div>
 
                             <div style={featureBoxStyle}>
+                                <span style={groupHeadingStyle}>MIC LOCK & AUDIO ENTRY</span>
+                                <label style={{ ...checkboxRowStyle, background: micLocked ? 'rgba(239, 68, 68, 0.2)' : 'transparent', padding: '4px', borderRadius: '6px' }}>
+                                    <input type="checkbox" checked={micLocked} onChange={(e) => setMicLocked(e.target.checked)} style={{ accentColor: '#ef4444' }} />
+                                    <span style={{ fontWeight: '700', color: micLocked ? '#f87171' : '#f8fafc' }}>Permanent Mic Lock (Only Host/Co-Host Unmute)</span>
+                                </label>
+                                <label style={checkboxRowStyle}>
+                                    <input type="checkbox" checked={muteOnEntry} onChange={(e) => setMuteOnEntry(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
+                                    <span>Mute Participants Mic on Entry</span>
+                                </label>
+                                <label style={checkboxRowStyle}>
+                                    <input type="checkbox" checked={cameraOffOnEntry} onChange={(e) => setCameraOffOnEntry(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
+                                    <span>Turn off Participants Camera on Entry</span>
+                                </label>
+                            </div>
+
+                            <div style={featureBoxStyle}>
                                 <span style={groupHeadingStyle}>COLLABORATION & WHITEBOARD</span>
                                 <label style={checkboxRowStyle}>
                                     <input type="checkbox" checked={allowScreenshare} onChange={(e) => setAllowScreenshare(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
@@ -1617,19 +1690,6 @@ export default function App() {
                                     <span>Allow Emoji Reactions (Floating Emojis)</span>
                                 </label>
                             </div>
-
-                            <div style={featureBoxStyle}>
-                                <span style={groupHeadingStyle}>AUDIO & VIDEO ENTRY POLICY</span>
-                                <label style={checkboxRowStyle}>
-                                    <input type="checkbox" checked={muteOnEntry} onChange={(e) => setMuteOnEntry(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
-                                    <span>Mute Participants Mic upon joining</span>
-                                </label>
-
-                                <label style={checkboxRowStyle}>
-                                    <input type="checkbox" checked={cameraOffOnEntry} onChange={(e) => setCameraOffOnEntry(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
-                                    <span>Turn off Participants Camera upon joining</span>
-                                </label>
-                            </div>
                         </div>
 
                         <button onClick={handleConfirmAndLaunchRoom} style={primaryBtnStyle}>
@@ -1657,7 +1717,7 @@ export default function App() {
                                 <input
                                     type="text"
                                     value={scheduleTitle}
-                                    placeholder="e.g. Sprint Review / Team Sync"
+                                    placeholder="e.g. Project Review / Team Sync"
                                     onChange={(e) => setScheduleTitle(e.target.value)}
                                     style={selectInputStyle}
                                     required
@@ -1705,12 +1765,16 @@ export default function App() {
                             <div style={featureBoxStyle}>
                                 <span style={groupHeadingStyle}>PRE-SET MEETING CONTROLS</span>
                                 <label style={checkboxRowStyle}>
+                                    <input type="checkbox" checked={micLocked} onChange={(e) => setMicLocked(e.target.checked)} style={{ accentColor: '#ef4444' }} />
+                                    <span>Lock Mic Permanently (Host Unmute Only)</span>
+                                </label>
+                                <label style={checkboxRowStyle}>
                                     <input type="checkbox" checked={allowScreenshare} onChange={(e) => setAllowScreenshare(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
-                                    <span>Allow Participants Screen Sharing</span>
+                                    <span>Allow Screen Sharing</span>
                                 </label>
                                 <label style={checkboxRowStyle}>
                                     <input type="checkbox" checked={allowWhiteboard} onChange={(e) => setAllowWhiteboard(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
-                                    <span>Enable Interactive Whiteboard</span>
+                                    <span>Enable Whiteboard</span>
                                 </label>
                                 <label style={checkboxRowStyle}>
                                     <input type="checkbox" checked={!chatLocked} onChange={(e) => setChatLocked(!e.target.checked)} style={{ accentColor: '#38bdf8' }} />
@@ -1719,10 +1783,6 @@ export default function App() {
                                 <label style={checkboxRowStyle}>
                                     <input type="checkbox" checked={allowReactions} onChange={(e) => setAllowReactions(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
                                     <span>Allow Emoji Reactions</span>
-                                </label>
-                                <label style={checkboxRowStyle}>
-                                    <input type="checkbox" checked={muteOnEntry} onChange={(e) => setMuteOnEntry(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
-                                    <span>Mute Mic upon joining</span>
                                 </label>
                             </div>
 
