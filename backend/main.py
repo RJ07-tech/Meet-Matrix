@@ -7,28 +7,25 @@ from pydantic import BaseModel
 from livekit import api
 from livekit.api import AccessToken, VideoGrants
 
-app = FastAPI(title="MeetMatrix Backend API")
+app = FastAPI(title="MeetMatrix Backend High-Performance API")
 
-# Enable CORS for frontend requests
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Production me aap apni Vercel URL specify kar sakte hain
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# LiveKit Credentials from Environment
 LIVEKIT_URL = os.getenv("LIVEKIT_URL", "https://meetmatrix-xxxxxx.livekit.cloud")
 LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY", "devkey")
 LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET", "secret")
 
-# In-Memory Databases
+# In-memory stores
 room_settings_db: Dict[str, Dict[str, Any]] = {}
 scheduled_meetings_db: Dict[str, Dict[str, Any]] = {}
-waiting_room_db: Dict[str, List[Dict[str, Any]]] = {}  # { room_name: [ {participant_id, name, status} ] }
-
-# --- Pydantic Request Models ---
+waiting_room_db: Dict[str, List[Dict[str, Any]]] = {}
+kicked_participants_db: Dict[str, set] = {}  # { room_name: {participant_name} }
 
 class TokenRequest(BaseModel):
     room_name: str
@@ -50,39 +47,29 @@ class RoomConfig(BaseModel):
 class AdmitRequest(BaseModel):
     room_name: str
     participant_id: str
-    action: str  # "admit" or "reject"
+    action: str
 
 class KickRequest(BaseModel):
     room_name: str
     participant_identity: str
+    participant_name: Optional[str] = None
 
 class TerminateRequest(BaseModel):
     room_name: str
 
-
-# --- Core Meeting & Token Endpoints ---
-
 @app.post("/api/create-room")
 async def create_room(cfg: RoomConfig):
     rid = cfg.room_id if cfg.room_id else f"mm-{uuid.uuid4().hex[:4]}-{uuid.uuid4().hex[:4]}"
-    room_settings_db[rid] = {
-        "room_id": rid,
-        "waiting_mode": cfg.waiting_mode,
-        "chat_locked": cfg.chat_locked,
-        "allow_participant_screenshare": cfg.allow_participant_screenshare,
-        "allow_direct_chat": cfg.allow_direct_chat,
-        "mute_on_entry": cfg.mute_on_entry,
-        "camera_off_on_entry": cfg.camera_off_on_entry,
-        "allow_whiteboard": cfg.allow_whiteboard,
-        "allow_reactions": cfg.allow_reactions,
-    }
+    room_settings_db[rid] = cfg.dict()
+    room_settings_db[rid]["room_id"] = rid
+    if rid not in kicked_participants_db:
+        kicked_participants_db[rid] = set()
     return {"status": "success", "room_id": rid, "settings": room_settings_db[rid]}
 
 @app.get("/api/room-settings/{room_name}")
 async def get_room_settings(room_name: str):
     if room_name in room_settings_db:
         return room_settings_db[room_name]
-    # Safe defaults agar room abhi register na hua ho
     return {
         "room_id": room_name,
         "waiting_mode": "direct",
@@ -109,9 +96,12 @@ async def update_room_settings(data: Dict[str, Any]):
 async def get_token(req: TokenRequest):
     cfg = room_settings_db.get(req.room_name, {})
     waiting_mode = cfg.get("waiting_mode", "direct")
+    is_kicked = req.participant_name in kicked_participants_db.get(req.room_name, set())
 
-    # Strict waiting room check for participants
-    if waiting_mode == "strict" and not req.is_host:
+    # Agar participant pehle kick kiya gaya tha ya waiting_mode strict hai, toh use direct join nahi mil sakta
+    must_wait = (waiting_mode == "strict" or is_kicked) and not req.is_host
+
+    if must_wait:
         current_list = waiting_room_db.get(req.room_name, [])
         admitted_record = next(
             (p for p in current_list if p.get("name") == req.participant_name and p.get("status") == "admitted"),
@@ -132,16 +122,15 @@ async def get_token(req: TokenRequest):
                 })
             else:
                 new_pid = existing["participant_id"]
+                existing["status"] = "waiting"
 
             return {
                 "status": "waiting",
                 "participant_id": new_pid,
-                "message": "Waiting for host approval"
+                "message": "Host approval required"
             }
 
-    # Generate LiveKit Access Token using VideoGrants (with 's')
     try:
-        # Notice: VideoGrants (plural 's')
         grants = VideoGrants(
             room_join=True,
             room=req.room_name,
@@ -157,6 +146,10 @@ async def get_token(req: TokenRequest):
 
         jwt_token = token.to_jwt()
 
+        # Remove from kicked list if successfully admitted
+        if req.participant_name in kicked_participants_db.get(req.room_name, set()):
+            kicked_participants_db[req.room_name].remove(req.participant_name)
+
         return {
             "status": "success",
             "token": jwt_token,
@@ -164,8 +157,6 @@ async def get_token(req: TokenRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-# --- Waiting Room Lobby Management ---
 
 @app.get("/api/waiting-list/{room_name}")
 async def get_waiting_list(room_name: str):
@@ -181,8 +172,10 @@ async def admit_participant(req: AdmitRequest):
     for p in r_list:
         if p.get("participant_id") == req.participant_id:
             p["status"] = "admitted" if req.action == "admit" else "rejected"
+            if req.action == "admit" and req.room_name in kicked_participants_db:
+                kicked_participants_db[req.room_name].discard(p.get("name"))
             return {"status": "success", "action": req.action}
-    raise HTTPException(status_code=404, detail="Participant not found in waiting lobby")
+    raise HTTPException(status_code=404, detail="Participant not found")
 
 @app.get("/api/check-admission/{room_name}/{participant_id}")
 async def check_admission(room_name: str, participant_id: str):
@@ -192,16 +185,11 @@ async def check_admission(room_name: str, participant_id: str):
             return {"status": p.get("status", "waiting")}
     return {"status": "not_found"}
 
-
-# --- Meeting Scheduling Endpoints ---
-
 @app.post("/api/schedule-meeting")
 async def schedule_meeting(data: Dict[str, Any]):
     rid = data.get("room_id") or f"mm-{uuid.uuid4().hex[:4]}-{uuid.uuid4().hex[:4]}"
     data["room_id"] = rid
     scheduled_meetings_db[rid] = data
-
-    # Pre-register room settings so direct link / scheduled start works seamlessly
     room_settings_db[rid] = {
         "room_id": rid,
         "waiting_mode": data.get("waiting_mode", "direct"),
@@ -224,11 +212,16 @@ async def delete_scheduled_meeting(room_id: str):
         return {"status": "deleted"}
     return {"status": "not_found"}
 
-
-# --- Moderation & Room Lifecycle ---
-
 @app.post("/api/kick-participant")
 async def kick_participant(req: KickRequest):
+    if req.room_name not in kicked_participants_db:
+        kicked_participants_db[req.room_name] = set()
+
+    # Track name for re-join prevention
+    if req.participant_name:
+        clean_name = req.participant_name.replace(" (Host)", "").replace(" (Co-Host)", "").strip()
+        kicked_participants_db[req.room_name].add(clean_name)
+
     try:
         lk_api = api.LiveKitAPI(LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET)
         await lk_api.room.remove_participant(
@@ -238,9 +231,8 @@ async def kick_participant(req: KickRequest):
             )
         )
         await lk_api.aclose()
-        return {"status": "success", "message": "Participant removed from LiveKit room"}
+        return {"status": "success"}
     except Exception as e:
-        # Fallback agar participant already disconnect ho chuka ho
         return {"status": "acknowledged", "detail": str(e)}
 
 @app.post("/api/terminate-room")
@@ -250,16 +242,13 @@ async def terminate_room(req: TerminateRequest):
         await lk_api.room.delete_room(api.DeleteRoomRequest(room=req.room_name))
         await lk_api.aclose()
     except Exception as e:
-        print(f"Room delete error (or already closed): {e}")
+        pass
 
-    # Cleanup backend memory
-    if req.room_name in room_settings_db:
-        del room_settings_db[req.room_name]
-    if req.room_name in waiting_room_db:
-        del waiting_room_db[req.room_name]
-
+    room_settings_db.pop(req.room_name, None)
+    waiting_room_db.pop(req.room_name, None)
+    kicked_participants_db.pop(req.room_name, None)
     return {"status": "terminated"}
 
 @app.get("/health")
-async def health_check():
+async def health():
     return {"status": "healthy"}

@@ -16,7 +16,7 @@ import {
     PenTool, Video, VideoOff, Mic, MicOff, Settings,
     UserCheck, UserX, Clock, MonitorUp, MessageSquare, PhoneOff, X, Plus,
     Users, Hand, Send, Edit3, VolumeX, MoreVertical, Smile, Shield, ShieldCheck,
-    Calendar, Trash2, Sliders, Play, DoorOpen
+    Calendar, Trash2, Sliders, Play, DoorOpen, PauseCircle, AlertTriangle
 } from 'lucide-react';
 import { useGoogleLogin } from '@react-oauth/google';
 import EmojiPicker, { Theme } from 'emoji-picker-react';
@@ -55,6 +55,7 @@ function MeetingStage({
     const [isScreenSharing, setIsScreenSharing] = useState(false);
     const [isHandRaised, setIsHandRaised] = useState(false);
     const [raisedHandsMap, setRaisedHandsMap] = useState({});
+    const [holdParticipantsMap, setHoldParticipantsMap] = useState({});
 
     // Co-Hosts mapping
     const [coHostsMap, setCoHostsMap] = useState({});
@@ -70,7 +71,6 @@ function MeetingStage({
     // Floating reaction emojis
     const [floatingEmojis, setFloatingEmojis] = useState([]);
 
-    // 5 Quick Customizable Emojis
     const [quickEmojis, setQuickEmojis] = useState(() => {
         try {
             const saved = localStorage.getItem('meetmatrix_quick_emojis');
@@ -103,29 +103,21 @@ function MeetingStage({
     useEffect(() => {
         try {
             localStorage.setItem('meetmatrix_quick_emojis', JSON.stringify(quickEmojis));
-        } catch (e) {
-            console.error(e);
-        }
+        } catch (e) {}
     }, [quickEmojis]);
 
-    // Chat Drawer Emoji Picker
     const [showChatEmojiPicker, setShowChatEmojiPicker] = useState(false);
-
-    // In-Drawer Rename
     const [isEditingName, setIsEditingName] = useState(false);
     const [editNameValue, setEditNameValue] = useState(participantName);
 
-    // Chat
     const [chatMessages, setChatMessages] = useState([]);
     const [chatInput, setChatInput] = useState('');
     const [chatRecipient, setChatRecipient] = useState('Everyone');
 
-    // Recording
     const [isRecording, setIsRecording] = useState(false);
     const mediaRecorderRef = useRef(null);
     const recordedChunksRef = useRef([]);
 
-    // Effective Roles
     const isCoHost = Boolean(coHostsMap[localParticipant?.identity]);
     const isEffectiveModerator = isHost || isCoHost;
 
@@ -140,21 +132,31 @@ function MeetingStage({
     const screenShareTrack = allTracks.find(t => t.source === Track.Source.ScreenShare);
     const cameraTracks = allTracks.filter(t => t.source === Track.Source.Camera);
 
+    // Point 4: Tab Switch / Hold Detection (Page Visibility API)
     useEffect(() => {
-        if (!localParticipant) return;
-        localParticipant.setName(participantName);
+        if (!room || !localParticipant) return;
 
-        if (initialCam && !localParticipant.isCameraEnabled) {
-            const timer = setTimeout(() => {
-                if (!localParticipant.isCameraEnabled) {
-                    localParticipant.setCameraEnabled(true, { facingMode: 'user' }).catch(() => {});
-                }
-            }, 800);
-            return () => clearTimeout(timer);
-        }
-    }, [localParticipant, initialCam, participantName]);
+        const handleVisibilityChange = () => {
+            const isHidden = document.visibilityState === 'hidden';
+            setHoldParticipantsMap(prev => ({
+                ...prev,
+                [localParticipant.identity]: isHidden
+            }));
 
-    // Backend room settings sync
+            const payload = JSON.stringify({
+                type: 'user_hold_status',
+                identity: localParticipant.identity,
+                isOnHold: isHidden
+            });
+
+            room.localParticipant.publishData(new TextEncoder().encode(payload), { reliable: true });
+        };
+
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+    }, [room, localParticipant]);
+
+    // Fast Low-Latency Polling (800ms)
     useEffect(() => {
         let interval;
         if (roomName) {
@@ -170,12 +172,12 @@ function MeetingStage({
                         if (res.data.allow_direct_chat !== undefined) setAllowDirectChat(Boolean(res.data.allow_direct_chat));
                     }
                 } catch (e) {}
-            }, 3000);
+            }, 1200);
         }
         return () => clearInterval(interval);
     }, [roomName, setAllowScreenshare, setChatLocked, setWaitingMode, setAllowReactions, setAllowWhiteboard, setAllowDirectChat]);
 
-    // Waiting list auto-polling for Host & Co-Hosts
+    // Point 3 & 5: Low-Latency Lobby Poll with Active Screen Share Alert
     useEffect(() => {
         let interval;
         if (isEffectiveModerator && roomName) {
@@ -184,11 +186,16 @@ function MeetingStage({
                     const res = await axios.get(`${BACKEND_URL}/api/waiting-list/${roomName}`);
                     const pending = res.data.waiting || [];
                     setWaitingList(pending);
+
+                    // If Screen share is active and strict host admission is on, show instant popup
+                    if (pending.length > 0 && screenShareTrack && waitingMode === 'strict') {
+                        setShowAdmitModal(true);
+                    }
                 } catch (e) {}
-            }, 2500);
+            }, 800);
         }
         return () => clearInterval(interval);
-    }, [isEffectiveModerator, roomName]);
+    }, [isEffectiveModerator, roomName, screenShareTrack, waitingMode]);
 
     useEffect(() => {
         if (!localParticipant) return;
@@ -230,6 +237,11 @@ function MeetingStage({
                     if (data.allow_reactions !== undefined) setAllowReactions(data.allow_reactions);
                     if (data.allow_whiteboard !== undefined) setAllowWhiteboard(data.allow_whiteboard);
                     if (data.allow_direct_chat !== undefined) setAllowDirectChat(data.allow_direct_chat);
+                } else if (data.type === 'user_hold_status') {
+                    setHoldParticipantsMap(prev => ({
+                        ...prev,
+                        [data.identity]: data.isOnHold
+                    }));
                 } else if (data.type === 'co_host_update') {
                     setCoHostsMap(prev => ({ ...prev, [data.targetIdentity]: data.isCoHost }));
                 } else if (data.type === 'reaction') {
@@ -260,18 +272,15 @@ function MeetingStage({
                 } else if (data.type === 'mute_all') {
                     if (!isHost) {
                         localParticipant.setMicrophoneEnabled(false);
-                        alert("A moderator has muted all participants.");
+                        alert("All participants muted by moderator.");
                     }
                 } else if (data.type === 'kick_user' && data.targetIdentity === localParticipant?.identity) {
-                    // Host cannot be kicked!
                     if (!isHost) {
                         alert("You were removed from the meeting.");
                         onLeave();
                     }
                 }
-            } catch (err) {
-                console.error(err);
-            }
+            } catch (err) {}
         };
 
         room.on('dataReceived', handleDataReceived);
@@ -280,7 +289,7 @@ function MeetingStage({
 
     const triggerReactionBroadcast = (emoji) => {
         if (!allowReactions) {
-            alert("Emoji reactions are currently disabled by the Host.");
+            alert("Emoji reactions are currently disabled.");
             return;
         }
         const sender = participantName || localParticipant?.name || 'You';
@@ -301,27 +310,23 @@ function MeetingStage({
         if (!localParticipant) return;
         try {
             await localParticipant.setCameraEnabled(!isCameraEnabled, { facingMode: 'user' });
-        } catch (err) {
-            console.error(err);
-        }
+        } catch (err) {}
     };
 
     const toggleMic = async () => {
         if (!localParticipant) return;
         try {
             await localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled);
-        } catch (err) {
-            console.error(err);
-        }
+        } catch (err) {}
     };
 
     const toggleScreenShare = async () => {
         if (!isEffectiveModerator && !allowScreenshare) {
-            alert("Screen sharing is restricted by the Host.");
+            alert("Screen sharing is restricted by Host.");
             return;
         }
         if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
-            alert("Screen sharing is supported on desktop browsers.");
+            alert("Screen sharing supported on desktop browsers.");
             return;
         }
         if (localParticipant) {
@@ -367,24 +372,24 @@ function MeetingStage({
         alert("All participants muted.");
     };
 
-    const handleHostKick = async (identity, targetIsHost) => {
+    // Point 2: Re-join Restricted on Kick
+    const handleHostKick = async (identity, targetName, targetIsHost) => {
         if (targetIsHost) {
             alert("Host cannot be removed!");
             return;
         }
         if (!isEffectiveModerator) return;
-        if (window.confirm("Remove this participant from the meeting?")) {
+        if (window.confirm(`Remove ${targetName || 'user'}? They cannot re-join without permission.`)) {
             try {
                 const payload = JSON.stringify({ type: 'kick_user', targetIdentity: identity });
                 room?.localParticipant?.publishData(new TextEncoder().encode(payload), { reliable: true });
 
                 await axios.post(`${BACKEND_URL}/api/kick-participant`, {
                     room_name: roomName,
-                    participant_identity: identity
+                    participant_identity: identity,
+                    participant_name: targetName
                 });
-            } catch (err) {
-                console.log(err);
-            }
+            } catch (err) {}
             setActiveMenuIdentity(null);
         }
     };
@@ -430,16 +435,14 @@ function MeetingStage({
                 });
                 room.localParticipant.publishData(new TextEncoder().encode(payload), { reliable: true });
             }
-        } catch (e) {
-            console.error(e);
-        }
+        } catch (e) {}
     };
 
     const handleSendChat = (e) => {
         e.preventDefault();
         if (!chatInput.trim() || !room) return;
         if (chatLocked && !isEffectiveModerator && chatRecipient !== 'HostOnly') {
-            alert("Chat has been locked by the Host. You can only message 'Host Only'.");
+            alert("Chat locked. Select 'Host Only' to message host.");
             return;
         }
 
@@ -464,7 +467,7 @@ function MeetingStage({
 
     const startRecording = async () => {
         if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
-            alert("Screen recording is supported on PC/Laptop browsers.");
+            alert("Recording supported on PC browsers.");
             return;
         }
         try {
@@ -490,9 +493,7 @@ function MeetingStage({
 
             recorder.start();
             setIsRecording(true);
-        } catch (err) {
-            console.log(err);
-        }
+        } catch (err) {}
     };
 
     const stopRecording = () => {
@@ -502,7 +503,6 @@ function MeetingStage({
         }
     };
 
-    // Participants array with clear Host marking
     const allPeers = [
         {
             identity: localParticipant?.identity,
@@ -510,14 +510,16 @@ function MeetingStage({
             isHost: isHost,
             isCoHost: isCoHost,
             isSelf: true,
+            isOnHold: !!holdParticipantsMap[localParticipant?.identity],
             isHandRaised: !!raisedHandsMap[localParticipant?.identity]
         },
         ...remoteParticipants.map(p => ({
             identity: p.identity,
             name: p.name || p.identity,
-            isHost: !isHost && (p.identity.includes('Host') || p.name?.includes('Host')), // Identify Host across peers
+            isHost: !isHost && (p.identity?.includes('Host') || p.name?.includes('Host')),
             isCoHost: Boolean(coHostsMap[p.identity]),
             isSelf: false,
+            isOnHold: !!holdParticipantsMap[p.identity],
             isHandRaised: !!raisedHandsMap[p.identity]
         }))
     ];
@@ -529,7 +531,7 @@ function MeetingStage({
     };
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', position: 'relative', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', position: 'relative', overflow: 'hidden', background: '#090d16' }}>
             <RoomAudioRenderer />
 
             <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none', zIndex: 99999 }}>
@@ -541,34 +543,27 @@ function MeetingStage({
                 ))}
             </div>
 
-            {/* Top Header Bar */}
+            {/* Point 1: Interactive Glossy Header */}
             <div className="mobile-header" style={headerBarStyle}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
-                    <span style={{ fontWeight: '800', color: '#38bdf8', fontSize: '0.85rem' }}>MeetMatrix</span>
-                    <span style={{ color: '#475569' }}>|</span>
-                    <span className="mobile-room-pill" style={{ fontSize: '0.72rem', color: '#cbd5e1' }}>{roomName}</span>
-                    {isHost && <span style={{ background: '#0284c7', color: '#fff', padding: '1px 5px', borderRadius: '4px', fontSize: '0.65rem', fontWeight: 'bold' }}>HOST</span>}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                    <span style={{ fontWeight: '900', letterSpacing: '0.5px', background: 'linear-gradient(135deg, #38bdf8 0%, #818cf8 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', fontSize: '0.92rem' }}>MeetMatrix</span>
+                    <span style={{ color: '#334155' }}>|</span>
+                    <span className="mobile-room-pill" style={{ fontSize: '0.72rem', color: '#94a3b8', background: '#1e293b', padding: '2px 8px', borderRadius: '12px', border: '1px solid #334155' }}>{roomName}</span>
+                    {isHost && <span style={{ background: 'linear-gradient(135deg, #0284c7 0%, #2563eb 100%)', color: '#fff', padding: '1px 6px', borderRadius: '4px', fontSize: '0.62rem', fontWeight: '800', boxShadow: '0 2px 8px rgba(2,132,199,0.4)' }}>HOST</span>}
                     {!isHost && isCoHost && (
-                        <span style={{ background: '#059669', color: '#fff', padding: '1px 5px', borderRadius: '4px', fontSize: '0.65rem', fontWeight: 'bold' }}>CO-HOST</span>
+                        <span style={{ background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)', color: '#fff', padding: '1px 6px', borderRadius: '4px', fontSize: '0.62rem', fontWeight: '800' }}>CO-HOST</span>
                     )}
                 </div>
 
-                <div style={{ display: 'flex', gap: '5px', alignItems: 'center', flexShrink: 0, position: 'relative' }}>
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0, position: 'relative' }}>
                     {allowReactions && (
-                        <div style={{ display: 'flex', gap: '3px', background: '#1e293b', padding: '2px 5px', borderRadius: '8px', alignItems: 'center', border: '1px solid #334155' }}>
+                        <div style={{ display: 'flex', gap: '3px', background: 'rgba(30, 41, 59, 0.8)', backdropFilter: 'blur(8px)', padding: '3px 6px', borderRadius: '10px', alignItems: 'center', border: '1px solid rgba(255,255,255,0.08)' }}>
                             {quickEmojis.map((e, idx) => (
                                 <button
                                     key={`${e}-${idx}`}
                                     onClick={() => triggerReactionBroadcast(e)}
-                                    title="Click to react"
-                                    style={{
-                                        background: 'transparent',
-                                        border: 'none',
-                                        cursor: 'pointer',
-                                        fontSize: '0.98rem',
-                                        padding: '2px 4px',
-                                        borderRadius: '4px'
-                                    }}
+                                    title="React"
+                                    style={interactiveEmojiBtn}
                                 >
                                     {e}
                                 </button>
@@ -576,31 +571,18 @@ function MeetingStage({
 
                             <button
                                 onClick={() => setIsCustomizeOpen(!isCustomizeOpen)}
-                                style={{
-                                    background: isCustomizeOpen ? '#ef4444' : '#0284c7',
-                                    border: 'none',
-                                    color: '#ffffff',
-                                    borderRadius: '5px',
-                                    padding: '3px 6px',
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '3px',
-                                    fontSize: '0.68rem',
-                                    fontWeight: '700',
-                                    marginLeft: '3px'
-                                }}
-                                title="Customize Quick Emojis"
+                                style={editChipBtn}
+                                title="Edit Emojis"
                             >
-                                <Edit3 size={11} /> {isCustomizeOpen ? 'Close' : 'Edit'}
+                                <Edit3 size={11} /> {isCustomizeOpen ? 'Done' : 'Edit'}
                             </button>
                         </div>
                     )}
 
                     {isCustomizeOpen && allowReactions && (
-                        <div style={{ position: 'absolute', top: '42px', right: 0, zIndex: 99999, boxShadow: '0 15px 35px rgba(0,0,0,0.85)', borderRadius: '8px', overflow: 'hidden', background: '#0f172a', border: '1px solid #334155' }}>
+                        <div style={{ position: 'absolute', top: '44px', right: 0, zIndex: 99999, boxShadow: '0 20px 40px rgba(0,0,0,0.85)', borderRadius: '12px', overflow: 'hidden', background: '#0f172a', border: '1px solid #334155' }}>
                             <div style={{ padding: '8px 10px', borderBottom: '1px solid #334155' }}>
-                                <span style={{ fontSize: '0.72rem', color: '#94a3b8', display: 'block', marginBottom: '6px' }}>Click a Slot to Replace:</span>
+                                <span style={{ fontSize: '0.72rem', color: '#94a3b8', display: 'block', marginBottom: '6px' }}>Select Slot to Replace:</span>
                                 <div style={{ display: 'flex', gap: '6px' }}>
                                     {quickEmojis.map((em, i) => (
                                         <button
@@ -614,7 +596,8 @@ function MeetingStage({
                                                 color: '#fff',
                                                 borderRadius: '6px',
                                                 fontSize: '0.9rem',
-                                                cursor: 'pointer'
+                                                cursor: 'pointer',
+                                                transition: 'all 0.2s'
                                             }}
                                         >
                                             {em}
@@ -628,14 +611,14 @@ function MeetingStage({
                                 onEmojiClick={handleEmojiSelectedForSlot}
                                 theme={Theme.DARK}
                                 width={310}
-                                height={350}
+                                height={340}
                                 searchDisabled={false}
                                 previewConfig={{ showPreview: false }}
                             />
                         </div>
                     )}
 
-                    {/* Point 5: Waiting Lobby Button for Moderator */}
+                    {/* Waiting Lobby Button with Dynamic Pulse when someone arrives */}
                     {isEffectiveModerator && (
                         <button
                             onClick={() => setShowAdmitModal(!showAdmitModal)}
@@ -643,21 +626,21 @@ function MeetingStage({
                                 ...topBtnStyle,
                                 background: waitingList.length > 0 ? '#eab308' : '#1e293b',
                                 color: waitingList.length > 0 ? '#0f172a' : '#cbd5e1',
-                                fontWeight: waitingList.length > 0 ? '800' : '500'
+                                fontWeight: waitingList.length > 0 ? '900' : '600',
+                                animation: waitingList.length > 0 ? 'pulse 1.5s infinite' : 'none'
                             }}
-                            title="Waiting Lobby Requests"
+                            title="Lobby Admission Requests"
                         >
                             <DoorOpen size={14} />
                             <span>Lobby{waitingList.length > 0 ? ` (${waitingList.length})` : ''}</span>
                         </button>
                     )}
 
-                    {/* Point 3: Settings Gear Icon - ONLY FOR ROOM HOST */}
                     {isHost && (
                         <button
                             onClick={() => setShowInMeetingSettings(!showInMeetingSettings)}
                             style={topBtnStyle}
-                            title="Host Meeting Controls"
+                            title="Host Security Settings"
                         >
                             <Settings size={14} />
                         </button>
@@ -669,44 +652,45 @@ function MeetingStage({
                         </button>
                     )}
 
-                    <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/?room=${roomName}`); alert("Invite Link Copied!"); }} style={{ ...topBtnStyle, padding: '4px 6px', background: '#0284c7' }}>
+                    <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/?room=${roomName}`); alert("Invite Copied!"); }} style={{ ...topBtnStyle, background: '#0284c7', color: '#fff' }}>
                         <Copy size={12} />
                         <span className="mobile-hide">Invite</span>
                     </button>
                 </div>
             </div>
 
-            {/* Waiting Room Admit Modal Popup */}
+            {/* Point 3: Interactive Screen Share Admission Guard Modal */}
             {showAdmitModal && isEffectiveModerator && (
-                <div style={{ position: 'fixed', top: '55px', right: '50px', background: '#1e293b', padding: '14px', borderRadius: '12px', border: '2px solid #eab308', boxShadow: '0 20px 30px rgba(0,0,0,0.85)', zIndex: 99999, width: '280px', color: '#f8fafc' }}>
+                <div style={{ position: 'fixed', top: '55px', right: '14px', background: 'rgba(15, 23, 42, 0.96)', backdropFilter: 'blur(16px)', padding: '14px', borderRadius: '14px', border: '2px solid #eab308', boxShadow: '0 25px 50px rgba(0,0,0,0.85)', zIndex: 99999, width: '300px', color: '#f8fafc' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                        <h4 style={{ margin: 0, fontSize: '0.85rem', color: '#eab308', fontWeight: '700' }}>Waiting Lobby ({waitingList.length})</h4>
-                        <button onClick={() => setShowAdmitModal(false)} style={{ background: 'transparent', border: 'none', color: '#f8fafc', cursor: 'pointer' }}><X size={16} /></button>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <AlertTriangle size={16} color="#eab308" />
+                            <h4 style={{ margin: 0, fontSize: '0.88rem', color: '#eab308', fontWeight: '800' }}>Waiting Requests ({waitingList.length})</h4>
+                        </div>
+                        <button onClick={() => setShowAdmitModal(false)} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}><X size={16} /></button>
                     </div>
 
-                    <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+                    <div style={{ maxHeight: '220px', overflowY: 'auto' }}>
                         {waitingList.length === 0 ? (
                             <p style={{ fontSize: '0.75rem', color: '#94a3b8', margin: '10px 0', textAlign: 'center' }}>No participants waiting in lobby.</p>
                         ) : (
                             waitingList.map(p => (
-                                <div key={p.participant_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #334155' }}>
-                                    <span style={{ fontSize: '0.8rem', color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '140px' }}>
+                                <div key={p.participant_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 6px', borderBottom: '1px solid #334155', background: '#090d16', borderRadius: '6px', marginBottom: '6px' }}>
+                                    <span style={{ fontSize: '0.82rem', color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '150px', fontWeight: '600' }}>
                                         {p.name}
                                     </span>
-                                    <div style={{ display: 'flex', gap: '4px' }}>
+                                    <div style={{ display: 'flex', gap: '6px' }}>
                                         <button
                                             onClick={() => handleAdmitAction(p.participant_id, 'admit')}
-                                            style={{ background: '#10b981', border: 'none', color: '#fff', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer' }}
-                                            title="Admit"
+                                            style={{ background: '#10b981', border: 'none', color: '#fff', borderRadius: '5px', padding: '4px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px', fontSize: '0.72rem', fontWeight: '700' }}
                                         >
-                                            <UserCheck size={14} />
+                                            <UserCheck size={13} /> Admit
                                         </button>
                                         <button
                                             onClick={() => handleAdmitAction(p.participant_id, 'reject')}
-                                            style={{ background: '#ef4444', border: 'none', color: '#fff', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer' }}
-                                            title="Deny"
+                                            style={{ background: '#ef4444', border: 'none', color: '#fff', borderRadius: '5px', padding: '4px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px', fontSize: '0.72rem', fontWeight: '700' }}
                                         >
-                                            <UserX size={14} />
+                                            <UserX size={13} /> Deny
                                         </button>
                                     </div>
                                 </div>
@@ -716,23 +700,23 @@ function MeetingStage({
                 </div>
             )}
 
-            {/* Point 2 & 3: In-Meeting Live Settings - HOST ONLY with expanded toggles */}
+            {/* In-Meeting Live Settings - HOST ONLY */}
             {showInMeetingSettings && isHost && (
-                <div style={{ position: 'fixed', top: '55px', right: '14px', background: '#1e293b', padding: '16px', borderRadius: '12px', border: '2px solid #38bdf8', boxShadow: '0 20px 30px rgba(0,0,0,0.85)', zIndex: 99999, width: '310px', color: '#f8fafc' }}>
+                <div style={{ position: 'fixed', top: '55px', right: '14px', background: 'rgba(30, 41, 59, 0.95)', backdropFilter: 'blur(16px)', padding: '16px', borderRadius: '14px', border: '2px solid #38bdf8', boxShadow: '0 25px 50px rgba(0,0,0,0.85)', zIndex: 99999, width: '310px', color: '#f8fafc' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                        <h4 style={{ margin: 0, fontSize: '0.92rem', color: '#38bdf8', fontWeight: '700' }}>Host Meeting Controls</h4>
+                        <h4 style={{ margin: 0, fontSize: '0.92rem', color: '#38bdf8', fontWeight: '800' }}>Host Security Controls</h4>
                         <button onClick={() => setShowInMeetingSettings(false)} style={{ background: 'transparent', border: 'none', color: '#f8fafc', cursor: 'pointer' }}><X size={16} /></button>
                     </div>
 
                     <button
                         onClick={handleMuteAll}
-                        style={{ width: '100%', background: '#ef4444', color: '#fff', border: 'none', padding: '8px', borderRadius: '6px', fontSize: '0.8rem', fontWeight: '600', cursor: 'pointer', marginBottom: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                        style={{ width: '100%', background: '#ef4444', color: '#fff', border: 'none', padding: '8px', borderRadius: '8px', fontSize: '0.8rem', fontWeight: '700', cursor: 'pointer', marginBottom: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
                     >
                         <VolumeX size={14} /> Mute All Participants
                     </button>
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', cursor: 'pointer', color: '#f8fafc' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '9px', marginBottom: '12px' }}>
+                        <label style={checkboxRowStyle}>
                             <input
                                 type="checkbox"
                                 checked={allowScreenshare}
@@ -742,10 +726,10 @@ function MeetingStage({
                                 }}
                                 style={{ accentColor: '#38bdf8' }}
                             />
-                            Allow Participant Screen Share
+                            <span>Allow Participant Screen Sharing</span>
                         </label>
 
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', cursor: 'pointer', color: '#f8fafc' }}>
+                        <label style={checkboxRowStyle}>
                             <input
                                 type="checkbox"
                                 checked={chatLocked}
@@ -755,10 +739,10 @@ function MeetingStage({
                                 }}
                                 style={{ accentColor: '#38bdf8' }}
                             />
-                            Lock Public Chat
+                            <span>Lock Public Chat</span>
                         </label>
 
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', cursor: 'pointer', color: '#f8fafc' }}>
+                        <label style={checkboxRowStyle}>
                             <input
                                 type="checkbox"
                                 checked={allowDirectChat}
@@ -768,10 +752,10 @@ function MeetingStage({
                                 }}
                                 style={{ accentColor: '#38bdf8' }}
                             />
-                            Allow 1-on-1 Direct Chat
+                            <span>Allow 1-on-1 Direct Chat</span>
                         </label>
 
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', cursor: 'pointer', color: '#f8fafc' }}>
+                        <label style={checkboxRowStyle}>
                             <input
                                 type="checkbox"
                                 checked={allowWhiteboard}
@@ -781,10 +765,10 @@ function MeetingStage({
                                 }}
                                 style={{ accentColor: '#38bdf8' }}
                             />
-                            Enable Whiteboard Feature
+                            <span>Enable Whiteboard</span>
                         </label>
 
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', cursor: 'pointer', color: '#f8fafc' }}>
+                        <label style={checkboxRowStyle}>
                             <input
                                 type="checkbox"
                                 checked={allowReactions}
@@ -794,29 +778,29 @@ function MeetingStage({
                                 }}
                                 style={{ accentColor: '#38bdf8' }}
                             />
-                            Allow Floating Emoji Reactions
+                            <span>Allow Emoji Reactions</span>
                         </label>
                     </div>
 
                     <div>
-                        <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '4px' }}>Waiting Room Mode:</label>
+                        <label style={{ fontSize: '0.72rem', color: '#94a3b8', display: 'block', marginBottom: '4px', fontWeight: '700' }}>Waiting Room Mode:</label>
                         <select
                             value={waitingMode}
                             onChange={(e) => {
                                 setWaitingMode(e.target.value);
                                 handleUpdateLiveRoomSettings({ waiting_mode: e.target.value });
                             }}
-                            style={{ width: '100%', padding: '6px', background: '#090d16', border: '1px solid #475569', color: '#fff', borderRadius: '4px', fontSize: '0.8rem' }}
+                            style={{ width: '100%', padding: '7px', background: '#090d16', border: '1px solid #475569', color: '#fff', borderRadius: '6px', fontSize: '0.8rem' }}
                         >
-                            <option value="direct">Direct Bypass (Instant Join)</option>
-                            <option value="strict">Strict (Host Approval)</option>
+                            <option value="direct">Direct Bypass (Instant Entry)</option>
+                            <option value="strict">Strict (Host Approval Required)</option>
                             <option value="open">Open Collaboration</option>
                         </select>
                     </div>
                 </div>
             )}
 
-            {/* Video Viewport & Drawers */}
+            {/* Video Viewport with Hold Detection Badges */}
             <div style={{ flex: 1, display: 'flex', position: 'relative', overflow: 'hidden', minHeight: 0 }}>
                 <div style={{ flex: 1, height: '100%', width: '100%', position: 'relative' }}>
                     {screenShareTrack ? (
@@ -828,8 +812,10 @@ function MeetingStage({
                                 {cameraTracks.map(track => {
                                     const peerId = track.participant?.identity;
                                     const hasHandRaised = !!raisedHandsMap[peerId];
+                                    const isOnHold = !!holdParticipantsMap[peerId];
                                     return (
                                         <div key={track.publication?.trackSid || peerId} style={{ position: 'relative', height: '100%' }}>
+                                            {isOnHold && <div className="video-hold-badge"><PauseCircle size={12} /> ON HOLD</div>}
                                             {hasHandRaised && <div className="video-hand-badge">✋ Raised</div>}
                                             <ParticipantTile trackRef={track} />
                                         </div>
@@ -842,8 +828,15 @@ function MeetingStage({
                             {cameraTracks.map(track => {
                                 const peerId = track.participant?.identity;
                                 const hasHandRaised = !!raisedHandsMap[peerId];
+                                const isOnHold = !!holdParticipantsMap[peerId];
                                 return (
                                     <div key={track.publication?.trackSid || peerId} className="video-tile-wrapper">
+                                        {/* Point 4: Hold Indicator on Video */}
+                                        {isOnHold && (
+                                            <div className="video-hold-badge">
+                                                <PauseCircle size={14} /> AWAY / ON HOLD
+                                            </div>
+                                        )}
                                         {hasHandRaised && <div className="video-hand-badge">✋ Hand Raised</div>}
                                         <ParticipantTile trackRef={track} />
                                     </div>
@@ -853,11 +846,11 @@ function MeetingStage({
                     )}
                 </div>
 
-                {/* Participants Drawer (Point 4: Host Immunity Protected) */}
+                {/* Participants Drawer */}
                 {showParticipants && (
                     <div style={sideDrawerStyle}>
                         <div style={drawerHeaderStyle}>
-                            <span style={{ fontWeight: '700', fontSize: '0.85rem' }}>Participants ({allPeers.length})</span>
+                            <span style={{ fontWeight: '800', fontSize: '0.88rem' }}>Participants ({allPeers.length})</span>
                             <button onClick={() => { setShowParticipants(false); setActiveMenuIdentity(null); }} style={drawerCloseBtn}><X size={16} /></button>
                         </div>
 
@@ -865,7 +858,7 @@ function MeetingStage({
                             {allPeers.map(p => (
                                 <div key={p.identity} style={{ position: 'relative', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 8px', borderBottom: '1px solid #1e293b' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden', flex: 1 }}>
-                                        <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: p.isHost ? '#0284c7' : p.isCoHost ? '#059669' : '#334155', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 'bold', flexShrink: 0 }}>
+                                        <div style={{ width: '30px', height: '30px', borderRadius: '50%', background: p.isHost ? '#0284c7' : p.isCoHost ? '#059669' : '#334155', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.78rem', fontWeight: 'bold', flexShrink: 0 }}>
                                             {p.name.charAt(0).toUpperCase()}
                                         </div>
 
@@ -883,8 +876,9 @@ function MeetingStage({
                                             <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                                                 <span style={{ fontSize: '0.82rem', color: '#f8fafc', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                                     {p.name} {p.isHandRaised && <span title="Hand Raised" style={{ marginLeft: '4px' }}>✋</span>}
+                                                    {p.isOnHold && <span style={{ color: '#eab308', fontSize: '0.7rem', marginLeft: '6px', fontWeight: '700' }}>(On Hold)</span>}
                                                 </span>
-                                                <span style={{ fontSize: '0.65rem', color: p.isHost ? '#38bdf8' : p.isCoHost ? '#34d399' : '#94a3b8', fontWeight: '700' }}>
+                                                <span style={{ fontSize: '0.65rem', color: p.isHost ? '#38bdf8' : p.isCoHost ? '#34d399' : '#94a3b8', fontWeight: '800' }}>
                                                     {p.isHost ? '👑 HOST' : p.isCoHost ? '🛡️ CO-HOST' : 'PARTICIPANT'}
                                                 </span>
                                             </div>
@@ -893,12 +887,11 @@ function MeetingStage({
 
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
                                         {p.isSelf && !isEditingName && (
-                                            <button onClick={() => setIsEditingName(true)} style={drawerActionBtn} title="Rename self">
+                                            <button onClick={() => setIsEditingName(true)} style={drawerActionBtn} title="Rename">
                                                 <Edit3 size={13} />
                                             </button>
                                         )}
 
-                                        {/* Point 4: Host cannot be muted or kicked by ANYONE */}
                                         {isEffectiveModerator && !p.isSelf && !p.isHost && (
                                             <div style={{ position: 'relative' }}>
                                                 <button
@@ -913,13 +906,13 @@ function MeetingStage({
                                                         {isHost && (
                                                             <button onClick={() => handleToggleCoHost(p.identity)} style={contextMenuItemStyle}>
                                                                 {p.isCoHost ? <Shield size={14} color="#ef4444" /> : <ShieldCheck size={14} color="#10b981" />}
-                                                                {p.isCoHost ? 'Remove Co-Host' : 'Make Co-Host'}
+                                                                {p.isCoHost ? 'Revoke Co-Host' : 'Make Co-Host'}
                                                             </button>
                                                         )}
                                                         <button onClick={() => handleHostMute(p.identity)} style={contextMenuItemStyle}>
                                                             <VolumeX size={14} color="#f59e0b" /> Mute Audio
                                                         </button>
-                                                        <button onClick={() => handleHostKick(p.identity, p.isHost)} style={{ ...contextMenuItemStyle, color: '#ef4444' }}>
+                                                        <button onClick={() => handleHostKick(p.identity, p.name, p.isHost)} style={{ ...contextMenuItemStyle, color: '#ef4444' }}>
                                                             <UserX size={14} color="#ef4444" /> Remove User
                                                         </button>
                                                     </div>
@@ -937,7 +930,7 @@ function MeetingStage({
                 {showChat && (
                     <div style={sideDrawerStyle}>
                         <div style={drawerHeaderStyle}>
-                            <span style={{ fontWeight: '700', fontSize: '0.85rem' }}>In-Meeting Chat</span>
+                            <span style={{ fontWeight: '800', fontSize: '0.85rem' }}>In-Meeting Chat</span>
                             <button onClick={() => setShowChat(false)} style={drawerCloseBtn}><X size={16} /></button>
                         </div>
 
@@ -946,7 +939,7 @@ function MeetingStage({
                             <select
                                 value={chatRecipient}
                                 onChange={(e) => setChatRecipient(e.target.value)}
-                                style={{ width: '100%', padding: '4px 8px', background: '#131b2e', border: '1px solid #334155', color: '#38bdf8', borderRadius: '4px', fontSize: '0.75rem' }}
+                                style={{ width: '100%', padding: '5px 8px', background: '#131b2e', border: '1px solid #334155', color: '#38bdf8', borderRadius: '6px', fontSize: '0.75rem' }}
                             >
                                 <option value="Everyone">Everyone (Public)</option>
                                 <option value="HostOnly">🛡️ Host Only (Private)</option>
@@ -1002,7 +995,7 @@ function MeetingStage({
                             <input
                                 type="text"
                                 value={chatInput}
-                                placeholder={chatLocked && !isEffectiveModerator && chatRecipient !== 'HostOnly' ? "Public chat locked. Select 'Host Only' to msg host" : `Message ${chatRecipient}...`}
+                                placeholder={chatLocked && !isEffectiveModerator && chatRecipient !== 'HostOnly' ? "Public chat locked. Select 'Host Only'" : `Message ${chatRecipient}...`}
                                 onChange={(e) => setChatInput(e.target.value)}
                                 style={{ flex: 1, padding: '8px 10px', background: '#131b2e', border: '1px solid #334155', borderRadius: '6px', color: '#fff', fontSize: '0.78rem', outline: 'none' }}
                             />
@@ -1014,7 +1007,7 @@ function MeetingStage({
                 )}
             </div>
 
-            {/* Bottom Controls Bar (Point 1: Whiteboard always available for presenter) */}
+            {/* Bottom Controls Bar with Responsive Hover States */}
             <div className="mobile-control-bar" style={bottomBarStyle}>
                 <button onClick={toggleMic} style={{ ...controlBtn, background: !isMicrophoneEnabled ? '#ef4444' : '#1e293b' }}>
                     {!isMicrophoneEnabled ? <MicOff size={18} /> : <Mic size={18} />}
@@ -1045,7 +1038,6 @@ function MeetingStage({
                     <span className="mobile-hide" style={{ fontSize: '0.65rem' }}>{isScreenSharing ? 'Sharing' : 'Share'}</span>
                 </button>
 
-                {/* Whiteboard button: Available for everyone if host enabled, and always for host */}
                 {(allowWhiteboard || isEffectiveModerator) && (
                     <button onClick={() => setShowWhiteboard(!showWhiteboard)} style={{ ...controlBtn, background: showWhiteboard ? '#0284c7' : '#1e293b' }}>
                         <PenTool size={18} />
@@ -1104,16 +1096,16 @@ export default function App() {
     const [loading, setLoading] = useState(false);
     const [isInviteFlow, setIsInviteFlow] = useState(false);
 
-    // Pre-Flight Meeting Controls (Defaults: Screenshare & Whiteboard default ON for utility, others manual)
+    // Pre-Flight Meeting Controls
     const [showPreSettingsModal, setShowPreSettingsModal] = useState(false);
     const [waitingMode, setWaitingMode] = useState('direct');
     const [chatLocked, setChatLocked] = useState(false);
-    const [allowScreenshare, setAllowScreenshare] = useState(true);
-    const [allowDirectChat, setAllowDirectChat] = useState(true);
+    const [allowScreenshare, setAllowScreenshare] = useState(false);
+    const [allowDirectChat, setAllowDirectChat] = useState(false);
     const [muteOnEntry, setMuteOnEntry] = useState(false);
     const [cameraOffOnEntry, setCameraOffOnEntry] = useState(false);
-    const [allowWhiteboard, setAllowWhiteboard] = useState(true);
-    const [allowReactions, setAllowReactions] = useState(true);
+    const [allowWhiteboard, setAllowWhiteboard] = useState(false);
+    const [allowReactions, setAllowReactions] = useState(false);
 
     // Scheduling System
     const [showScheduleModal, setShowScheduleModal] = useState(false);
@@ -1182,6 +1174,7 @@ export default function App() {
         }
     }, []);
 
+    // Point 5: Low latency waiting poll (800ms)
     useEffect(() => {
         let interval;
         if (isWaiting && waitingPid && roomName) {
@@ -1193,12 +1186,12 @@ export default function App() {
                         const currentName = user ? user.name : participantName;
                         await joinRoomDirect(roomName, currentName, false);
                     } else if (res.data.status === 'rejected') {
-                        alert('Host denied your request to enter.');
+                        alert('Host denied your entry request.');
                         setIsWaiting(false);
                         setWaitingPid(null);
                     }
                 } catch (e) {}
-            }, 2500);
+            }, 800);
         }
         return () => clearInterval(interval);
     }, [isWaiting, waitingPid, roomName, user, participantName]);
@@ -1217,7 +1210,7 @@ export default function App() {
                     previewStreamRef.current = stream;
                     if (videoPreviewRef.current) videoPreviewRef.current.srcObject = stream;
                 })
-                .catch((err) => console.log("Lobby device notice:", err));
+                .catch((err) => {});
         } else {
             stopLobbyPreviewTracks();
         }
@@ -1265,7 +1258,7 @@ export default function App() {
                     await proceedJoin(userData.name);
                 }
             } catch (err) {
-                alert("Google Verification Failed: " + err.message);
+                alert("Google verification error: " + err.message);
             } finally {
                 setLoading(false);
             }
@@ -1328,18 +1321,16 @@ export default function App() {
             stopLobbyPreviewTracks();
             setInMeeting(true);
         } catch (e) {
-            console.error(e);
             alert("Create room failed: " + (e.response?.data?.detail || e.message));
         } finally {
             setLoading(false);
         }
     };
 
-    // Point 5: Schedule Meeting with Pre-flight Security
     const handleSaveScheduleMeeting = async (e) => {
         e.preventDefault();
         if (!scheduleDate || !scheduleTime) {
-            alert("Please pick both Date and Time.");
+            alert("Pick Date and Time.");
             return;
         }
         setLoading(true);
@@ -1347,7 +1338,7 @@ export default function App() {
             const generatedRoomId = `mm-${Math.random().toString(36).substring(2, 6)}-${Math.random().toString(36).substring(2, 6)}`;
             const newScheduled = {
                 room_id: generatedRoomId,
-                title: scheduleTitle.trim() || 'Scheduled Meeting',
+                title: scheduleTitle.trim() || 'Team Meeting',
                 scheduled_date: scheduleDate,
                 scheduled_time: scheduleTime,
                 duration_mins: scheduleDuration,
@@ -1369,7 +1360,7 @@ export default function App() {
 
             setShowScheduleModal(false);
             setScheduleTitle('');
-            alert(`Meeting scheduled! Room Code: ${generatedRoomId}`);
+            alert(`Meeting scheduled! Code: ${generatedRoomId}`);
         } catch (err) {
             alert("Scheduling failed: " + err.message);
         } finally {
@@ -1431,7 +1422,7 @@ export default function App() {
     const handleJoinClick = (e) => {
         e?.preventDefault();
         if (!roomName.trim()) {
-            alert("Please enter a room code.");
+            alert("Enter a room code.");
             return;
         }
         if (user) {
@@ -1447,9 +1438,7 @@ export default function App() {
         if (window.confirm("End meeting for everyone?")) {
             try {
                 await axios.post(`${BACKEND_URL}/api/terminate-room`, { room_name: roomName });
-            } catch (err) {
-                console.error(err);
-            }
+            } catch (err) {}
             setInMeeting(false);
             setToken('');
             setRoomName('');
@@ -1459,10 +1448,10 @@ export default function App() {
     if (isWaiting) {
         return (
             <div style={{ height: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#090d16', color: '#f8fafc', flexDirection: 'column', padding: '20px', textAlign: 'center' }}>
-                <Clock size={44} color="#38bdf8" style={{ marginBottom: '1rem' }} />
-                <h2 style={{ fontSize: '1.3rem', marginBottom: '0.5rem' }}>Waiting for Host Approval...</h2>
-                <p style={{ color: '#94a3b8', fontSize: '0.85rem' }}>Room: {roomName}</p>
-                <button onClick={() => setIsWaiting(false)} style={{ marginTop: '1rem', background: '#ef4444', border: 'none', color: '#fff', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Cancel</button>
+                <Clock size={48} color="#38bdf8" style={{ marginBottom: '1.2rem', animation: 'pulse 2s infinite' }} />
+                <h2 style={{ fontSize: '1.4rem', fontWeight: '800', marginBottom: '0.5rem' }}>Waiting for Host to Admit You...</h2>
+                <p style={{ color: '#94a3b8', fontSize: '0.85rem' }}>Room: <strong style={{ color: '#38bdf8' }}>{roomName}</strong></p>
+                <button onClick={() => setIsWaiting(false)} style={{ marginTop: '1.2rem', background: '#ef4444', border: 'none', color: '#fff', padding: '9px 18px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>Cancel</button>
             </div>
         );
     }
@@ -1518,7 +1507,7 @@ export default function App() {
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', borderBottom: '1px solid #334155', paddingBottom: '10px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <Sliders size={18} color="#38bdf8" />
-                                <h3 style={{ margin: 0, fontSize: '1.05rem', color: '#38bdf8', fontWeight: '700' }}>Meeting Security & Features</h3>
+                                <h3 style={{ margin: 0, fontSize: '1.05rem', color: '#38bdf8', fontWeight: '800' }}>Pre-Meeting Security & Controls</h3>
                             </div>
                             <button onClick={() => setShowPreSettingsModal(false)} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}><X size={18} /></button>
                         </div>
@@ -1528,7 +1517,7 @@ export default function App() {
                                 <label style={settingLabelStyle}>Waiting Room Admission Policy</label>
                                 <select value={waitingMode} onChange={(e) => setWaitingMode(e.target.value)} style={selectInputStyle}>
                                     <option value="direct">Direct Bypass (Instant Join without approval)</option>
-                                    <option value="strict">Strict (Host Approval Required)</option>
+                                    <option value="strict">Strict (Host/Co-Host Approval Required)</option>
                                     <option value="open">Open Collaboration Room</option>
                                 </select>
                             </div>
@@ -1542,7 +1531,7 @@ export default function App() {
 
                                 <label style={checkboxRowStyle}>
                                     <input type="checkbox" checked={allowWhiteboard} onChange={(e) => setAllowWhiteboard(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
-                                    <span>Enable Interactive Whiteboard</span>
+                                    <span>Enable Interactive Whiteboard Feature</span>
                                 </label>
                             </div>
 
@@ -1560,7 +1549,7 @@ export default function App() {
 
                                 <label style={checkboxRowStyle}>
                                     <input type="checkbox" checked={allowReactions} onChange={(e) => setAllowReactions(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
-                                    <span>Allow Floating Emoji Reactions</span>
+                                    <span>Allow Emoji Reactions (Floating Emojis)</span>
                                 </label>
                             </div>
 
@@ -1585,14 +1574,14 @@ export default function App() {
                 </div>
             )}
 
-            {/* Point 5: SCHEDULE MEETING WITH EMBEDDED PRE-FLIGHT SETTINGS */}
+            {/* SCHEDULE MEETING MODAL */}
             {showScheduleModal && (
                 <div style={modalBackdropStyle}>
                     <div style={modalCardStyle}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', borderBottom: '1px solid #334155', paddingBottom: '10px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <Calendar size={18} color="#38bdf8" />
-                                <h3 style={{ margin: 0, fontSize: '1.05rem', color: '#38bdf8', fontWeight: '700' }}>Schedule Meeting & Set Controls</h3>
+                                <h3 style={{ margin: 0, fontSize: '1.05rem', color: '#38bdf8', fontWeight: '800' }}>Schedule Meeting & Set Controls</h3>
                             </div>
                             <button onClick={() => setShowScheduleModal(false)} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}><X size={18} /></button>
                         </div>
@@ -1603,7 +1592,7 @@ export default function App() {
                                 <input
                                     type="text"
                                     value={scheduleTitle}
-                                    placeholder="e.g. Project Sprint / Project Review"
+                                    placeholder="e.g. Sprint Review / Viva Session"
                                     onChange={(e) => setScheduleTitle(e.target.value)}
                                     style={selectInputStyle}
                                     required
@@ -1648,7 +1637,6 @@ export default function App() {
                                 </select>
                             </div>
 
-                            {/* Embedded Pre-meeting security config in Schedule modal */}
                             <div style={featureBoxStyle}>
                                 <span style={groupHeadingStyle}>PRE-SET MEETING SECURITY & FEATURES</span>
                                 <label style={checkboxRowStyle}>
@@ -1677,13 +1665,18 @@ export default function App() {
                 </div>
             )}
 
-            <div style={{ background: '#131b2e', borderRadius: '16px', width: '100%', maxWidth: '840px', display: 'flex', flexDirection: 'column', border: '1px solid #1e293b', overflow: 'hidden' }}>
+            {/* Interactive Landing Dashboard Container */}
+            <div style={{ background: '#131b2e', borderRadius: '18px', width: '100%', maxWidth: '850px', display: 'flex', flexDirection: 'column', border: '1px solid rgba(255,255,255,0.08)', overflow: 'hidden', boxShadow: '0 30px 60px rgba(0,0,0,0.6)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' }}>
 
                     {/* Green Room Preview Column */}
-                    <div style={{ padding: '1.5rem', background: '#0c1222', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                        <h3 style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: '0.8rem' }}>Green Room Hardware Preview</h3>
-                        <div style={{ width: '100%', maxWidth: '320px', height: '190px', background: '#000', borderRadius: '10px', overflow: 'hidden', position: 'relative' }}>
+                    <div style={{ padding: '1.8rem', background: '#0c1222', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '0.8rem' }}>
+                            <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981', boxShadow: '0 0 8px #10b981' }}></div>
+                            <h3 style={{ fontSize: '0.82rem', color: '#cbd5e1', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Green Room Hardware Preview</h3>
+                        </div>
+
+                        <div style={{ width: '100%', maxWidth: '320px', height: '190px', background: '#000', borderRadius: '12px', overflow: 'hidden', position: 'relative', border: '1px solid #1e293b' }}>
                             <video ref={videoPreviewRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
                             {!cameraEnabled && (
                                 <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#090d16', color: '#64748b', fontSize: '0.85rem' }}>
@@ -1692,7 +1685,7 @@ export default function App() {
                             )}
                         </div>
 
-                        <div style={{ display: 'flex', gap: '8px', marginTop: '1rem' }}>
+                        <div style={{ display: 'flex', gap: '10px', marginTop: '1.2rem' }}>
                             <button onClick={toggleLobbyCam} style={{ ...toggleBtnStyle, background: cameraEnabled ? '#334155' : '#ef4444' }}>
                                 {cameraEnabled ? <Video size={15} /> : <VideoOff size={15} />} {cameraEnabled ? 'Cam On' : 'Cam Off'}
                             </button>
@@ -1703,8 +1696,8 @@ export default function App() {
                     </div>
 
                     {/* Controls & Meeting Options Column */}
-                    <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                        <h1 style={{ fontSize: '1.6rem', fontWeight: '800', color: '#38bdf8', marginBottom: '0.4rem' }}>MeetMatrix</h1>
+                    <div style={{ padding: '1.8rem', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                        <h1 style={{ fontSize: '1.7rem', fontWeight: '900', background: 'linear-gradient(135deg, #38bdf8 0%, #818cf8 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', marginBottom: '0.4rem' }}>MeetMatrix</h1>
                         {isInviteFlow && (
                             <p style={{ color: '#94a3b8', fontSize: '0.8rem', marginBottom: '1rem' }}>
                                 Joining Meeting: <strong style={{ color: '#38bdf8' }}>{roomName}</strong>
@@ -1712,12 +1705,12 @@ export default function App() {
                         )}
 
                         {user && (
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#090d16', padding: '6px 12px', borderRadius: '20px', marginBottom: '12px', border: '1px solid #334155' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(9, 13, 22, 0.6)', padding: '6px 14px', borderRadius: '24px', marginBottom: '14px', border: '1px solid #334155' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
                                     {user.picture ? <img src={user.picture} alt="" style={{ width: '22px', height: '22px', borderRadius: '50%' }} /> : <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#0284c7' }} />}
-                                    <span style={{ fontSize: '0.8rem', color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.name}</span>
+                                    <span style={{ fontSize: '0.82rem', color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: '600' }}>{user.name}</span>
                                 </div>
-                                <button onClick={() => { localStorage.removeItem('meetmatrix_user'); setUser(null); }} style={{ background: 'transparent', border: 'none', color: '#ef4444', fontSize: '0.7rem', cursor: 'pointer' }}>Switch</button>
+                                <button onClick={() => { localStorage.removeItem('meetmatrix_user'); setUser(null); }} style={{ background: 'transparent', border: 'none', color: '#ef4444', fontSize: '0.72rem', cursor: 'pointer', fontWeight: '700' }}>Switch</button>
                             </div>
                         )}
 
@@ -1728,7 +1721,7 @@ export default function App() {
                             </button>
                         ) : (
                             <>
-                                <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+                                <div style={{ display: 'flex', gap: '10px', marginBottom: '12px' }}>
                                     <button onClick={handleStartCreateMeeting} disabled={loading} style={{ ...primaryBtnStyle, flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
                                         <Sliders size={15} /> Configure & Host
                                     </button>
@@ -1739,7 +1732,7 @@ export default function App() {
 
                                 <div style={{ display: 'flex', alignItems: 'center', margin: '0.8rem 0', color: '#475569' }}>
                                     <hr style={{ flex: 1, borderColor: '#1e293b' }} />
-                                    <span style={{ padding: '0 8px', fontSize: '0.7rem' }}>OR JOIN EXISTING</span>
+                                    <span style={{ padding: '0 8px', fontSize: '0.7rem', fontWeight: '700' }}>OR JOIN EXISTING</span>
                                     <hr style={{ flex: 1, borderColor: '#1e293b' }} />
                                 </div>
 
@@ -1751,17 +1744,16 @@ export default function App() {
                                     </button>
                                 </form>
 
-                                {/* Scheduled Meetings Dashboard */}
                                 {scheduledMeetings.length > 0 && (
-                                    <div style={{ background: '#090d16', borderRadius: '10px', padding: '10px', border: '1px solid #1e293b', maxHeight: '160px', overflowY: 'auto' }}>
-                                        <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: '700', display: 'block', marginBottom: '6px' }}>UPCOMING SCHEDULED MEETINGS</span>
+                                    <div style={{ background: '#090d16', borderRadius: '12px', padding: '12px', border: '1px solid #1e293b', maxHeight: '160px', overflowY: 'auto' }}>
+                                        <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: '800', display: 'block', marginBottom: '8px' }}>UPCOMING SCHEDULED MEETINGS</span>
                                         {scheduledMeetings.map((item) => (
-                                            <div key={item.room_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #1e293b' }}>
+                                            <div key={item.room_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: '1px solid #1e293b' }}>
                                                 <div style={{ overflow: 'hidden' }}>
-                                                    <span style={{ fontSize: '0.78rem', color: '#38bdf8', fontWeight: '600', display: 'block', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', maxWidth: '160px' }}>{item.title}</span>
+                                                    <span style={{ fontSize: '0.8rem', color: '#38bdf8', fontWeight: '700', display: 'block', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', maxWidth: '160px' }}>{item.title}</span>
                                                     <span style={{ fontSize: '0.68rem', color: '#64748b' }}>{item.scheduled_date || item.date} at {item.scheduled_time || item.time} ({item.duration_mins || item.duration}m)</span>
                                                 </div>
-                                                <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                                                <div style={{ display: 'flex', gap: '5px', alignItems: 'center' }}>
                                                     <button
                                                         onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/?room=${item.room_id}`); alert("Invite Link Copied!"); }}
                                                         style={iconActionBtnStyle}
@@ -1801,25 +1793,28 @@ export default function App() {
     );
 }
 
-const inputStyle = { width: '100%', padding: '10px 12px', background: '#090d16', border: '1px solid #334155', borderRadius: '8px', color: '#ffffff', fontSize: '0.85rem', outline: 'none', boxSizing: 'border-box' };
-const primaryBtnStyle = { width: '100%', padding: '11px', background: '#0284c7', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '0.85rem' };
-const secondaryBtnStyle = { width: '100%', padding: '10px', background: 'transparent', border: '1px solid #0284c7', color: '#38bdf8', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '0.85rem' };
-const topBtnStyle = { display: 'flex', alignItems: 'center', gap: '4px', background: '#1e293b', color: '#ffffff', border: '1px solid #334155', padding: '5px 8px', borderRadius: '6px', fontSize: '0.75rem', cursor: 'pointer', fontWeight: '500' };
-const toggleBtnStyle = { display: 'flex', alignItems: 'center', gap: '6px', color: '#ffffff', border: 'none', padding: '7px 12px', borderRadius: '6px', fontSize: '0.75rem', cursor: 'pointer', fontWeight: '600' };
-const controlBtn = { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', background: '#1e293b', color: '#ffffff', border: '1px solid #334155', padding: '6px 10px', borderRadius: '8px', fontSize: '0.65rem', cursor: 'pointer', minWidth: '46px', fontWeight: '500' };
-const bottomBarStyle = { background: '#0f172a', borderTop: '1px solid #334155', padding: '8px 12px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', zIndex: 100, flexShrink: 0 };
-const headerBarStyle = { background: '#0f172a', color: '#f8fafc', padding: '6px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #334155', zIndex: 1000, flexShrink: 0 };
+// Visual Styles
+const inputStyle = { width: '100%', padding: '11px 12px', background: '#090d16', border: '1px solid #334155', borderRadius: '8px', color: '#ffffff', fontSize: '0.85rem', outline: 'none', boxSizing: 'border-box' };
+const primaryBtnStyle = { width: '100%', padding: '11px', background: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '0.85rem', boxShadow: '0 4px 14px rgba(2,132,199,0.3)', transition: 'all 0.2s' };
+const secondaryBtnStyle = { width: '100%', padding: '10px', background: 'rgba(30, 41, 59, 0.6)', border: '1px solid #0284c7', color: '#38bdf8', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '0.85rem', transition: 'all 0.2s' };
+const topBtnStyle = { display: 'flex', alignItems: 'center', gap: '5px', background: '#1e293b', color: '#ffffff', border: '1px solid #334155', padding: '5px 9px', borderRadius: '7px', fontSize: '0.75rem', cursor: 'pointer', fontWeight: '600' };
+const toggleBtnStyle = { display: 'flex', alignItems: 'center', gap: '6px', color: '#ffffff', border: 'none', padding: '7px 12px', borderRadius: '7px', fontSize: '0.75rem', cursor: 'pointer', fontWeight: '700' };
+const controlBtn = { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', background: '#1e293b', color: '#ffffff', border: '1px solid #334155', padding: '6px 10px', borderRadius: '8px', fontSize: '0.65rem', cursor: 'pointer', minWidth: '46px', fontWeight: '600', transition: 'transform 0.1s' };
+const bottomBarStyle = { background: 'rgba(15, 23, 42, 0.95)', backdropFilter: 'blur(12px)', borderTop: '1px solid #334155', padding: '8px 12px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', zIndex: 100, flexShrink: 0 };
+const headerBarStyle = { background: 'rgba(15, 23, 42, 0.95)', backdropFilter: 'blur(12px)', color: '#f8fafc', padding: '6px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #334155', zIndex: 1000, flexShrink: 0 };
 const sideDrawerStyle = { width: '320px', maxWidth: '85vw', background: '#0f172a', borderLeft: '1px solid #334155', height: '100%', zIndex: 50, position: 'absolute', right: 0, top: 0, bottom: 0, display: 'flex', flexDirection: 'column' };
 const drawerHeaderStyle = { padding: '12px 14px', borderBottom: '1px solid #1e293b', display: 'flex', justifyContent: 'space-between', alignItems: 'center' };
 const drawerCloseBtn = { background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' };
 const drawerActionBtn = { background: 'transparent', border: 'none', color: '#94a3b8', padding: '4px', cursor: 'pointer', borderRadius: '4px', display: 'flex', alignItems: 'center' };
-const contextMenuStyle = { position: 'absolute', right: 0, top: '26px', background: '#1e293b', border: '1px solid #334155', borderRadius: '6px', padding: '4px', zIndex: 999, minWidth: '140px', boxShadow: '0 8px 16px rgba(0,0,0,0.5)' };
-const contextMenuItemStyle = { width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 8px', background: 'transparent', border: 'none', color: '#f8fafc', fontSize: '0.75rem', cursor: 'pointer', textAlign: 'left', borderRadius: '4px' };
-const modalBackdropStyle = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(4px)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' };
-const modalCardStyle = { background: '#131b2e', border: '1px solid #38bdf8', borderRadius: '14px', padding: '20px', width: '100%', maxWidth: '440px', boxShadow: '0 25px 50px rgba(0,0,0,0.7)' };
-const settingLabelStyle = { fontSize: '0.78rem', color: '#94a3b8', display: 'block', marginBottom: '6px', fontWeight: '600' };
-const selectInputStyle = { width: '100%', padding: '8px', background: '#090d16', border: '1px solid #334155', color: '#fff', borderRadius: '6px', fontSize: '0.8rem', boxSizing: 'border-box' };
+const contextMenuStyle = { position: 'absolute', right: 0, top: '26px', background: '#1e293b', border: '1px solid #334155', borderRadius: '8px', padding: '5px', zIndex: 999, minWidth: '150px', boxShadow: '0 10px 25px rgba(0,0,0,0.6)' };
+const contextMenuItemStyle = { width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 8px', background: 'transparent', border: 'none', color: '#f8fafc', fontSize: '0.75rem', cursor: 'pointer', textAlign: 'left', borderRadius: '5px' };
+const modalBackdropStyle = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(6px)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' };
+const modalCardStyle = { background: '#131b2e', border: '1px solid #38bdf8', borderRadius: '16px', padding: '20px', width: '100%', maxWidth: '450px', boxShadow: '0 30px 60px rgba(0,0,0,0.8)' };
+const settingLabelStyle = { fontSize: '0.78rem', color: '#94a3b8', display: 'block', marginBottom: '6px', fontWeight: '700' };
+const selectInputStyle = { width: '100%', padding: '9px', background: '#090d16', border: '1px solid #334155', color: '#fff', borderRadius: '7px', fontSize: '0.8rem', boxSizing: 'border-box' };
 const checkboxRowStyle = { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', cursor: 'pointer', color: '#f8fafc', marginBottom: '6px' };
 const featureBoxStyle = { background: '#090d16', padding: '10px', borderRadius: '8px', border: '1px solid #1e293b' };
-const groupHeadingStyle = { fontSize: '0.68rem', color: '#38bdf8', fontWeight: '700', letterSpacing: '0.5px', display: 'block', marginBottom: '8px' };
-const iconActionBtnStyle = { background: '#1e293b', border: '1px solid #334155', color: '#cbd5e1', padding: '4px 6px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center' };
+const groupHeadingStyle = { fontSize: '0.68rem', color: '#38bdf8', fontWeight: '800', letterSpacing: '0.5px', display: 'block', marginBottom: '8px' };
+const iconActionBtnStyle = { background: '#1e293b', border: '1px solid #334155', color: '#cbd5e1', padding: '5px 7px', borderRadius: '5px', cursor: 'pointer', display: 'flex', alignItems: 'center' };
+const interactiveEmojiBtn = { background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: '2px 4px', borderRadius: '4px', transition: 'transform 0.1s' };
+const editChipBtn = { background: '#0284c7', border: 'none', color: '#ffffff', borderRadius: '5px', padding: '3px 6px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px', fontSize: '0.68rem', fontWeight: '700', marginLeft: '3px' };
