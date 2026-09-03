@@ -62,7 +62,7 @@ function MeetingStage({
     const [waitingList, setWaitingList] = useState([]);
     const [showAdmitModal, setShowAdmitModal] = useState(false);
 
-    // Drawers & Modals
+    // Modals & Drawers
     const [showChat, setShowChat] = useState(false);
     const [showParticipants, setShowParticipants] = useState(false);
     const [showInMeetingSettings, setShowInMeetingSettings] = useState(false);
@@ -121,6 +121,7 @@ function MeetingStage({
     const isCoHost = Boolean(coHostsMap[localParticipant?.identity]);
     const isEffectiveModerator = isHost || isCoHost;
 
+    // Point 8: Persistent Camera & Screenshare Tracks Rendering (No disappearance on tab switch)
     const allTracks = useTracks(
         [
             { source: Track.Source.Camera, withPlaceholder: true },
@@ -132,11 +133,16 @@ function MeetingStage({
     const screenShareTrack = allTracks.find(t => t.source === Track.Source.ScreenShare);
     const cameraTracks = allTracks.filter(t => t.source === Track.Source.Camera);
 
-    // Point 4: Tab Switch / Hold Detection (Page Visibility API)
+    // Point 7: Hold Detection disabled when Screen Sharing is active
     useEffect(() => {
         if (!room || !localParticipant) return;
 
         const handleVisibilityChange = () => {
+            // Agar screen share kar rahe hain toh hold emit mat karo
+            if (localParticipant.isScreenShareEnabled) {
+                return;
+            }
+
             const isHidden = document.visibilityState === 'hidden';
             setHoldParticipantsMap(prev => ({
                 ...prev,
@@ -156,7 +162,7 @@ function MeetingStage({
         return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
     }, [room, localParticipant]);
 
-    // Fast Low-Latency Polling (800ms)
+    // Fast Low-Latency Settings Sync
     useEffect(() => {
         let interval;
         if (roomName) {
@@ -177,18 +183,17 @@ function MeetingStage({
         return () => clearInterval(interval);
     }, [roomName, setAllowScreenshare, setChatLocked, setWaitingMode, setAllowReactions, setAllowWhiteboard, setAllowDirectChat]);
 
-    // Point 3 & 5: Low-Latency Lobby Poll with Active Screen Share Alert
+    // Fast Waiting List Poller
     useEffect(() => {
         let interval;
-        if (isEffectiveModerator && roomName) {
+        if (isEffectiveModerator && roomName && waitingMode === 'strict') {
             interval = setInterval(async () => {
                 try {
                     const res = await axios.get(`${BACKEND_URL}/api/waiting-list/${roomName}`);
                     const pending = res.data.waiting || [];
                     setWaitingList(pending);
 
-                    // If Screen share is active and strict host admission is on, show instant popup
-                    if (pending.length > 0 && screenShareTrack && waitingMode === 'strict') {
+                    if (pending.length > 0 && screenShareTrack) {
                         setShowAdmitModal(true);
                     }
                 } catch (e) {}
@@ -372,7 +377,6 @@ function MeetingStage({
         alert("All participants muted.");
     };
 
-    // Point 2: Re-join Restricted on Kick
     const handleHostKick = async (identity, targetName, targetIsHost) => {
         if (targetIsHost) {
             alert("Host cannot be removed!");
@@ -543,13 +547,13 @@ function MeetingStage({
                 ))}
             </div>
 
-            {/* Point 1: Interactive Glossy Header */}
+            {/* Point 4 & 5: Header Bar with People Button & Dynamic Lobby Button */}
             <div className="mobile-header" style={headerBarStyle}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
                     <span style={{ fontWeight: '900', letterSpacing: '0.5px', background: 'linear-gradient(135deg, #38bdf8 0%, #818cf8 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', fontSize: '0.92rem' }}>MeetMatrix</span>
                     <span style={{ color: '#334155' }}>|</span>
                     <span className="mobile-room-pill" style={{ fontSize: '0.72rem', color: '#94a3b8', background: '#1e293b', padding: '2px 8px', borderRadius: '12px', border: '1px solid #334155' }}>{roomName}</span>
-                    {isHost && <span style={{ background: 'linear-gradient(135deg, #0284c7 0%, #2563eb 100%)', color: '#fff', padding: '1px 6px', borderRadius: '4px', fontSize: '0.62rem', fontWeight: '800', boxShadow: '0 2px 8px rgba(2,132,199,0.4)' }}>HOST</span>}
+                    {isHost && <span style={{ background: 'linear-gradient(135deg, #0284c7 0%, #2563eb 100%)', color: '#fff', padding: '1px 6px', borderRadius: '4px', fontSize: '0.62rem', fontWeight: '800' }}>HOST</span>}
                     {!isHost && isCoHost && (
                         <span style={{ background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)', color: '#fff', padding: '1px 6px', borderRadius: '4px', fontSize: '0.62rem', fontWeight: '800' }}>CO-HOST</span>
                     )}
@@ -596,8 +600,7 @@ function MeetingStage({
                                                 color: '#fff',
                                                 borderRadius: '6px',
                                                 fontSize: '0.9rem',
-                                                cursor: 'pointer',
-                                                transition: 'all 0.2s'
+                                                cursor: 'pointer'
                                             }}
                                         >
                                             {em}
@@ -618,16 +621,25 @@ function MeetingStage({
                         </div>
                     )}
 
-                    {/* Waiting Lobby Button with Dynamic Pulse when someone arrives */}
-                    {isEffectiveModerator && (
+                    {/* Point 4: People (Participants) Button Moved to Header next to Settings/Lobby */}
+                    <button
+                        onClick={() => { setShowParticipants(!showParticipants); setShowChat(false); }}
+                        style={{ ...topBtnStyle, background: showParticipants ? '#0284c7' : '#1e293b', color: '#fff' }}
+                        title="View Participants"
+                    >
+                        <Users size={14} />
+                        <span>People ({allPeers.length})</span>
+                    </button>
+
+                    {/* Point 5: Lobby Button HIDDEN if bypass (direct) mode, only shows in strict mode */}
+                    {isEffectiveModerator && (waitingMode === 'strict' || waitingList.length > 0) && (
                         <button
                             onClick={() => setShowAdmitModal(!showAdmitModal)}
                             style={{
                                 ...topBtnStyle,
                                 background: waitingList.length > 0 ? '#eab308' : '#1e293b',
                                 color: waitingList.length > 0 ? '#0f172a' : '#cbd5e1',
-                                fontWeight: waitingList.length > 0 ? '900' : '600',
-                                animation: waitingList.length > 0 ? 'pulse 1.5s infinite' : 'none'
+                                fontWeight: waitingList.length > 0 ? '900' : '600'
                             }}
                             title="Lobby Admission Requests"
                         >
@@ -659,7 +671,7 @@ function MeetingStage({
                 </div>
             </div>
 
-            {/* Point 3: Interactive Screen Share Admission Guard Modal */}
+            {/* Screen Share Guard Modal */}
             {showAdmitModal && isEffectiveModerator && (
                 <div style={{ position: 'fixed', top: '55px', right: '14px', background: 'rgba(15, 23, 42, 0.96)', backdropFilter: 'blur(16px)', padding: '14px', borderRadius: '14px', border: '2px solid #eab308', boxShadow: '0 25px 50px rgba(0,0,0,0.85)', zIndex: 99999, width: '300px', color: '#f8fafc' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
@@ -700,7 +712,7 @@ function MeetingStage({
                 </div>
             )}
 
-            {/* In-Meeting Live Settings - HOST ONLY */}
+            {/* Host Security Live Controls */}
             {showInMeetingSettings && isHost && (
                 <div style={{ position: 'fixed', top: '55px', right: '14px', background: 'rgba(30, 41, 59, 0.95)', backdropFilter: 'blur(16px)', padding: '16px', borderRadius: '14px', border: '2px solid #38bdf8', boxShadow: '0 25px 50px rgba(0,0,0,0.85)', zIndex: 99999, width: '310px', color: '#f8fafc' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
@@ -800,7 +812,7 @@ function MeetingStage({
                 </div>
             )}
 
-            {/* Video Viewport with Hold Detection Badges */}
+            {/* Video Viewport */}
             <div style={{ flex: 1, display: 'flex', position: 'relative', overflow: 'hidden', minHeight: 0 }}>
                 <div style={{ flex: 1, height: '100%', width: '100%', position: 'relative' }}>
                     {screenShareTrack ? (
@@ -815,7 +827,7 @@ function MeetingStage({
                                     const isOnHold = !!holdParticipantsMap[peerId];
                                     return (
                                         <div key={track.publication?.trackSid || peerId} style={{ position: 'relative', height: '100%' }}>
-                                            {isOnHold && <div className="video-hold-badge"><PauseCircle size={12} /> ON HOLD</div>}
+                                            {isOnHold && !isScreenSharing && <div className="video-hold-badge"><PauseCircle size={12} /> ON HOLD</div>}
                                             {hasHandRaised && <div className="video-hand-badge">✋ Raised</div>}
                                             <ParticipantTile trackRef={track} />
                                         </div>
@@ -831,8 +843,7 @@ function MeetingStage({
                                 const isOnHold = !!holdParticipantsMap[peerId];
                                 return (
                                     <div key={track.publication?.trackSid || peerId} className="video-tile-wrapper">
-                                        {/* Point 4: Hold Indicator on Video */}
-                                        {isOnHold && (
+                                        {isOnHold && !isScreenSharing && (
                                             <div className="video-hold-badge">
                                                 <PauseCircle size={14} /> AWAY / ON HOLD
                                             </div>
@@ -851,7 +862,7 @@ function MeetingStage({
                     <div style={sideDrawerStyle}>
                         <div style={drawerHeaderStyle}>
                             <span style={{ fontWeight: '800', fontSize: '0.88rem' }}>Participants ({allPeers.length})</span>
-                            <button onClick={() => { setShowParticipants(false); setActiveMenuIdentity(null); }} style={drawerCloseBtn}><X size={16} /></button>
+                            <button onClick={() => setShowParticipants(false)} style={drawerCloseBtn}><X size={16} /></button>
                         </div>
 
                         <div style={{ padding: '8px', overflowY: 'auto', flex: 1 }}>
@@ -876,7 +887,7 @@ function MeetingStage({
                                             <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                                                 <span style={{ fontSize: '0.82rem', color: '#f8fafc', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                                     {p.name} {p.isHandRaised && <span title="Hand Raised" style={{ marginLeft: '4px' }}>✋</span>}
-                                                    {p.isOnHold && <span style={{ color: '#eab308', fontSize: '0.7rem', marginLeft: '6px', fontWeight: '700' }}>(On Hold)</span>}
+                                                    {p.isOnHold && !isScreenSharing && <span style={{ color: '#eab308', fontSize: '0.7rem', marginLeft: '6px', fontWeight: '700' }}>(On Hold)</span>}
                                                 </span>
                                                 <span style={{ fontSize: '0.65rem', color: p.isHost ? '#38bdf8' : p.isCoHost ? '#34d399' : '#94a3b8', fontWeight: '800' }}>
                                                     {p.isHost ? '👑 HOST' : p.isCoHost ? '🛡️ CO-HOST' : 'PARTICIPANT'}
@@ -1007,7 +1018,7 @@ function MeetingStage({
                 )}
             </div>
 
-            {/* Bottom Controls Bar with Responsive Hover States */}
+            {/* Bottom Controls Bar (Point 4: People button cleanly moved up) */}
             <div className="mobile-control-bar" style={bottomBarStyle}>
                 <button onClick={toggleMic} style={{ ...controlBtn, background: !isMicrophoneEnabled ? '#ef4444' : '#1e293b' }}>
                     {!isMicrophoneEnabled ? <MicOff size={18} /> : <Mic size={18} />}
@@ -1044,11 +1055,6 @@ function MeetingStage({
                         <span className="mobile-hide" style={{ fontSize: '0.65rem' }}>Board</span>
                     </button>
                 )}
-
-                <button onClick={() => { setShowParticipants(!showParticipants); setShowChat(false); }} style={{ ...controlBtn, background: showParticipants ? '#0284c7' : '#1e293b' }}>
-                    <Users size={18} />
-                    <span className="mobile-hide" style={{ fontSize: '0.65rem' }}>People</span>
-                </button>
 
                 <button onClick={() => { setShowChat(!showChat); setShowParticipants(false); }} style={{ ...controlBtn, background: showChat ? '#0284c7' : '#1e293b' }}>
                     <MessageSquare size={18} />
@@ -1096,7 +1102,6 @@ export default function App() {
     const [loading, setLoading] = useState(false);
     const [isInviteFlow, setIsInviteFlow] = useState(false);
 
-    // Pre-Flight Meeting Controls
     const [showPreSettingsModal, setShowPreSettingsModal] = useState(false);
     const [waitingMode, setWaitingMode] = useState('direct');
     const [chatLocked, setChatLocked] = useState(false);
@@ -1107,7 +1112,6 @@ export default function App() {
     const [allowWhiteboard, setAllowWhiteboard] = useState(false);
     const [allowReactions, setAllowReactions] = useState(false);
 
-    // Scheduling System
     const [showScheduleModal, setShowScheduleModal] = useState(false);
     const [scheduleTitle, setScheduleTitle] = useState('');
     const [scheduleDate, setScheduleDate] = useState('');
@@ -1174,7 +1178,7 @@ export default function App() {
         }
     }, []);
 
-    // Point 5: Low latency waiting poll (800ms)
+    // Point 1 & 6: Low-Latency Waiting Admission Lock
     useEffect(() => {
         let interval;
         if (isWaiting && waitingPid && roomName) {
@@ -1186,7 +1190,7 @@ export default function App() {
                         const currentName = user ? user.name : participantName;
                         await joinRoomDirect(roomName, currentName, false);
                     } else if (res.data.status === 'rejected') {
-                        alert('Host denied your entry request.');
+                        alert('Host denied your request to enter.');
                         setIsWaiting(false);
                         setWaitingPid(null);
                     }
@@ -1338,7 +1342,7 @@ export default function App() {
             const generatedRoomId = `mm-${Math.random().toString(36).substring(2, 6)}-${Math.random().toString(36).substring(2, 6)}`;
             const newScheduled = {
                 room_id: generatedRoomId,
-                title: scheduleTitle.trim() || 'Team Meeting',
+                title: scheduleTitle.trim() || 'Scheduled Meeting',
                 scheduled_date: scheduleDate,
                 scheduled_time: scheduleTime,
                 duration_mins: scheduleDuration,
@@ -1360,7 +1364,7 @@ export default function App() {
 
             setShowScheduleModal(false);
             setScheduleTitle('');
-            alert(`Meeting scheduled! Code: ${generatedRoomId}`);
+            alert(`Meeting scheduled! Room Code: ${generatedRoomId}`);
         } catch (err) {
             alert("Scheduling failed: " + err.message);
         } finally {
@@ -1574,14 +1578,14 @@ export default function App() {
                 </div>
             )}
 
-            {/* SCHEDULE MEETING MODAL */}
+            {/* SCHEDULE MEETING MODAL WITH PRE-SET SECURITY */}
             {showScheduleModal && (
                 <div style={modalBackdropStyle}>
                     <div style={modalCardStyle}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', borderBottom: '1px solid #334155', paddingBottom: '10px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <Calendar size={18} color="#38bdf8" />
-                                <h3 style={{ margin: 0, fontSize: '1.05rem', color: '#38bdf8', fontWeight: '800' }}>Schedule Meeting & Set Controls</h3>
+                                <h3 style={{ margin: 0, fontSize: '1.05rem', color: '#38bdf8', fontWeight: '800' }}>Schedule Meeting & Controls</h3>
                             </div>
                             <button onClick={() => setShowScheduleModal(false)} style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer' }}><X size={18} /></button>
                         </div>
@@ -1592,7 +1596,7 @@ export default function App() {
                                 <input
                                     type="text"
                                     value={scheduleTitle}
-                                    placeholder="e.g. Sprint Review / Viva Session"
+                                    placeholder="e.g. Project Review / Team Sync"
                                     onChange={(e) => setScheduleTitle(e.target.value)}
                                     style={selectInputStyle}
                                     required
@@ -1638,7 +1642,7 @@ export default function App() {
                             </div>
 
                             <div style={featureBoxStyle}>
-                                <span style={groupHeadingStyle}>PRE-SET MEETING SECURITY & FEATURES</span>
+                                <span style={groupHeadingStyle}>PRE-SET MEETING CONTROLS</span>
                                 <label style={checkboxRowStyle}>
                                     <input type="checkbox" checked={allowScreenshare} onChange={(e) => setAllowScreenshare(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
                                     <span>Allow Participants Screen Sharing</span>
@@ -1665,11 +1669,11 @@ export default function App() {
                 </div>
             )}
 
-            {/* Interactive Landing Dashboard Container */}
+            {/* Landing Dashboard */}
             <div style={{ background: '#131b2e', borderRadius: '18px', width: '100%', maxWidth: '850px', display: 'flex', flexDirection: 'column', border: '1px solid rgba(255,255,255,0.08)', overflow: 'hidden', boxShadow: '0 30px 60px rgba(0,0,0,0.6)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' }}>
 
-                    {/* Green Room Preview Column */}
+                    {/* Green Room Hardware Preview */}
                     <div style={{ padding: '1.8rem', background: '#0c1222', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '0.8rem' }}>
                             <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981', boxShadow: '0 0 8px #10b981' }}></div>
@@ -1695,7 +1699,7 @@ export default function App() {
                         </div>
                     </div>
 
-                    {/* Controls & Meeting Options Column */}
+                    {/* Controls & Meeting List */}
                     <div style={{ padding: '1.8rem', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                         <h1 style={{ fontSize: '1.7rem', fontWeight: '900', background: 'linear-gradient(135deg, #38bdf8 0%, #818cf8 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', marginBottom: '0.4rem' }}>MeetMatrix</h1>
                         {isInviteFlow && (
@@ -1793,13 +1797,12 @@ export default function App() {
     );
 }
 
-// Visual Styles
 const inputStyle = { width: '100%', padding: '11px 12px', background: '#090d16', border: '1px solid #334155', borderRadius: '8px', color: '#ffffff', fontSize: '0.85rem', outline: 'none', boxSizing: 'border-box' };
-const primaryBtnStyle = { width: '100%', padding: '11px', background: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '0.85rem', boxShadow: '0 4px 14px rgba(2,132,199,0.3)', transition: 'all 0.2s' };
-const secondaryBtnStyle = { width: '100%', padding: '10px', background: 'rgba(30, 41, 59, 0.6)', border: '1px solid #0284c7', color: '#38bdf8', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '0.85rem', transition: 'all 0.2s' };
+const primaryBtnStyle = { width: '100%', padding: '11px', background: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '0.85rem', boxShadow: '0 4px 14px rgba(2,132,199,0.3)' };
+const secondaryBtnStyle = { width: '100%', padding: '10px', background: 'rgba(30, 41, 59, 0.6)', border: '1px solid #0284c7', color: '#38bdf8', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '0.85rem' };
 const topBtnStyle = { display: 'flex', alignItems: 'center', gap: '5px', background: '#1e293b', color: '#ffffff', border: '1px solid #334155', padding: '5px 9px', borderRadius: '7px', fontSize: '0.75rem', cursor: 'pointer', fontWeight: '600' };
 const toggleBtnStyle = { display: 'flex', alignItems: 'center', gap: '6px', color: '#ffffff', border: 'none', padding: '7px 12px', borderRadius: '7px', fontSize: '0.75rem', cursor: 'pointer', fontWeight: '700' };
-const controlBtn = { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', background: '#1e293b', color: '#ffffff', border: '1px solid #334155', padding: '6px 10px', borderRadius: '8px', fontSize: '0.65rem', cursor: 'pointer', minWidth: '46px', fontWeight: '600', transition: 'transform 0.1s' };
+const controlBtn = { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2px', background: '#1e293b', color: '#ffffff', border: '1px solid #334155', padding: '6px 10px', borderRadius: '8px', fontSize: '0.65rem', cursor: 'pointer', minWidth: '46px', fontWeight: '600' };
 const bottomBarStyle = { background: 'rgba(15, 23, 42, 0.95)', backdropFilter: 'blur(12px)', borderTop: '1px solid #334155', padding: '8px 12px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', zIndex: 100, flexShrink: 0 };
 const headerBarStyle = { background: 'rgba(15, 23, 42, 0.95)', backdropFilter: 'blur(12px)', color: '#f8fafc', padding: '6px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #334155', zIndex: 1000, flexShrink: 0 };
 const sideDrawerStyle = { width: '320px', maxWidth: '85vw', background: '#0f172a', borderLeft: '1px solid #334155', height: '100%', zIndex: 50, position: 'absolute', right: 0, top: 0, bottom: 0, display: 'flex', flexDirection: 'column' };
@@ -1816,5 +1819,5 @@ const checkboxRowStyle = { display: 'flex', alignItems: 'center', gap: '8px', fo
 const featureBoxStyle = { background: '#090d16', padding: '10px', borderRadius: '8px', border: '1px solid #1e293b' };
 const groupHeadingStyle = { fontSize: '0.68rem', color: '#38bdf8', fontWeight: '800', letterSpacing: '0.5px', display: 'block', marginBottom: '8px' };
 const iconActionBtnStyle = { background: '#1e293b', border: '1px solid #334155', color: '#cbd5e1', padding: '5px 7px', borderRadius: '5px', cursor: 'pointer', display: 'flex', alignItems: 'center' };
-const interactiveEmojiBtn = { background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: '2px 4px', borderRadius: '4px', transition: 'transform 0.1s' };
+const interactiveEmojiBtn = { background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: '2px 4px', borderRadius: '4px' };
 const editChipBtn = { background: '#0284c7', border: 'none', color: '#ffffff', borderRadius: '5px', padding: '3px 6px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px', fontSize: '0.68rem', fontWeight: '700', marginLeft: '3px' };
