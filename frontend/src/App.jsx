@@ -121,7 +121,6 @@ function MeetingStage({
     const isCoHost = Boolean(coHostsMap[localParticipant?.identity]);
     const isEffectiveModerator = isHost || isCoHost;
 
-    // Point 8: Persistent Camera & Screenshare Tracks Rendering (No disappearance on tab switch)
     const allTracks = useTracks(
         [
             { source: Track.Source.Camera, withPlaceholder: true },
@@ -133,12 +132,10 @@ function MeetingStage({
     const screenShareTrack = allTracks.find(t => t.source === Track.Source.ScreenShare);
     const cameraTracks = allTracks.filter(t => t.source === Track.Source.Camera);
 
-    // Point 7: Hold Detection disabled when Screen Sharing is active
     useEffect(() => {
         if (!room || !localParticipant) return;
 
         const handleVisibilityChange = () => {
-            // Agar screen share kar rahe hain toh hold emit mat karo
             if (localParticipant.isScreenShareEnabled) {
                 return;
             }
@@ -425,6 +422,16 @@ function MeetingStage({
         }
     };
 
+    // Line ~430 me handleLeave function:
+    const handleLeaveMeeting = async () => {
+        try {
+            await axios.post(`${BACKEND_URL}/api/participant-leave`, {
+                room_name: roomName,
+                participant_name: participantName
+            });
+        } catch (e) {}
+        onLeave();
+    };
     const handleUpdateLiveRoomSettings = async (updates) => {
         try {
             await axios.post(`${BACKEND_URL}/api/update-room-settings`, {
@@ -547,7 +554,7 @@ function MeetingStage({
                 ))}
             </div>
 
-            {/* Point 4 & 5: Header Bar with People Button & Dynamic Lobby Button */}
+            {/* Header Bar with People, Filtered Lobby, and Controls */}
             <div className="mobile-header" style={headerBarStyle}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
                     <span style={{ fontWeight: '900', letterSpacing: '0.5px', background: 'linear-gradient(135deg, #38bdf8 0%, #818cf8 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', fontSize: '0.92rem' }}>MeetMatrix</span>
@@ -621,7 +628,7 @@ function MeetingStage({
                         </div>
                     )}
 
-                    {/* Point 4: People (Participants) Button Moved to Header next to Settings/Lobby */}
+                    {/* People Button Moved to Header */}
                     <button
                         onClick={() => { setShowParticipants(!showParticipants); setShowChat(false); }}
                         style={{ ...topBtnStyle, background: showParticipants ? '#0284c7' : '#1e293b', color: '#fff' }}
@@ -631,8 +638,8 @@ function MeetingStage({
                         <span>People ({allPeers.length})</span>
                     </button>
 
-                    {/* Point 5: Lobby Button HIDDEN if bypass (direct) mode, only shows in strict mode */}
-                    {isEffectiveModerator && (waitingMode === 'strict' || waitingList.length > 0) && (
+                    {/* Lobby Button: STRICT aur OPEN COLLABORATION dono me dikhega, DIRECT BYPASS me hide rahega */}
+                    {isEffectiveModerator && waitingMode !== 'direct' && (
                         <button
                             onClick={() => setShowAdmitModal(!showAdmitModal)}
                             style={{
@@ -1018,7 +1025,7 @@ function MeetingStage({
                 )}
             </div>
 
-            {/* Bottom Controls Bar (Point 4: People button cleanly moved up) */}
+            {/* Bottom Controls Bar */}
             <div className="mobile-control-bar" style={bottomBarStyle}>
                 <button onClick={toggleMic} style={{ ...controlBtn, background: !isMicrophoneEnabled ? '#ef4444' : '#1e293b' }}>
                     {!isMicrophoneEnabled ? <MicOff size={18} /> : <Mic size={18} />}
@@ -1072,7 +1079,7 @@ function MeetingStage({
                         <span className="mobile-hide" style={{ fontSize: '0.65rem' }}>End</span>
                     </button>
                 ) : (
-                    <button onClick={onLeave} style={{ ...controlBtn, background: '#e11d48', color: '#fff' }}>
+                    <button onClick={handleLeaveMeeting} style={{ ...controlBtn, background: '#e11d48', color: '#fff' }}>
                         <PhoneOff size={18} />
                         <span className="mobile-hide" style={{ fontSize: '0.65rem' }}>Leave</span>
                     </button>
@@ -1178,7 +1185,7 @@ export default function App() {
         }
     }, []);
 
-    // Point 1 & 6: Low-Latency Waiting Admission Lock
+    // Low-Latency Waiting Admission Lock
     useEffect(() => {
         let interval;
         if (isWaiting && waitingPid && roomName) {
@@ -1504,7 +1511,6 @@ export default function App() {
     return (
         <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'radial-gradient(circle at top, #1e293b 0%, #090d16 100%)', color: '#f8fafc', padding: '12px' }}>
 
-            {/* PRE-MEETING CONFIGURATION MODAL */}
             {showPreSettingsModal && (
                 <div style={modalBackdropStyle}>
                     <div style={modalCardStyle}>
