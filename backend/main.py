@@ -44,6 +44,7 @@ class RoomConfig(BaseModel):
     room_id: Optional[str] = None
     waiting_mode: str = "direct"
     chat_locked: bool = False
+    mic_locked: bool = False  # Permanent Mic Lock
     allow_participant_screenshare: bool = False
     allow_direct_chat: bool = False
     mute_on_entry: bool = False
@@ -77,6 +78,7 @@ async def create_room(cfg: RoomConfig):
     rid = cfg.room_id if cfg.room_id else f"mm-{uuid.uuid4().hex[:4]}-{uuid.uuid4().hex[:4]}"
     room_settings_db[rid] = cfg.dict()
     room_settings_db[rid]["room_id"] = rid
+    room_settings_db[rid]["mic_locked"] = cfg.mic_locked
     if rid not in banned_participants_db:
         banned_participants_db[rid] = set()
     if rid not in attendance_db:
@@ -90,6 +92,7 @@ async def get_room_settings(room_name: str):
         "room_id": room_name,
         "waiting_mode": "direct",
         "chat_locked": False,
+        "mic_locked": False,
         "allow_participant_screenshare": False,
         "allow_direct_chat": False,
         "mute_on_entry": False,
@@ -191,7 +194,8 @@ async def get_token(req: TokenRequest):
             "token": jwt_token,
             "server_url": LIVEKIT_URL,
             "mute_on_entry": cfg.get("mute_on_entry", False),
-            "camera_off_on_entry": cfg.get("camera_off_on_entry", False)
+            "camera_off_on_entry": cfg.get("camera_off_on_entry", False),
+            "mic_locked": cfg.get("mic_locked", False)
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -293,6 +297,7 @@ async def schedule_meeting(data: Dict[str, Any]):
         "room_id": rid,
         "waiting_mode": data.get("waiting_mode", "direct"),
         "chat_locked": data.get("chat_locked", False),
+        "mic_locked": data.get("mic_locked", False),
         "allow_participant_screenshare": data.get("allow_participant_screenshare", False),
         "allow_direct_chat": data.get("allow_direct_chat", False),
         "allow_whiteboard": data.get("allow_whiteboard", False),
