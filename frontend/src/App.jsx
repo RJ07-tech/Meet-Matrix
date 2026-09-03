@@ -57,18 +57,15 @@ function MeetingStage({
     const [raisedHandsMap, setRaisedHandsMap] = useState({});
     const [holdParticipantsMap, setHoldParticipantsMap] = useState({});
 
-    // Co-Hosts mapping
     const [coHostsMap, setCoHostsMap] = useState({});
     const [waitingList, setWaitingList] = useState([]);
     const [showAdmitModal, setShowAdmitModal] = useState(false);
 
-    // Modals & Drawers
     const [showChat, setShowChat] = useState(false);
     const [showParticipants, setShowParticipants] = useState(false);
     const [showInMeetingSettings, setShowInMeetingSettings] = useState(false);
     const [activeMenuIdentity, setActiveMenuIdentity] = useState(null);
 
-    // Floating reaction emojis
     const [floatingEmojis, setFloatingEmojis] = useState([]);
 
     const [quickEmojis, setQuickEmojis] = useState(() => {
@@ -132,13 +129,26 @@ function MeetingStage({
     const screenShareTrack = allTracks.find(t => t.source === Track.Source.ScreenShare);
     const cameraTracks = allTracks.filter(t => t.source === Track.Source.Camera);
 
+    // Mute on entry and Camera setup
+    useEffect(() => {
+        if (!localParticipant) return;
+        localParticipant.setName(participantName);
+
+        // Respect mute on entry flag
+        if (!initialMic) {
+            localParticipant.setMicrophoneEnabled(false).catch(() => {});
+        }
+        if (!initialCam) {
+            localParticipant.setCameraEnabled(false).catch(() => {});
+        }
+    }, [localParticipant, initialCam, initialMic, participantName]);
+
+    // Track user hold and log to backend attendance
     useEffect(() => {
         if (!room || !localParticipant) return;
 
         const handleVisibilityChange = () => {
-            if (localParticipant.isScreenShareEnabled) {
-                return;
-            }
+            if (localParticipant.isScreenShareEnabled) return;
 
             const isHidden = document.visibilityState === 'hidden';
             setHoldParticipantsMap(prev => ({
@@ -151,15 +161,23 @@ function MeetingStage({
                 identity: localParticipant.identity,
                 isOnHold: isHidden
             });
-
             room.localParticipant.publishData(new TextEncoder().encode(payload), { reliable: true });
+
+            if (isHidden) {
+                axios.post(`${BACKEND_URL}/api/attendance/update`, {
+                    room_name: roomName,
+                    participant_name: participantName,
+                    was_on_hold: true,
+                    action: "hold_update"
+                }).catch(() => {});
+            }
         };
 
         document.addEventListener('visibilitychange', handleVisibilityChange);
         return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-    }, [room, localParticipant]);
+    }, [room, localParticipant, roomName, participantName]);
 
-    // Fast Low-Latency Settings Sync
+    // Live Room Settings Sync
     useEffect(() => {
         let interval;
         if (roomName) {
@@ -180,7 +198,7 @@ function MeetingStage({
         return () => clearInterval(interval);
     }, [roomName, setAllowScreenshare, setChatLocked, setWaitingMode, setAllowReactions, setAllowWhiteboard, setAllowDirectChat]);
 
-    // Fast Waiting List Poller
+    // Waiting List Poller
     useEffect(() => {
         let interval;
         if (isEffectiveModerator && roomName && waitingMode === 'strict') {
@@ -269,12 +287,11 @@ function MeetingStage({
                 } else if (data.type === 'force_mute' && data.targetIdentity === localParticipant?.identity) {
                     if (!isHost) {
                         localParticipant.setMicrophoneEnabled(false);
-                        alert("Your microphone was muted by a moderator.");
                     }
                 } else if (data.type === 'mute_all') {
+                    // Direct Instant Mute for all non-hosts (Zero Dialogs)
                     if (!isHost) {
                         localParticipant.setMicrophoneEnabled(false);
-                        alert("All participants muted by moderator.");
                     }
                 } else if (data.type === 'kick_user' && data.targetIdentity === localParticipant?.identity) {
                     if (!isHost) {
@@ -291,7 +308,7 @@ function MeetingStage({
 
     const triggerReactionBroadcast = (emoji) => {
         if (!allowReactions) {
-            alert("Emoji reactions are currently disabled.");
+            alert("Emoji reactions are disabled.");
             return;
         }
         const sender = participantName || localParticipant?.name || 'You';
@@ -367,11 +384,11 @@ function MeetingStage({
         setActiveMenuIdentity(null);
     };
 
+    // Direct Instant Mute All (No alerts, zero delay)
     const handleMuteAll = () => {
         if (!isEffectiveModerator || !room) return;
         const payload = JSON.stringify({ type: 'mute_all' });
         room.localParticipant.publishData(new TextEncoder().encode(payload), { reliable: true });
-        alert("All participants muted.");
     };
 
     const handleHostKick = async (identity, targetName, targetIsHost) => {
@@ -380,7 +397,7 @@ function MeetingStage({
             return;
         }
         if (!isEffectiveModerator) return;
-        if (window.confirm(`Remove ${targetName || 'user'}? They cannot re-join without permission.`)) {
+        if (window.confirm(`Remove ${targetName || 'user'}?`)) {
             try {
                 const payload = JSON.stringify({ type: 'kick_user', targetIdentity: identity });
                 room?.localParticipant?.publishData(new TextEncoder().encode(payload), { reliable: true });
@@ -422,16 +439,17 @@ function MeetingStage({
         }
     };
 
-    // Line ~430 me handleLeave function:
     const handleLeaveMeeting = async () => {
         try {
-            await axios.post(`${BACKEND_URL}/api/participant-leave`, {
+            await axios.post(`${BACKEND_URL}/api/attendance/update`, {
                 room_name: roomName,
-                participant_name: participantName
+                participant_name: participantName,
+                action: "leave"
             });
         } catch (e) {}
         onLeave();
     };
+
     const handleUpdateLiveRoomSettings = async (updates) => {
         try {
             await axios.post(`${BACKEND_URL}/api/update-room-settings`, {
@@ -453,7 +471,7 @@ function MeetingStage({
         e.preventDefault();
         if (!chatInput.trim() || !room) return;
         if (chatLocked && !isEffectiveModerator && chatRecipient !== 'HostOnly') {
-            alert("Chat locked. Select 'Host Only' to message host.");
+            alert("Chat locked. Select 'Host Only'.");
             return;
         }
 
@@ -514,6 +532,7 @@ function MeetingStage({
         }
     };
 
+    // Participants list
     const allPeers = [
         {
             identity: localParticipant?.identity,
@@ -554,7 +573,7 @@ function MeetingStage({
                 ))}
             </div>
 
-            {/* Header Bar with People, Filtered Lobby, and Controls */}
+            {/* Header Bar */}
             <div className="mobile-header" style={headerBarStyle}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
                     <span style={{ fontWeight: '900', letterSpacing: '0.5px', background: 'linear-gradient(135deg, #38bdf8 0%, #818cf8 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', fontSize: '0.92rem' }}>MeetMatrix</span>
@@ -628,7 +647,7 @@ function MeetingStage({
                         </div>
                     )}
 
-                    {/* People Button Moved to Header */}
+                    {/* People Button */}
                     <button
                         onClick={() => { setShowParticipants(!showParticipants); setShowChat(false); }}
                         style={{ ...topBtnStyle, background: showParticipants ? '#0284c7' : '#1e293b', color: '#fff' }}
@@ -638,7 +657,7 @@ function MeetingStage({
                         <span>People ({allPeers.length})</span>
                     </button>
 
-                    {/* Lobby Button: STRICT aur OPEN COLLABORATION dono me dikhega, DIRECT BYPASS me hide rahega */}
+                    {/* Lobby Button: Only shown if not in direct bypass */}
                     {isEffectiveModerator && waitingMode !== 'direct' && (
                         <button
                             onClick={() => setShowAdmitModal(!showAdmitModal)}
@@ -665,8 +684,16 @@ function MeetingStage({
                         </button>
                     )}
 
+                    {/* Attendance Export Button */}
                     {isHost && (
-                        <button onClick={() => window.open(`${BACKEND_URL}/api/attendance/export/${roomName}`, '_blank')} className="mobile-hide" style={topBtnStyle}>
+                        <button
+                            onClick={() => {
+                                window.location.href = `${BACKEND_URL}/api/attendance/export/${roomName}`;
+                            }}
+                            className="mobile-hide"
+                            style={topBtnStyle}
+                            title="Download CSV Attendance Report"
+                        >
                             <Download size={12} /> CSV
                         </button>
                     )}
@@ -678,7 +705,7 @@ function MeetingStage({
                 </div>
             </div>
 
-            {/* Screen Share Guard Modal */}
+            {/* Waiting Requests Modal */}
             {showAdmitModal && isEffectiveModerator && (
                 <div style={{ position: 'fixed', top: '55px', right: '14px', background: 'rgba(15, 23, 42, 0.96)', backdropFilter: 'blur(16px)', padding: '14px', borderRadius: '14px', border: '2px solid #eab308', boxShadow: '0 25px 50px rgba(0,0,0,0.85)', zIndex: 99999, width: '300px', color: '#f8fafc' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
@@ -727,11 +754,12 @@ function MeetingStage({
                         <button onClick={() => setShowInMeetingSettings(false)} style={{ background: 'transparent', border: 'none', color: '#f8fafc', cursor: 'pointer' }}><X size={16} /></button>
                     </div>
 
+                    {/* Direct Instant Mute All */}
                     <button
                         onClick={handleMuteAll}
                         style={{ width: '100%', background: '#ef4444', color: '#fff', border: 'none', padding: '8px', borderRadius: '8px', fontSize: '0.8rem', fontWeight: '700', cursor: 'pointer', marginBottom: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
                     >
-                        <VolumeX size={14} /> Mute All Participants
+                        <VolumeX size={14} /> Mute All Participants Instantly
                     </button>
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '9px', marginBottom: '12px' }}>
@@ -1109,6 +1137,10 @@ export default function App() {
     const [loading, setLoading] = useState(false);
     const [isInviteFlow, setIsInviteFlow] = useState(false);
 
+    // Initial mute states from room configuration
+    const [initialMuteAudio, setInitialMuteAudio] = useState(false);
+    const [initialMuteVideo, setInitialMuteVideo] = useState(false);
+
     const [showPreSettingsModal, setShowPreSettingsModal] = useState(false);
     const [waitingMode, setWaitingMode] = useState('direct');
     const [chatLocked, setChatLocked] = useState(false);
@@ -1185,7 +1217,7 @@ export default function App() {
         }
     }, []);
 
-    // Low-Latency Waiting Admission Lock
+    // Fast Waiting Admission Lock
     useEffect(() => {
         let interval;
         if (isWaiting && waitingPid && roomName) {
@@ -1221,7 +1253,7 @@ export default function App() {
                     previewStreamRef.current = stream;
                     if (videoPreviewRef.current) videoPreviewRef.current.srcObject = stream;
                 })
-                .catch((err) => {});
+                .catch(() => {});
         } else {
             stopLobbyPreviewTracks();
         }
@@ -1360,7 +1392,9 @@ export default function App() {
                 allow_participant_screenshare: allowScreenshare,
                 allow_direct_chat: allowDirectChat,
                 allow_whiteboard: allowWhiteboard,
-                allow_reactions: allowReactions
+                allow_reactions: allowReactions,
+                mute_on_entry: muteOnEntry,
+                camera_off_on_entry: cameraOffOnEntry
             };
 
             await axios.post(`${BACKEND_URL}/api/schedule-meeting`, newScheduled);
@@ -1405,6 +1439,15 @@ export default function App() {
             } else {
                 setToken(res.data.token);
                 setServerUrl(res.data.server_url);
+                // Respect mute_on_entry from backend
+                if (res.data.mute_on_entry) {
+                    setInitialMuteAudio(true);
+                    setMicEnabled(false);
+                }
+                if (res.data.camera_off_on_entry) {
+                    setInitialMuteVideo(true);
+                    setCameraEnabled(false);
+                }
 
                 stopLobbyPreviewTracks();
                 setInMeeting(true);
@@ -1425,6 +1468,17 @@ export default function App() {
         });
         setToken(res.data.token);
         setServerUrl(res.data.server_url);
+
+        if (!hostFlag) {
+            if (res.data.mute_on_entry) {
+                setInitialMuteAudio(true);
+                setMicEnabled(false);
+            }
+            if (res.data.camera_off_on_entry) {
+                setInitialMuteVideo(true);
+                setCameraEnabled(false);
+            }
+        }
 
         stopLobbyPreviewTracks();
         setInMeeting(true);
@@ -1484,8 +1538,8 @@ export default function App() {
                         isHost={isHost}
                         participantName={participantName}
                         setParticipantName={setParticipantName}
-                        initialCam={cameraEnabled}
-                        initialMic={micEnabled}
+                        initialCam={!initialMuteVideo}
+                        initialMic={!initialMuteAudio}
                         onLeave={() => { setInMeeting(false); setToken(''); }}
                         onTerminate={handleTerminateMeeting}
                         showWhiteboard={showWhiteboard}
@@ -1511,6 +1565,7 @@ export default function App() {
     return (
         <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'radial-gradient(circle at top, #1e293b 0%, #090d16 100%)', color: '#f8fafc', padding: '12px' }}>
 
+            {/* Pre-Meeting Configuration Modal */}
             {showPreSettingsModal && (
                 <div style={modalBackdropStyle}>
                     <div style={modalCardStyle}>
@@ -1584,7 +1639,7 @@ export default function App() {
                 </div>
             )}
 
-            {/* SCHEDULE MEETING MODAL WITH PRE-SET SECURITY */}
+            {/* Schedule Meeting Modal */}
             {showScheduleModal && (
                 <div style={modalBackdropStyle}>
                     <div style={modalCardStyle}>
@@ -1602,7 +1657,7 @@ export default function App() {
                                 <input
                                     type="text"
                                     value={scheduleTitle}
-                                    placeholder="e.g. Project Review / Team Sync"
+                                    placeholder="e.g. Sprint Review / Team Sync"
                                     onChange={(e) => setScheduleTitle(e.target.value)}
                                     style={selectInputStyle}
                                     required
@@ -1665,6 +1720,10 @@ export default function App() {
                                     <input type="checkbox" checked={allowReactions} onChange={(e) => setAllowReactions(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
                                     <span>Allow Emoji Reactions</span>
                                 </label>
+                                <label style={checkboxRowStyle}>
+                                    <input type="checkbox" checked={muteOnEntry} onChange={(e) => setMuteOnEntry(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
+                                    <span>Mute Mic upon joining</span>
+                                </label>
                             </div>
 
                             <button type="submit" disabled={loading} style={{ ...primaryBtnStyle, marginTop: '8px' }}>
@@ -1679,7 +1738,6 @@ export default function App() {
             <div style={{ background: '#131b2e', borderRadius: '18px', width: '100%', maxWidth: '850px', display: 'flex', flexDirection: 'column', border: '1px solid rgba(255,255,255,0.08)', overflow: 'hidden', boxShadow: '0 30px 60px rgba(0,0,0,0.6)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' }}>
 
-                    {/* Green Room Hardware Preview */}
                     <div style={{ padding: '1.8rem', background: '#0c1222', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '0.8rem' }}>
                             <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981', boxShadow: '0 0 8px #10b981' }}></div>
@@ -1705,7 +1763,6 @@ export default function App() {
                         </div>
                     </div>
 
-                    {/* Controls & Meeting List */}
                     <div style={{ padding: '1.8rem', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                         <h1 style={{ fontSize: '1.7rem', fontWeight: '900', background: 'linear-gradient(135deg, #38bdf8 0%, #818cf8 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', marginBottom: '0.4rem' }}>MeetMatrix</h1>
                         {isInviteFlow && (

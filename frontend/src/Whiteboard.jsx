@@ -16,16 +16,23 @@ export default function Whiteboard({ isModerator, onClose, localParticipant }) {
     const snapshotRef = useRef(null);
     const animFrameIdRef = useRef(null);
 
-    // Single active text editing box
-    const [activeTextInput, setActiveTextInput] = useState(null); // { id, x, y, text }
-    const inputRef = useRef(null);
+    // Live text note states
+    const [textItems, setTextItems] = useState([]);
+    const [activeTextId, setActiveTextId] = useState(null);
+    const textItemsRef = useRef([]);
+
+    useEffect(() => {
+        textItemsRef.current = textItems;
+    }, [textItems]);
 
     const fillWhiteBackground = (ctx, width, height) => {
         ctx.fillStyle = '#ffffff';
         ctx.fillRect(0, 0, width, height);
     };
 
-    const redrawHistory = (ctx) => {
+    const redrawAll = (ctx, width, height) => {
+        fillWhiteBackground(ctx, width, height);
+
         persistentDrawingHistory.forEach(action => {
             if (action.type === 'stroke') {
                 ctx.strokeStyle = action.color;
@@ -48,21 +55,26 @@ export default function Whiteboard({ isModerator, onClose, localParticipant }) {
                 ctx.beginPath();
                 ctx.arc(action.x, action.y, action.r, 0, 2 * Math.PI);
                 ctx.stroke();
-            } else if (action.type === 'text') {
-                ctx.fillStyle = action.color;
+            }
+        });
+
+        // Live draw active texts straight onto the canvas stream frame
+        textItemsRef.current.forEach(item => {
+            if (item.text) {
+                ctx.fillStyle = item.color || '#000000';
                 ctx.font = 'bold 18px Inter, system-ui, sans-serif';
-                ctx.fillText(action.text, action.x, action.y);
+                ctx.fillText(item.text, item.x, item.y + 18);
             }
         });
     };
 
+    // Continuous Frame-Pump: paints live typing directly into WebRTC video stream
     const startHeartbeatPump = () => {
         const pump = () => {
             const canvas = canvasRef.current;
-            if (canvas) {
+            if (canvas && !isDrawing) {
                 const ctx = canvas.getContext('2d');
-                const pixel = ctx.getImageData(0, 0, 1, 1);
-                ctx.putImageData(pixel, 0, 0);
+                redrawAll(ctx, canvas.width, canvas.height);
             }
             animFrameIdRef.current = requestAnimationFrame(pump);
         };
@@ -72,26 +84,19 @@ export default function Whiteboard({ isModerator, onClose, localParticipant }) {
     useEffect(() => {
         const canvas = canvasRef.current;
         if (!canvas) return;
-        const ctx = canvas.getContext('2d');
-
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight - 56;
 
-        fillWhiteBackground(ctx, canvas.width, canvas.height);
-
-        if (persistentDrawingHistory.length > 0) {
-            redrawHistory(ctx);
-        }
-
+        const ctx = canvas.getContext('2d');
+        redrawAll(ctx, canvas.width, canvas.height);
         startHeartbeatPump();
 
         const handleResize = () => {
             if (!canvas) return;
-            const temp = ctx.getImageData(0, 0, canvas.width, canvas.height);
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight - 56;
-            fillWhiteBackground(ctx, canvas.width, canvas.height);
-            ctx.putImageData(temp, 0, 0);
+            const ctxResize = canvas.getContext('2d');
+            redrawAll(ctxResize, canvas.width, canvas.height);
         };
 
         window.addEventListener('resize', handleResize);
@@ -118,13 +123,15 @@ export default function Whiteboard({ isModerator, onClose, localParticipant }) {
     };
 
     const handleCloseWhiteboard = async () => {
-        commitActiveText();
         await stopWhiteboardSharing();
         onClose();
     };
 
     const toggleShareCanvas = async () => {
-        if (!isModerator) return;
+        if (!isModerator) {
+            alert("Only Host and Co-Hosts can present the whiteboard.");
+            return;
+        }
         if (!localParticipant) return;
 
         if (isSharingBoard) {
@@ -133,12 +140,7 @@ export default function Whiteboard({ isModerator, onClose, localParticipant }) {
             try {
                 const canvas = canvasRef.current;
                 const ctx = canvas.getContext('2d');
-
-                commitActiveText();
-
-                if (persistentDrawingHistory.length === 0) {
-                    fillWhiteBackground(ctx, canvas.width, canvas.height);
-                }
+                redrawAll(ctx, canvas.width, canvas.height);
 
                 const stream = canvas.captureStream(30);
                 const track = stream.getVideoTracks()[0];
@@ -157,89 +159,32 @@ export default function Whiteboard({ isModerator, onClose, localParticipant }) {
                 });
                 setIsSharingBoard(true);
             } catch (err) {
-                alert("Whiteboard share error: " + err.message);
+                alert("Could not share whiteboard: " + err.message);
             }
         }
     };
 
-    // Commit current active text permanently to canvas
-    const commitActiveText = () => {
-        if (!activeTextInput || !activeTextInput.text.trim()) {
-            setActiveTextInput(null);
-            return;
-        }
-
-        const canvas = canvasRef.current;
-        if (canvas) {
-            const ctx = canvas.getContext('2d');
-            ctx.fillStyle = activeTextInput.color || color;
-            ctx.font = 'bold 18px Inter, system-ui, sans-serif';
-            ctx.fillText(activeTextInput.text, activeTextInput.x, activeTextInput.y + 16);
-
-            persistentDrawingHistory.push({
-                type: 'text',
-                text: activeTextInput.text,
-                x: activeTextInput.x,
-                y: activeTextInput.y + 16,
-                color: activeTextInput.color || color,
-                boxWidth: 200,
-                boxHeight: 28
-            });
-        }
-        setActiveTextInput(null);
-    };
-
-    // Canvas click: create or edit text
     const handleCanvasClick = (e) => {
+        if (tool !== 'text') return;
         const canvas = canvasRef.current;
         const rect = canvas.getBoundingClientRect();
-        const clickX = e.clientX - rect.left;
-        const clickY = e.clientY - rect.top;
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
 
-        // Check if clicking existing text to re-edit
-        const existingIdx = persistentDrawingHistory.findIndex(
-            item => item.type === 'text' &&
-                clickX >= item.x && clickX <= item.x + (item.boxWidth || 180) &&
-                clickY >= item.y - 18 && clickY <= item.y + 10
-        );
+        const newId = Date.now();
+        const newText = { id: newId, x, y, text: '', color };
+        setTextItems(prev => [...prev, newText]);
+        setActiveTextId(newId);
+    };
 
-        if (existingIdx !== -1) {
-            const target = persistentDrawingHistory[existingIdx];
-            persistentDrawingHistory.splice(existingIdx, 1);
-
-            // Redraw canvas without this text item
-            const ctx = canvas.getContext('2d');
-            fillWhiteBackground(ctx, canvas.width, canvas.height);
-            redrawHistory(ctx);
-
-            setActiveTextInput({
-                x: target.x,
-                y: target.y - 16,
-                text: target.text,
-                color: target.color
-            });
-            setTimeout(() => inputRef.current?.focus(), 50);
-            return;
-        }
-
-        if (tool === 'text') {
-            commitActiveText();
-            setActiveTextInput({
-                x: clickX,
-                y: clickY,
-                text: '',
-                color
-            });
-            setTimeout(() => inputRef.current?.focus(), 50);
-        }
+    const handleTextChange = (id, newContent) => {
+        setTextItems(prev => prev.map(t => t.id === id ? { ...t, text: newContent } : t));
     };
 
     const currentPointsRef = useRef([]);
 
     const startDraw = (e) => {
         if (tool === 'text') return;
-        commitActiveText();
-
         const canvas = canvasRef.current;
         const rect = canvas.getBoundingClientRect();
         const x = (e.clientX || e.touches?.[0]?.clientX) - rect.left;
@@ -336,7 +281,8 @@ export default function Whiteboard({ isModerator, onClose, localParticipant }) {
         const ctx = canvas.getContext('2d');
         fillWhiteBackground(ctx, canvas.width, canvas.height);
         persistentDrawingHistory = [];
-        setActiveTextInput(null);
+        setTextItems([]);
+        setActiveTextId(null);
     };
 
     return (
@@ -346,19 +292,19 @@ export default function Whiteboard({ isModerator, onClose, localParticipant }) {
                     <span style={{ fontWeight: '800', color: '#38bdf8', fontSize: '0.85rem' }}>Whiteboard</span>
 
                     <div style={{ display: 'flex', background: '#090d16', padding: '2px', borderRadius: '6px', border: '1px solid #334155' }}>
-                        <button onClick={() => { commitActiveText(); setTool('pen'); }} style={{ ...iconBtnStyle, background: tool === 'pen' ? '#0284c7' : 'transparent' }} title="Pen">
+                        <button onClick={() => setTool('pen')} style={{ ...iconBtnStyle, background: tool === 'pen' ? '#0284c7' : 'transparent' }} title="Pen">
                             <Pen size={14} />
                         </button>
-                        <button onClick={() => setTool('text')} style={{ ...iconBtnStyle, background: tool === 'text' ? '#0284c7' : 'transparent' }} title="Text Tool (Click anywhere on board to type/edit)">
+                        <button onClick={() => setTool('text')} style={{ ...iconBtnStyle, background: tool === 'text' ? '#0284c7' : 'transparent' }} title="Live Text (Click to write)">
                             <Type size={14} />
                         </button>
-                        <button onClick={() => { commitActiveText(); setTool('eraser'); }} style={{ ...iconBtnStyle, background: tool === 'eraser' ? '#0284c7' : 'transparent' }} title="Eraser">
+                        <button onClick={() => setTool('eraser')} style={{ ...iconBtnStyle, background: tool === 'eraser' ? '#0284c7' : 'transparent' }} title="Eraser">
                             <Eraser size={14} />
                         </button>
-                        <button onClick={() => { commitActiveText(); setTool('rectangle'); }} style={{ ...iconBtnStyle, background: tool === 'rectangle' ? '#0284c7' : 'transparent' }} title="Rectangle">
+                        <button onClick={() => setTool('rectangle')} style={{ ...iconBtnStyle, background: tool === 'rectangle' ? '#0284c7' : 'transparent' }} title="Rectangle">
                             <Square size={14} />
                         </button>
-                        <button onClick={() => { commitActiveText(); setTool('circle'); }} style={{ ...iconBtnStyle, background: tool === 'circle' ? '#0284c7' : 'transparent' }} title="Circle">
+                        <button onClick={() => setTool('circle')} style={{ ...iconBtnStyle, background: tool === 'circle' ? '#0284c7' : 'transparent' }} title="Circle">
                             <Circle size={14} />
                         </button>
                     </div>
@@ -387,7 +333,6 @@ export default function Whiteboard({ isModerator, onClose, localParticipant }) {
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    {/* Share Board button visible ONLY for Host and Co-Hosts */}
                     {isModerator && (
                         <button
                             onClick={toggleShareCanvas}
@@ -420,48 +365,41 @@ export default function Whiteboard({ isModerator, onClose, localParticipant }) {
                     onTouchStart={startDraw}
                     onTouchMove={draw}
                     onTouchEnd={stopDraw}
-                    style={{
-                        display: 'block',
-                        width: '100%',
-                        height: '100%',
-                        cursor: tool === 'text' ? 'text' : tool === 'eraser' ? 'cell' : 'crosshair',
-                        touchAction: 'none',
-                        background: '#ffffff'
-                    }}
+                    style={{ display: 'block', width: '100%', height: '100%', cursor: tool === 'text' ? 'text' : tool === 'eraser' ? 'cell' : 'crosshair', touchAction: 'none', background: '#ffffff' }}
                 />
 
-                {/* Single Active Editable Input Box */}
-                {activeTextInput && (
-                    <input
-                        ref={inputRef}
-                        type="text"
-                        value={activeTextInput.text}
-                        placeholder="Type text note..."
-                        onChange={(e) => setActiveTextInput(prev => ({ ...prev, text: e.target.value }))}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter') commitActiveText();
-                            if (e.key === 'Escape') setActiveTextInput(null);
-                        }}
-                        onBlur={commitActiveText}
+                {textItems.map(item => (
+                    <div
+                        key={item.id}
                         style={{
                             position: 'absolute',
-                            left: `${activeTextInput.x}px`,
-                            top: `${activeTextInput.y}px`,
-                            background: 'rgba(255, 255, 255, 0.95)',
-                            border: '1.5px dashed #0284c7',
-                            outline: 'none',
-                            color: activeTextInput.color || color,
-                            fontSize: '18px',
-                            fontWeight: '700',
-                            fontFamily: 'Inter, system-ui, sans-serif',
-                            padding: '3px 8px',
-                            borderRadius: '4px',
-                            minWidth: '160px',
-                            zIndex: 30,
-                            boxShadow: '0 4px 12px rgba(0,0,0,0.2)'
+                            left: `${item.x}px`,
+                            top: `${item.y}px`,
+                            zIndex: 20
                         }}
-                    />
-                )}
+                    >
+                        <input
+                            autoFocus
+                            type="text"
+                            value={item.text}
+                            placeholder="Type live text..."
+                            onChange={(e) => handleTextChange(item.id, e.target.value)}
+                            onFocus={() => setActiveTextId(item.id)}
+                            style={{
+                                background: activeTextId === item.id ? 'rgba(255, 255, 255, 0.9)' : 'transparent',
+                                border: activeTextId === item.id ? '1px dashed #0284c7' : '1px solid transparent',
+                                outline: 'none',
+                                color: item.color,
+                                fontSize: '18px',
+                                fontWeight: '700',
+                                fontFamily: 'Inter, system-ui, sans-serif',
+                                padding: '2px 4px',
+                                borderRadius: '4px',
+                                minWidth: '120px'
+                            }}
+                        />
+                    </div>
+                ))}
             </div>
         </div>
     );
