@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, VolumeX, AlertTriangle, UserCheck, UserX, Sliders, Calendar } from 'lucide-react';
+import { X, VolumeX, AlertTriangle, UserCheck, UserX, Sliders, Calendar, Video } from 'lucide-react';
 
 export function LobbyModal({ waitingList, onAdmitAction, onClose }) {
     return (
@@ -43,6 +43,35 @@ export function LobbyModal({ waitingList, onAdmitAction, onClose }) {
     );
 }
 
+// Point 7: Video Request Pop-up Modal for participant
+export function VideoRequestModal({ onAccept, onDecline }) {
+    return (
+        <div style={{ position: 'fixed', top: '70px', left: '50%', transform: 'translateX(-50%)', background: 'rgba(15, 23, 42, 0.98)', backdropFilter: 'blur(16px)', padding: '16px 20px', borderRadius: '16px', border: '2px solid #38bdf8', boxShadow: '0 25px 60px rgba(0,0,0,0.85)', zIndex: 999999, width: '320px', color: '#f8fafc', textAlign: 'center' }}>
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '8px' }}>
+                <div style={{ background: '#0284c7', padding: '10px', borderRadius: '50%' }}>
+                    <Video size={24} color="#fff" />
+                </div>
+            </div>
+            <h4 style={{ margin: '0 0 6px 0', fontSize: '0.95rem', fontWeight: '800' }}>Camera Request</h4>
+            <p style={{ margin: '0 0 14px 0', fontSize: '0.78rem', color: '#cbd5e1' }}>The Host has requested you to turn on your camera.</p>
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+                <button
+                    onClick={onAccept}
+                    style={{ flex: 1, padding: '8px', background: '#10b981', border: 'none', color: '#fff', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '0.8rem' }}
+                >
+                    Turn On
+                </button>
+                <button
+                    onClick={onDecline}
+                    style={{ flex: 1, padding: '8px', background: '#334155', border: 'none', color: '#cbd5e1', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '0.8rem' }}
+                >
+                    Later
+                </button>
+            </div>
+        </div>
+    );
+}
+
 export function InMeetingSettingsModal({
                                            onClose,
                                            onMuteAll,
@@ -50,20 +79,26 @@ export function InMeetingSettingsModal({
                                            setMicLocked,
                                            allowScreenshare,
                                            setAllowScreenshare,
+                                           allowCohostWhiteboard,
+                                           setAllowCohostWhiteboard,
                                            chatLocked,
                                            setChatLocked,
+                                           chatHostOnly,
+                                           setChatHostOnly,
                                            allowDirectChat,
                                            setAllowDirectChat,
                                            allowWhiteboard,
                                            setAllowWhiteboard,
                                            allowReactions,
                                            setAllowReactions,
+                                           autoDownloadCsv,
+                                           setAutoDownloadCsv,
                                            waitingMode,
                                            setWaitingMode,
                                            onUpdateLiveSettings
                                        }) {
     return (
-        <div style={{ position: 'fixed', top: '55px', right: '14px', background: 'rgba(30, 41, 59, 0.95)', backdropFilter: 'blur(16px)', padding: '16px', borderRadius: '14px', border: '2px solid #38bdf8', boxShadow: '0 25px 50px rgba(0,0,0,0.85)', zIndex: 99999, width: '310px', color: '#f8fafc' }}>
+        <div style={{ position: 'fixed', top: '55px', right: '14px', background: 'rgba(30, 41, 59, 0.95)', backdropFilter: 'blur(16px)', padding: '16px', borderRadius: '14px', border: '2px solid #38bdf8', boxShadow: '0 25px 50px rgba(0,0,0,0.85)', zIndex: 99999, width: '320px', color: '#f8fafc', maxHeight: '80vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                 <h4 style={{ margin: 0, fontSize: '0.92rem', color: '#38bdf8', fontWeight: '800' }}>Host Security Controls</h4>
                 <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: '#f8fafc', cursor: 'pointer' }}><X size={16} /></button>
@@ -91,6 +126,20 @@ export function InMeetingSettingsModal({
                     <span style={{ fontWeight: '700', color: micLocked ? '#f87171' : '#f8fafc' }}>🔒 Permanent Mic Lock</span>
                 </label>
 
+                {/* Point 4: Chat Only with Host */}
+                <label style={{ ...checkboxRowStyle, background: chatHostOnly ? 'rgba(2, 132, 199, 0.2)' : 'transparent', padding: '4px', borderRadius: '6px' }}>
+                    <input
+                        type="checkbox"
+                        checked={chatHostOnly}
+                        onChange={(e) => {
+                            setChatHostOnly(e.target.checked);
+                            onUpdateLiveSettings({ chat_host_only: e.target.checked });
+                        }}
+                        style={{ accentColor: '#38bdf8' }}
+                    />
+                    <span style={{ fontWeight: '700', color: chatHostOnly ? '#38bdf8' : '#f8fafc' }}>🛡️ Host-Only Chat (Block public & peer)</span>
+                </label>
+
                 <label style={checkboxRowStyle}>
                     <input
                         type="checkbox"
@@ -102,6 +151,33 @@ export function InMeetingSettingsModal({
                         style={{ accentColor: '#38bdf8' }}
                     />
                     <span>Allow Participant Screen Sharing</span>
+                </label>
+
+                {/* Point 2: Co-Host Whiteboard Share Toggle */}
+                <label style={checkboxRowStyle}>
+                    <input
+                        type="checkbox"
+                        checked={allowCohostWhiteboard}
+                        onChange={(e) => {
+                            setAllowCohostWhiteboard(e.target.checked);
+                            onUpdateLiveSettings({ allow_cohost_whiteboard: e.target.checked });
+                        }}
+                        style={{ accentColor: '#38bdf8' }}
+                    />
+                    <span>Allow Co-Host to Present Whiteboard</span>
+                </label>
+
+                <label style={checkboxRowStyle}>
+                    <input
+                        type="checkbox"
+                        checked={allowWhiteboard}
+                        onChange={(e) => {
+                            setAllowWhiteboard(e.target.checked);
+                            onUpdateLiveSettings({ allow_whiteboard: e.target.checked });
+                        }}
+                        style={{ accentColor: '#38bdf8' }}
+                    />
+                    <span>Enable Interactive Whiteboard</span>
                 </label>
 
                 <label style={checkboxRowStyle}>
@@ -133,19 +209,6 @@ export function InMeetingSettingsModal({
                 <label style={checkboxRowStyle}>
                     <input
                         type="checkbox"
-                        checked={allowWhiteboard}
-                        onChange={(e) => {
-                            setAllowWhiteboard(e.target.checked);
-                            onUpdateLiveSettings({ allow_whiteboard: e.target.checked });
-                        }}
-                        style={{ accentColor: '#38bdf8' }}
-                    />
-                    <span>Enable Whiteboard</span>
-                </label>
-
-                <label style={checkboxRowStyle}>
-                    <input
-                        type="checkbox"
                         checked={allowReactions}
                         onChange={(e) => {
                             setAllowReactions(e.target.checked);
@@ -154,6 +217,20 @@ export function InMeetingSettingsModal({
                         style={{ accentColor: '#38bdf8' }}
                     />
                     <span>Allow Emoji Reactions</span>
+                </label>
+
+                {/* Point 5: Auto-download CSV attendance on End Meeting */}
+                <label style={{ ...checkboxRowStyle, background: autoDownloadCsv ? 'rgba(16, 185, 129, 0.15)' : 'transparent', padding: '4px', borderRadius: '6px' }}>
+                    <input
+                        type="checkbox"
+                        checked={autoDownloadCsv}
+                        onChange={(e) => {
+                            setAutoDownloadCsv(e.target.checked);
+                            onUpdateLiveSettings({ auto_download_csv: e.target.checked });
+                        }}
+                        style={{ accentColor: '#10b981' }}
+                    />
+                    <span style={{ fontWeight: '700', color: autoDownloadCsv ? '#34d399' : '#f8fafc' }}>📥 Auto-download CSV on End Meeting</span>
                 </label>
             </div>
 
@@ -187,14 +264,20 @@ export function PreFlightModal({
                                    setCameraOffOnEntry,
                                    allowScreenshare,
                                    setAllowScreenshare,
+                                   allowCohostWhiteboard,
+                                   setAllowCohostWhiteboard,
                                    allowWhiteboard,
                                    setAllowWhiteboard,
                                    chatLocked,
                                    setChatLocked,
+                                   chatHostOnly,
+                                   setChatHostOnly,
                                    allowDirectChat,
                                    setAllowDirectChat,
                                    allowReactions,
                                    setAllowReactions,
+                                   autoDownloadCsv,
+                                   setAutoDownloadCsv,
                                    onConfirmLaunch,
                                    onClose
                                }) {
@@ -241,7 +324,10 @@ export function PreFlightModal({
                             <input type="checkbox" checked={allowScreenshare} onChange={(e) => setAllowScreenshare(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
                             <span>Allow Participants to Share Screen</span>
                         </label>
-
+                        <label style={checkboxRowStyle}>
+                            <input type="checkbox" checked={allowCohostWhiteboard} onChange={(e) => setAllowCohostWhiteboard(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
+                            <span>Allow Co-Host to Present Whiteboard</span>
+                        </label>
                         <label style={checkboxRowStyle}>
                             <input type="checkbox" checked={allowWhiteboard} onChange={(e) => setAllowWhiteboard(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
                             <span>Enable Interactive Whiteboard Feature</span>
@@ -249,20 +335,26 @@ export function PreFlightModal({
                     </div>
 
                     <div style={featureBoxStyle}>
-                        <span style={groupHeadingStyle}>COMMUNICATION & CHAT</span>
+                        <span style={groupHeadingStyle}>COMMUNICATION & ATTENDANCE</span>
+                        <label style={{ ...checkboxRowStyle, background: chatHostOnly ? 'rgba(2, 132, 199, 0.2)' : 'transparent', padding: '4px', borderRadius: '6px' }}>
+                            <input type="checkbox" checked={chatHostOnly} onChange={(e) => setChatHostOnly(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
+                            <span style={{ fontWeight: '700', color: chatHostOnly ? '#38bdf8' : '#f8fafc' }}>Host-Only Chat (Block public & peer)</span>
+                        </label>
                         <label style={checkboxRowStyle}>
                             <input type="checkbox" checked={!chatLocked} onChange={(e) => setChatLocked(!e.target.checked)} style={{ accentColor: '#38bdf8' }} />
                             <span>Allow Public In-Meeting Chat</span>
                         </label>
-
                         <label style={checkboxRowStyle}>
                             <input type="checkbox" checked={allowDirectChat} onChange={(e) => setAllowDirectChat(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
-                            <span>Allow 1-on-1 Direct Chat Between Peers</span>
+                            <span>Allow 1-on-1 Direct Chat</span>
                         </label>
-
                         <label style={checkboxRowStyle}>
                             <input type="checkbox" checked={allowReactions} onChange={(e) => setAllowReactions(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
-                            <span>Allow Emoji Reactions (Floating Emojis)</span>
+                            <span>Allow Emoji Reactions</span>
+                        </label>
+                        <label style={{ ...checkboxRowStyle, background: autoDownloadCsv ? 'rgba(16, 185, 129, 0.15)' : 'transparent', padding: '4px', borderRadius: '6px' }}>
+                            <input type="checkbox" checked={autoDownloadCsv} onChange={(e) => setAutoDownloadCsv(e.target.checked)} style={{ accentColor: '#10b981' }} />
+                            <span style={{ fontWeight: '700', color: autoDownloadCsv ? '#34d399' : '#f8fafc' }}>Auto-download CSV on End Meeting</span>
                         </label>
                     </div>
                 </div>
@@ -290,12 +382,18 @@ export function ScheduleModal({
                                   setMuteOnEntry,
                                   allowScreenshare,
                                   setAllowScreenshare,
+                                  allowCohostWhiteboard,
+                                  setAllowCohostWhiteboard,
                                   allowWhiteboard,
                                   setAllowWhiteboard,
                                   chatLocked,
                                   setChatLocked,
+                                  chatHostOnly,
+                                  setChatHostOnly,
                                   allowReactions,
                                   setAllowReactions,
+                                  autoDownloadCsv,
+                                  setAutoDownloadCsv,
                                   loading,
                                   onSaveSchedule,
                                   onClose
@@ -366,27 +464,27 @@ export function ScheduleModal({
                         <span style={groupHeadingStyle}>PRE-SET MEETING CONTROLS</span>
                         <label style={checkboxRowStyle}>
                             <input type="checkbox" checked={micLocked} onChange={(e) => setMicLocked(e.target.checked)} style={{ accentColor: '#ef4444' }} />
-                            <span>Lock Mic Permanently (Host Unmute Only)</span>
+                            <span>Lock Mic Permanently</span>
+                        </label>
+                        <label style={checkboxRowStyle}>
+                            <input type="checkbox" checked={chatHostOnly} onChange={(e) => setChatHostOnly(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
+                            <span>Host-Only Chat</span>
                         </label>
                         <label style={checkboxRowStyle}>
                             <input type="checkbox" checked={allowScreenshare} onChange={(e) => setAllowScreenshare(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
                             <span>Allow Screen Sharing</span>
                         </label>
                         <label style={checkboxRowStyle}>
+                            <input type="checkbox" checked={allowCohostWhiteboard} onChange={(e) => setAllowCohostWhiteboard(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
+                            <span>Allow Co-Host Whiteboard Presentation</span>
+                        </label>
+                        <label style={checkboxRowStyle}>
                             <input type="checkbox" checked={allowWhiteboard} onChange={(e) => setAllowWhiteboard(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
                             <span>Enable Whiteboard</span>
                         </label>
                         <label style={checkboxRowStyle}>
-                            <input type="checkbox" checked={!chatLocked} onChange={(e) => setChatLocked(!e.target.checked)} style={{ accentColor: '#38bdf8' }} />
-                            <span>Allow Public Chat</span>
-                        </label>
-                        <label style={checkboxRowStyle}>
-                            <input type="checkbox" checked={allowReactions} onChange={(e) => setAllowReactions(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
-                            <span>Allow Emoji Reactions</span>
-                        </label>
-                        <label style={checkboxRowStyle}>
-                            <input type="checkbox" checked={muteOnEntry} onChange={(e) => setMuteOnEntry(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
-                            <span>Mute Mic upon joining</span>
+                            <input type="checkbox" checked={autoDownloadCsv} onChange={(e) => setAutoDownloadCsv(e.target.checked)} style={{ accentColor: '#10b981' }} />
+                            <span>Auto-download CSV on End Meeting</span>
                         </label>
                     </div>
 

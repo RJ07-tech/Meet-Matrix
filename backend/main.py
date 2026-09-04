@@ -44,13 +44,16 @@ class RoomConfig(BaseModel):
     room_id: Optional[str] = None
     waiting_mode: str = "direct"
     chat_locked: bool = False
-    mic_locked: bool = False  # Permanent Mic Lock
+    chat_host_only: bool = False  # Point 4: Chat only with host
+    mic_locked: bool = False
     allow_participant_screenshare: bool = False
+    allow_cohost_whiteboard: bool = True  # Point 2: Co-host whiteboard share
     allow_direct_chat: bool = False
     mute_on_entry: bool = False
     camera_off_on_entry: bool = False
     allow_whiteboard: bool = False
     allow_reactions: bool = False
+    auto_download_csv: bool = True  # Point 5: Auto-download attendance on meeting end
 
 class AdmitRequest(BaseModel):
     room_name: str

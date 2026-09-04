@@ -1,10 +1,17 @@
-import { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { Pen, Eraser, RotateCcw, X, Share2, Square, Circle, Type } from 'lucide-react';
 import { LocalVideoTrack } from 'livekit-client';
 
 let persistentDrawingHistory = [];
 
-export default function Whiteboard({ isModerator, onClose, localParticipant }) {
+export default function Whiteboard({
+                                       isHost,
+                                       isCoHost,
+                                       allowCohostWhiteboard,
+                                       activeScreenSharer,
+                                       onClose,
+                                       localParticipant
+                                   }) {
     const canvasRef = useRef(null);
     const [isDrawing, setIsDrawing] = useState(false);
     const [tool, setTool] = useState('pen');
@@ -16,7 +23,6 @@ export default function Whiteboard({ isModerator, onClose, localParticipant }) {
     const snapshotRef = useRef(null);
     const animFrameIdRef = useRef(null);
 
-    // Live text note states
     const [textItems, setTextItems] = useState([]);
     const [activeTextId, setActiveTextId] = useState(null);
     const textItemsRef = useRef([]);
@@ -24,6 +30,9 @@ export default function Whiteboard({ isModerator, onClose, localParticipant }) {
     useEffect(() => {
         textItemsRef.current = textItems;
     }, [textItems]);
+
+    // Point 2: Can this user share the whiteboard?
+    const canPresentWhiteboard = isHost || (isCoHost && allowCohostWhiteboard);
 
     const fillWhiteBackground = (ctx, width, height) => {
         ctx.fillStyle = '#ffffff';
@@ -58,7 +67,6 @@ export default function Whiteboard({ isModerator, onClose, localParticipant }) {
             }
         });
 
-        // Live draw active texts straight onto the canvas stream frame
         textItemsRef.current.forEach(item => {
             if (item.text) {
                 ctx.fillStyle = item.color || '#000000';
@@ -68,7 +76,6 @@ export default function Whiteboard({ isModerator, onClose, localParticipant }) {
         });
     };
 
-    // Continuous Frame-Pump: paints live typing directly into WebRTC video stream
     const startHeartbeatPump = () => {
         const pump = () => {
             const canvas = canvasRef.current;
@@ -127,9 +134,10 @@ export default function Whiteboard({ isModerator, onClose, localParticipant }) {
         onClose();
     };
 
+    // Point 3: Strict Single Screen Sharer rule
     const toggleShareCanvas = async () => {
-        if (!isModerator) {
-            alert("Only Host and Co-Hosts can present the whiteboard.");
+        if (!canPresentWhiteboard) {
+            alert("Host has restricted whiteboard presentation permissions.");
             return;
         }
         if (!localParticipant) return;
@@ -137,6 +145,12 @@ export default function Whiteboard({ isModerator, onClose, localParticipant }) {
         if (isSharingBoard) {
             await stopWhiteboardSharing();
         } else {
+            // Check if someone else is already sharing
+            if (activeScreenSharer && activeScreenSharer !== localParticipant.identity) {
+                alert("Someone is already sharing their screen. Only one person can share at a time.");
+                return;
+            }
+
             try {
                 const canvas = canvasRef.current;
                 const ctx = canvas.getContext('2d');
@@ -333,7 +347,7 @@ export default function Whiteboard({ isModerator, onClose, localParticipant }) {
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    {isModerator && (
+                    {canPresentWhiteboard && (
                         <button
                             onClick={toggleShareCanvas}
                             style={{
@@ -405,65 +419,8 @@ export default function Whiteboard({ isModerator, onClose, localParticipant }) {
     );
 }
 
-const fixedContainerStyle = {
-    position: 'fixed',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    width: '100vw',
-    height: '100vh',
-    zIndex: 999999,
-    background: '#ffffff',
-    display: 'flex',
-    flexDirection: 'column'
-};
-
-const toolbarStyle = {
-    height: '56px',
-    background: '#0f172a',
-    color: '#ffffff',
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: '0 12px',
-    borderBottom: '2px solid #0284c7',
-    flexShrink: 0
-};
-
-const iconBtnStyle = {
-    background: 'transparent',
-    border: 'none',
-    color: '#f8fafc',
-    padding: '6px',
-    borderRadius: '4px',
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center'
-};
-
-const actionBtnStyle = {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '5px',
-    background: '#1e293b',
-    border: '1px solid #334155',
-    color: '#f8fafc',
-    padding: '6px 10px',
-    borderRadius: '6px',
-    fontSize: '0.75rem',
-    cursor: 'pointer'
-};
-
-const closeBtnStyle = {
-    background: '#ef4444',
-    border: 'none',
-    color: '#ffffff',
-    padding: '6px 8px',
-    borderRadius: '6px',
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center'
-};
+const fixedContainerStyle = { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, width: '100vw', height: '100vh', zIndex: 999999, background: '#ffffff', display: 'flex', flexDirection: 'column' };
+const toolbarStyle = { height: '56px', background: '#0f172a', color: '#ffffff', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 12px', borderBottom: '2px solid #0284c7', flexShrink: 0 };
+const iconBtnStyle = { background: 'transparent', border: 'none', color: '#f8fafc', padding: '6px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' };
+const actionBtnStyle = { display: 'flex', alignItems: 'center', gap: '5px', background: '#1e293b', border: '1px solid #334155', color: '#f8fafc', padding: '6px 10px', borderRadius: '6px', fontSize: '0.75rem', cursor: 'pointer' };
+const closeBtnStyle = { background: '#ef4444', border: 'none', color: '#ffffff', padding: '6px 8px', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' };

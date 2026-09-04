@@ -19,7 +19,7 @@ import Header from './components/Header';
 import ControlBar from './components/ControlBar';
 import ChatDrawer from './components/ChatDrawer';
 import ParticipantsDrawer from './components/ParticipantsDrawer';
-import { LobbyModal, InMeetingSettingsModal, PreFlightModal, ScheduleModal } from './components/Modals';
+import { LobbyModal, InMeetingSettingsModal, PreFlightModal, ScheduleModal, VideoRequestModal } from './components/Modals';
 import Whiteboard from './Whiteboard';
 
 const BACKEND_URL = 'https://meetmatrix-backend-3l9l.onrender.com';
@@ -37,10 +37,14 @@ function MeetingStage({
                           setShowWhiteboard,
                           allowScreenshare,
                           setAllowScreenshare,
+                          allowCohostWhiteboard,
+                          setAllowCohostWhiteboard,
                           allowDirectChat,
                           setAllowDirectChat,
                           chatLocked,
                           setChatLocked,
+                          chatHostOnly,
+                          setChatHostOnly,
                           waitingMode,
                           setWaitingMode,
                           allowWhiteboard,
@@ -48,7 +52,9 @@ function MeetingStage({
                           allowReactions,
                           setAllowReactions,
                           micLocked,
-                          setMicLocked
+                          setMicLocked,
+                          autoDownloadCsv,
+                          setAutoDownloadCsv
                       }) {
     const { localParticipant, isCameraEnabled, isMicrophoneEnabled } = useLocalParticipant();
     const remoteParticipants = useRemoteParticipants();
@@ -66,6 +72,9 @@ function MeetingStage({
     const [showChat, setShowChat] = useState(false);
     const [showParticipants, setShowParticipants] = useState(false);
     const [showInMeetingSettings, setShowInMeetingSettings] = useState(false);
+
+    // Point 7: Video Request Modal for this client
+    const [showVideoRequestModal, setShowVideoRequestModal] = useState(false);
 
     const [floatingEmojis, setFloatingEmojis] = useState([]);
     const [chatMessages, setChatMessages] = useState([]);
@@ -88,6 +97,9 @@ function MeetingStage({
 
     const screenShareTrack = allTracks.find(t => t.source === Track.Source.ScreenShare);
     const cameraTracks = allTracks.filter(t => t.source === Track.Source.Camera);
+
+    // Active Screen Sharer Identity (Single Presenter Rule)
+    const activeScreenSharer = screenShareTrack?.participant?.identity || null;
 
     useEffect(() => {
         if (!localParticipant) return;
@@ -149,6 +161,9 @@ function MeetingStage({
                         if (res.data.allow_reactions !== undefined) setAllowReactions(Boolean(res.data.allow_reactions));
                         if (res.data.allow_whiteboard !== undefined) setAllowWhiteboard(Boolean(res.data.allow_whiteboard));
                         if (res.data.allow_direct_chat !== undefined) setAllowDirectChat(Boolean(res.data.allow_direct_chat));
+                        if (res.data.allow_cohost_whiteboard !== undefined) setAllowCohostWhiteboard(Boolean(res.data.allow_cohost_whiteboard));
+                        if (res.data.chat_host_only !== undefined) setChatHostOnly(Boolean(res.data.chat_host_only));
+                        if (res.data.auto_download_csv !== undefined) setAutoDownloadCsv(Boolean(res.data.auto_download_csv));
 
                         if (res.data.mic_locked !== undefined) {
                             setMicLocked(Boolean(res.data.mic_locked));
@@ -161,7 +176,7 @@ function MeetingStage({
             }, 1200);
         }
         return () => clearInterval(interval);
-    }, [roomName, setAllowScreenshare, setChatLocked, setWaitingMode, setAllowReactions, setAllowWhiteboard, setAllowDirectChat, setMicLocked, isEffectiveModerator, localParticipant]);
+    }, [roomName, setAllowScreenshare, setChatLocked, setWaitingMode, setAllowReactions, setAllowWhiteboard, setAllowDirectChat, setMicLocked, isEffectiveModerator, localParticipant, setAllowCohostWhiteboard, setChatHostOnly, setAutoDownloadCsv]);
 
     // Waiting list poll
     useEffect(() => {
@@ -218,16 +233,22 @@ function MeetingStage({
                 if (data.type === 'settings_update') {
                     if (data.allow_participant_screenshare !== undefined) setAllowScreenshare(data.allow_participant_screenshare);
                     if (data.chat_locked !== undefined) setChatLocked(data.chat_locked);
+                    if (data.chat_host_only !== undefined) setChatHostOnly(data.chat_host_only);
                     if (data.waiting_mode !== undefined) setWaitingMode(data.waiting_mode);
                     if (data.allow_reactions !== undefined) setAllowReactions(data.allow_reactions);
                     if (data.allow_whiteboard !== undefined) setAllowWhiteboard(data.allow_whiteboard);
+                    if (data.allow_cohost_whiteboard !== undefined) setAllowCohostWhiteboard(data.allow_cohost_whiteboard);
                     if (data.allow_direct_chat !== undefined) setAllowDirectChat(data.allow_direct_chat);
+                    if (data.auto_download_csv !== undefined) setAutoDownloadCsv(data.auto_download_csv);
                     if (data.mic_locked !== undefined) {
                         setMicLocked(data.mic_locked);
                         if (data.mic_locked && !isEffectiveModerator) {
                             localParticipant.setMicrophoneEnabled(false);
                         }
                     }
+                } else if (data.type === 'request_video' && data.targetIdentity === localParticipant?.identity) {
+                    // Point 7: Video request pop-up
+                    setShowVideoRequestModal(true);
                 } else if (data.type === 'user_hold_status') {
                     setHoldParticipantsMap(prev => ({
                         ...prev,
@@ -270,7 +291,7 @@ function MeetingStage({
 
         room.on('dataReceived', handleDataReceived);
         return () => room.off('dataReceived', handleDataReceived);
-    }, [room, localParticipant, onLeave, setAllowScreenshare, setChatLocked, setWaitingMode, setAllowReactions, setAllowWhiteboard, setAllowDirectChat, setMicLocked, allowReactions, isEffectiveModerator, isHost]);
+    }, [room, localParticipant, onLeave, setAllowScreenshare, setChatLocked, setChatHostOnly, setWaitingMode, setAllowReactions, setAllowWhiteboard, setAllowCohostWhiteboard, setAllowDirectChat, setMicLocked, setAutoDownloadCsv, allowReactions, isEffectiveModerator, isHost]);
 
     const triggerReactionBroadcast = (emoji) => {
         if (!allowReactions) {
@@ -304,6 +325,7 @@ function MeetingStage({
         } catch (err) {}
     };
 
+    // Point 3: Single Presenter Rule on Normal Screen Share
     const toggleScreenShare = async () => {
         if (!isEffectiveModerator && !allowScreenshare) {
             alert("Screen sharing is restricted by Host.");
@@ -313,8 +335,14 @@ function MeetingStage({
             alert("Screen sharing supported on desktop browsers.");
             return;
         }
+
         if (localParticipant) {
             const nextState = !isScreenSharing;
+            if (nextState && activeScreenSharer && activeScreenSharer !== localParticipant.identity) {
+                alert("Someone is already sharing their screen. Only one person can share at a time.");
+                return;
+            }
+
             try {
                 await localParticipant.setScreenShareEnabled(nextState);
                 setIsScreenSharing(nextState);
@@ -379,6 +407,14 @@ function MeetingStage({
         room.localParticipant.publishData(new TextEncoder().encode(payload), { reliable: true });
     };
 
+    // Point 7: Send Ask-to-Start Video Request
+    const handleRequestVideo = (targetIdentity, targetName) => {
+        if (!room || !isEffectiveModerator) return;
+        const payload = JSON.stringify({ type: 'request_video', targetIdentity });
+        room.localParticipant.publishData(new TextEncoder().encode(payload), { reliable: true });
+        alert(`Sent camera turn-on request to ${targetName}.`);
+    };
+
     const handleAdmitAction = async (pid, action) => {
         try {
             await axios.post(`${BACKEND_URL}/api/admit-participant`, {
@@ -403,6 +439,21 @@ function MeetingStage({
         onLeave();
     };
 
+    // Point 5: Safe Termination with Auto-Download CSV
+    const handleTerminateWithCsv = async () => {
+        if (autoDownloadCsv) {
+            const downloadUrl = `${BACKEND_URL}/api/attendance/export/${roomName}`;
+            const a = document.createElement('a');
+            a.href = downloadUrl;
+            a.setAttribute('download', `attendance-${roomName}.csv`);
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+        onTerminate();
+    };
+
     const handleUpdateLiveRoomSettings = async (updates) => {
         try {
             await axios.post(`${BACKEND_URL}/api/update-room-settings`, {
@@ -420,8 +471,14 @@ function MeetingStage({
         } catch (e) {}
     };
 
+    // Point 4: Host-Only chat enforcement
     const handleSendMessage = (text, recipient) => {
         if (!room) return;
+        if (chatHostOnly && !isEffectiveModerator && recipient !== 'HostOnly') {
+            alert("Chat is restricted to Host Only.");
+            return;
+        }
+
         const messageData = { type: 'chat', text, recipient };
         room.localParticipant.publishData(new TextEncoder().encode(JSON.stringify(messageData)), { reliable: true });
 
@@ -512,7 +569,7 @@ function MeetingStage({
                 ))}
             </div>
 
-            {/* Modular Header Component */}
+            {/* Header Component */}
             <Header
                 roomName={roomName}
                 isHost={isHost}
@@ -532,7 +589,7 @@ function MeetingStage({
                 onReactionBroadcast={triggerReactionBroadcast}
             />
 
-            {/* Main Stage Grid & Drawers */}
+            {/* Main Stage Viewport */}
             <div style={{ flex: 1, display: 'flex', position: 'relative', overflow: 'hidden', minHeight: 0 }}>
                 <div style={{ flex: 1, height: '100%', width: '100%', position: 'relative' }}>
                     {screenShareTrack ? (
@@ -577,22 +634,22 @@ function MeetingStage({
                     )}
                 </div>
 
-                {/* Modular Chat Drawer */}
+                {/* Chat Drawer */}
                 {showChat && (
                     <ChatDrawer
                         onClose={() => setShowChat(false)}
                         chatMessages={chatMessages}
-                        allowDirectChat={allowDirectChat}
+                        allowDirectChat={!chatHostOnly && allowDirectChat}
                         remoteParticipants={remoteParticipants}
-                        chatRecipient={chatRecipient}
+                        chatRecipient={chatHostOnly ? 'HostOnly' : chatRecipient}
                         setChatRecipient={setChatRecipient}
-                        chatLocked={chatLocked}
+                        chatLocked={chatLocked || chatHostOnly}
                         isEffectiveModerator={isEffectiveModerator}
                         onSendMessage={handleSendMessage}
                     />
                 )}
 
-                {/* Modular Participants Drawer */}
+                {/* Participants Drawer */}
                 {showParticipants && (
                     <ParticipantsDrawer
                         onClose={() => setShowParticipants(false)}
@@ -604,11 +661,12 @@ function MeetingStage({
                         onToggleCoHost={handleToggleCoHost}
                         onHostMute={handleHostMute}
                         onHostKick={handleHostKick}
+                        onRequestVideo={handleRequestVideo}
                     />
                 )}
             </div>
 
-            {/* Modular Bottom Controls */}
+            {/* Bottom Controls */}
             <ControlBar
                 isHost={isHost}
                 isEffectiveModerator={isEffectiveModerator}
@@ -632,18 +690,22 @@ function MeetingStage({
                 startRecording={startRecording}
                 stopRecording={stopRecording}
                 onLeave={handleLeaveMeeting}
-                onTerminate={onTerminate}
+                onTerminate={handleTerminateWithCsv}
             />
 
-            {/* Modular Popups & Overlays */}
+            {/* Whiteboard Overlay */}
             {showWhiteboard && (
                 <Whiteboard
-                    isModerator={isEffectiveModerator}
+                    isHost={isHost}
+                    isCoHost={isCoHost}
+                    allowCohostWhiteboard={allowCohostWhiteboard}
+                    activeScreenSharer={activeScreenSharer}
                     onClose={() => setShowWhiteboard(false)}
                     localParticipant={localParticipant}
                 />
             )}
 
+            {/* Lobby Popup */}
             {showAdmitModal && isEffectiveModerator && (
                 <LobbyModal
                     waitingList={waitingList}
@@ -652,6 +714,7 @@ function MeetingStage({
                 />
             )}
 
+            {/* Host Settings */}
             {showInMeetingSettings && isHost && (
                 <InMeetingSettingsModal
                     onClose={() => setShowInMeetingSettings(false)}
@@ -660,17 +723,34 @@ function MeetingStage({
                     setMicLocked={setMicLocked}
                     allowScreenshare={allowScreenshare}
                     setAllowScreenshare={setAllowScreenshare}
+                    allowCohostWhiteboard={allowCohostWhiteboard}
+                    setAllowCohostWhiteboard={setAllowCohostWhiteboard}
                     chatLocked={chatLocked}
                     setChatLocked={setChatLocked}
+                    chatHostOnly={chatHostOnly}
+                    setChatHostOnly={setChatHostOnly}
                     allowDirectChat={allowDirectChat}
                     setAllowDirectChat={setAllowDirectChat}
                     allowWhiteboard={allowWhiteboard}
                     setAllowWhiteboard={setAllowWhiteboard}
                     allowReactions={allowReactions}
                     setAllowReactions={setAllowReactions}
+                    autoDownloadCsv={autoDownloadCsv}
+                    setAutoDownloadCsv={setAutoDownloadCsv}
                     waitingMode={waitingMode}
                     setWaitingMode={setWaitingMode}
                     onUpdateLiveSettings={handleUpdateLiveRoomSettings}
+                />
+            )}
+
+            {/* Point 7: Video Request Pop-up for this participant */}
+            {showVideoRequestModal && (
+                <VideoRequestModal
+                    onAccept={() => {
+                        localParticipant?.setCameraEnabled(true, { facingMode: 'user' });
+                        setShowVideoRequestModal(false);
+                    }}
+                    onDecline={() => setShowVideoRequestModal(false)}
                 />
             )}
         </div>
@@ -695,13 +775,16 @@ export default function App() {
     const [showPreSettingsModal, setShowPreSettingsModal] = useState(false);
     const [waitingMode, setWaitingMode] = useState('direct');
     const [chatLocked, setChatLocked] = useState(false);
+    const [chatHostOnly, setChatHostOnly] = useState(false);
     const [micLocked, setMicLocked] = useState(false);
     const [allowScreenshare, setAllowScreenshare] = useState(false);
+    const [allowCohostWhiteboard, setAllowCohostWhiteboard] = useState(true);
     const [allowDirectChat, setAllowDirectChat] = useState(false);
     const [muteOnEntry, setMuteOnEntry] = useState(false);
     const [cameraOffOnEntry, setCameraOffOnEntry] = useState(false);
     const [allowWhiteboard, setAllowWhiteboard] = useState(false);
     const [allowReactions, setAllowReactions] = useState(false);
+    const [autoDownloadCsv, setAutoDownloadCsv] = useState(true);
 
     const [showScheduleModal, setShowScheduleModal] = useState(false);
     const [scheduleTitle, setScheduleTitle] = useState('');
@@ -889,13 +972,16 @@ export default function App() {
             const res = await axios.post(`${BACKEND_URL}/api/create-room`, {
                 waiting_mode: waitingMode,
                 chat_locked: chatLocked,
+                chat_host_only: chatHostOnly,
                 mic_locked: micLocked,
                 allow_participant_screenshare: allowScreenshare,
+                allow_cohost_whiteboard: allowCohostWhiteboard,
                 allow_direct_chat: allowDirectChat,
                 mute_on_entry: muteOnEntry,
                 camera_off_on_entry: cameraOffOnEntry,
                 allow_whiteboard: allowWhiteboard,
-                allow_reactions: allowReactions
+                allow_reactions: allowReactions,
+                auto_download_csv: autoDownloadCsv
             });
             const newRoomId = res.data.room_id;
             const hostDisplayName = `${participantName || user?.name || 'Host'} (Host)`;
@@ -941,13 +1027,16 @@ export default function App() {
                 host_email: user?.email || null,
                 waiting_mode: waitingMode,
                 chat_locked: chatLocked,
+                chat_host_only: chatHostOnly,
                 mic_locked: micLocked,
                 allow_participant_screenshare: allowScreenshare,
+                allow_cohost_whiteboard: allowCohostWhiteboard,
                 allow_direct_chat: allowDirectChat,
                 allow_whiteboard: allowWhiteboard,
                 allow_reactions: allowReactions,
                 mute_on_entry: muteOnEntry,
-                camera_off_on_entry: cameraOffOnEntry
+                camera_off_on_entry: cameraOffOnEntry,
+                auto_download_csv: autoDownloadCsv
             };
 
             await axios.post(`${BACKEND_URL}/api/schedule-meeting`, newScheduled);
@@ -1099,10 +1188,14 @@ export default function App() {
                         setShowWhiteboard={setShowWhiteboard}
                         allowScreenshare={allowScreenshare}
                         setAllowScreenshare={setAllowScreenshare}
+                        allowCohostWhiteboard={allowCohostWhiteboard}
+                        setAllowCohostWhiteboard={setAllowCohostWhiteboard}
                         allowDirectChat={allowDirectChat}
                         setAllowDirectChat={setAllowDirectChat}
                         chatLocked={chatLocked}
                         setChatLocked={setChatLocked}
+                        chatHostOnly={chatHostOnly}
+                        setChatHostOnly={setChatHostOnly}
                         waitingMode={waitingMode}
                         setWaitingMode={setWaitingMode}
                         allowWhiteboard={allowWhiteboard}
@@ -1111,6 +1204,8 @@ export default function App() {
                         setAllowReactions={setAllowReactions}
                         micLocked={micLocked}
                         setMicLocked={setMicLocked}
+                        autoDownloadCsv={autoDownloadCsv}
+                        setAutoDownloadCsv={setAutoDownloadCsv}
                     />
                 </LiveKitRoom>
             </div>
@@ -1131,14 +1226,20 @@ export default function App() {
                     setCameraOffOnEntry={setCameraOffOnEntry}
                     allowScreenshare={allowScreenshare}
                     setAllowScreenshare={setAllowScreenshare}
+                    allowCohostWhiteboard={allowCohostWhiteboard}
+                    setAllowCohostWhiteboard={setAllowCohostWhiteboard}
                     allowWhiteboard={allowWhiteboard}
                     setAllowWhiteboard={setAllowWhiteboard}
                     chatLocked={chatLocked}
                     setChatLocked={setChatLocked}
+                    chatHostOnly={chatHostOnly}
+                    setChatHostOnly={setChatHostOnly}
                     allowDirectChat={allowDirectChat}
                     setAllowDirectChat={setAllowDirectChat}
                     allowReactions={allowReactions}
                     setAllowReactions={setAllowReactions}
+                    autoDownloadCsv={autoDownloadCsv}
+                    setAutoDownloadCsv={setAutoDownloadCsv}
                     onConfirmLaunch={handleConfirmAndLaunchRoom}
                     onClose={() => setShowPreSettingsModal(false)}
                 />
@@ -1160,12 +1261,18 @@ export default function App() {
                     setMuteOnEntry={setMuteOnEntry}
                     allowScreenshare={allowScreenshare}
                     setAllowScreenshare={setAllowScreenshare}
+                    allowCohostWhiteboard={allowCohostWhiteboard}
+                    setAllowCohostWhiteboard={setAllowCohostWhiteboard}
                     allowWhiteboard={allowWhiteboard}
                     setAllowWhiteboard={setAllowWhiteboard}
                     chatLocked={chatLocked}
                     setChatLocked={setChatLocked}
+                    chatHostOnly={chatHostOnly}
+                    setChatHostOnly={setChatHostOnly}
                     allowReactions={allowReactions}
                     setAllowReactions={setAllowReactions}
+                    autoDownloadCsv={autoDownloadCsv}
+                    setAutoDownloadCsv={setAutoDownloadCsv}
                     loading={loading}
                     onSaveSchedule={handleSaveScheduleMeeting}
                     onClose={() => setShowScheduleModal(false)}
@@ -1301,5 +1408,6 @@ export default function App() {
 const inputStyle = { width: '100%', padding: '11px 12px', background: '#090d16', border: '1px solid #334155', borderRadius: '8px', color: '#ffffff', fontSize: '0.85rem', outline: 'none', boxSizing: 'border-box' };
 const primaryBtnStyle = { width: '100%', padding: '11px', background: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '0.85rem', boxShadow: '0 4px 14px rgba(2,132,199,0.3)' };
 const secondaryBtnStyle = { width: '100%', padding: '10px', background: 'rgba(30, 41, 59, 0.6)', border: '1px solid #0284c7', color: '#38bdf8', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '0.85rem' };
+const topBtnStyle = { display: 'flex', alignItems: 'center', gap: '5px', background: '#1e293b', color: '#ffffff', border: '1px solid #334155', padding: '5px 9px', borderRadius: '7px', fontSize: '0.75rem', cursor: 'pointer', fontWeight: '600' };
 const toggleBtnStyle = { display: 'flex', alignItems: 'center', gap: '6px', color: '#ffffff', border: 'none', padding: '7px 12px', borderRadius: '7px', fontSize: '0.75rem', cursor: 'pointer', fontWeight: '700' };
-const iconActionBtnStyle = { background: '#1e293b', border: '1px solid #334155', color: '#cbd5e1', padding: '5px 7px', borderRadius: '5px', cursor: 'pointer', display: 'flex', alignItems: 'center' };
+const iconActionBtnStyle = { background:    '#1e293b', border: '1px solid #334155', color: '#cbd5e1', padding: '5px 7px', borderRadius: '5px', cursor: 'pointer', display: 'flex', alignItems: 'center' };
