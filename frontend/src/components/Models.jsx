@@ -43,10 +43,9 @@ export function LobbyModal({ waitingList, onAdmitAction, onClose }) {
     );
 }
 
-// Point 7: Video Request Pop-up Modal for participant
 export function VideoRequestModal({ onAccept, onDecline }) {
     return (
-        <div style={{ position: 'fixed', top: '70px', left: '50%', transform: 'translateX(-50%)', background: 'rgba(15, 23, 42, 0.98)', backdropFilter: 'blur(16px)', padding: '16px 20px', borderRadius: '16px', border: '2px solid #38bdf8', boxShadow: '0 25px 60px rgba(0,0,0,0.85)', zIndex: 999999, width: '320px', color: '#f8fafc', textAlign: 'center' }}>
+        <div style={{ position: 'fixed', top: '70px', left: '50%', transform: 'translateX(-50%)', background: '#0f172a', padding: '16px 20px', borderRadius: '16px', border: '2px solid #38bdf8', boxShadow: '0 25px 60px rgba(0,0,0,0.95)', zIndex: 999999, width: '320px', color: '#f8fafc', textAlign: 'center' }}>
             <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '8px' }}>
                 <div style={{ background: '#0284c7', padding: '10px', borderRadius: '50%' }}>
                     <Video size={24} color="#fff" />
@@ -137,7 +136,7 @@ export function InMeetingSettingsModal({
                         }}
                         style={{ accentColor: '#38bdf8' }}
                     />
-                    <span style={{ fontWeight: '700', color: chatHostOnly ? '#38bdf8' : '#f8fafc' }}>🛡️ Host-Only Chat (Block public & peer)</span>
+                    <span style={{ fontWeight: '700', color: chatHostOnly ? '#38bdf8' : '#f8fafc' }}>🛡️ Host-Only Chat Mode</span>
                 </label>
 
                 <label style={checkboxRowStyle}>
@@ -153,7 +152,7 @@ export function InMeetingSettingsModal({
                     <span>Allow Participant Screen Sharing</span>
                 </label>
 
-                {/* Point 2: Co-Host Whiteboard Share Toggle */}
+                {/* Point 2: Co-Host Whiteboard Share Permission */}
                 <label style={checkboxRowStyle}>
                     <input
                         type="checkbox"
@@ -164,7 +163,7 @@ export function InMeetingSettingsModal({
                         }}
                         style={{ accentColor: '#38bdf8' }}
                     />
-                    <span>Allow Co-Host to Present Whiteboard</span>
+                    <span>Allow Co-Host Whiteboard Sharing</span>
                 </label>
 
                 <label style={checkboxRowStyle}>
@@ -219,7 +218,7 @@ export function InMeetingSettingsModal({
                     <span>Allow Emoji Reactions</span>
                 </label>
 
-                {/* Point 5: Auto-download CSV attendance on End Meeting */}
+                {/* Point 5: Auto-download CSV Attendance on End Meeting */}
                 <label style={{ ...checkboxRowStyle, background: autoDownloadCsv ? 'rgba(16, 185, 129, 0.15)' : 'transparent', padding: '4px', borderRadius: '6px' }}>
                     <input
                         type="checkbox"
@@ -338,7 +337,7 @@ export function PreFlightModal({
                         <span style={groupHeadingStyle}>COMMUNICATION & ATTENDANCE</span>
                         <label style={{ ...checkboxRowStyle, background: chatHostOnly ? 'rgba(2, 132, 199, 0.2)' : 'transparent', padding: '4px', borderRadius: '6px' }}>
                             <input type="checkbox" checked={chatHostOnly} onChange={(e) => setChatHostOnly(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
-                            <span style={{ fontWeight: '700', color: chatHostOnly ? '#38bdf8' : '#f8fafc' }}>Host-Only Chat (Block public & peer)</span>
+                            <span style={{ fontWeight: '700', color: chatHostOnly ? '#38bdf8' : '#f8fafc' }}>Host-Only Chat Mode</span>
                         </label>
                         <label style={checkboxRowStyle}>
                             <input type="checkbox" checked={!chatLocked} onChange={(e) => setChatLocked(!e.target.checked)} style={{ accentColor: '#38bdf8' }} />

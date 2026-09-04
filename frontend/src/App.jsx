@@ -246,7 +246,18 @@ function MeetingStage({
                             localParticipant.setMicrophoneEnabled(false);
                         }
                     }
-                } else if (data.type === 'request_video' && data.targetIdentity === localParticipant?.identity) {
+                }if (data.type === 'screen_sharing_started') {
+                    // Lock screen share state instantly for other peers
+                    console.log("Sharer locked:", data.identity);
+                } else if (data.type === 'request_video') {
+                    // Match identity cleanly by substring or exact identity
+                    const myId = localParticipant?.identity || '';
+                    if (data.targetIdentity === myId || myId.includes(data.targetIdentity) || data.targetIdentity.includes(myId)) {
+                        setShowVideoRequestModal(true);
+                    }
+                }
+
+                else if (data.type === 'request_video' && data.targetIdentity === localParticipant?.identity) {
                     // Point 7: Video request pop-up
                     setShowVideoRequestModal(true);
                 } else if (data.type === 'user_hold_status') {
@@ -325,7 +336,7 @@ function MeetingStage({
         } catch (err) {}
     };
 
-    // Point 3: Single Presenter Rule on Normal Screen Share
+// Point 3: Single Presenter Lock for Normal Screen Share
     const toggleScreenShare = async () => {
         if (!isEffectiveModerator && !allowScreenshare) {
             alert("Screen sharing is restricted by Host.");
@@ -336,19 +347,28 @@ function MeetingStage({
             return;
         }
 
-        if (localParticipant) {
-            const nextState = !isScreenSharing;
-            if (nextState && activeScreenSharer && activeScreenSharer !== localParticipant.identity) {
-                alert("Someone is already sharing their screen. Only one person can share at a time.");
-                return;
-            }
+        const isCurrentlySharing = Boolean(localParticipant?.isScreenShareEnabled);
 
-            try {
-                await localParticipant.setScreenShareEnabled(nextState);
-                setIsScreenSharing(nextState);
-            } catch (e) {
-                setIsScreenSharing(Boolean(localParticipant.isScreenShareEnabled));
+        // Block if someone else is already sharing screen or presenting whiteboard
+        if (!isCurrentlySharing && activeScreenSharer && activeScreenSharer !== localParticipant?.identity) {
+            alert("Someone is already sharing their screen. Only one person can share at a time.");
+            return;
+        }
+
+        try {
+            await localParticipant.setScreenShareEnabled(!isCurrentlySharing);
+            setIsScreenSharing(!isCurrentlySharing);
+
+            // Broadcast sharing status instantly across DataChannel for zero latency
+            if (room?.localParticipant) {
+                const payload = JSON.stringify({
+                    type: !isCurrentlySharing ? 'screen_sharing_started' : 'screen_sharing_stopped',
+                    identity: localParticipant.identity
+                });
+                room.localParticipant.publishData(new TextEncoder().encode(payload), { reliable: true });
             }
+        } catch (e) {
+            setIsScreenSharing(Boolean(localParticipant?.isScreenShareEnabled));
         }
     };
 
@@ -438,9 +458,10 @@ function MeetingStage({
         } catch (e) {}
         onLeave();
     };
-
-    // Point 5: Safe Termination with Auto-Download CSV
+// Point 5: Auto CSV Download on Meeting End with safety delay before destroying room
     const handleTerminateWithCsv = async () => {
+        if (!isHost) return;
+
         if (autoDownloadCsv) {
             const downloadUrl = `${BACKEND_URL}/api/attendance/export/${roomName}`;
             const a = document.createElement('a');
@@ -451,7 +472,11 @@ function MeetingStage({
             a.click();
             document.body.removeChild(a);
         }
-        onTerminate();
+
+        // Wait 1.5 seconds for CSV export to stream before terminating room
+        setTimeout(() => {
+            onTerminate();
+        }, 1500);
     };
 
     const handleUpdateLiveRoomSettings = async (updates) => {

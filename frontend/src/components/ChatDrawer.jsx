@@ -10,6 +10,7 @@ export default function ChatDrawer({
                                        chatRecipient,
                                        setChatRecipient,
                                        chatLocked,
+                                       chatHostOnly,
                                        isEffectiveModerator,
                                        onSendMessage
                                    }) {
@@ -24,7 +25,8 @@ export default function ChatDrawer({
     const handleSubmit = (e) => {
         e.preventDefault();
         if (!chatInput.trim()) return;
-        onSendMessage(chatInput.trim(), chatRecipient);
+        const targetRecipient = chatHostOnly ? 'HostOnly' : chatRecipient;
+        onSendMessage(chatInput.trim(), targetRecipient);
         setChatInput('');
         setShowChatEmojiPicker(false);
     };
@@ -38,17 +40,24 @@ export default function ChatDrawer({
 
             <div style={{ padding: '6px 12px', background: '#090d16', borderBottom: '1px solid #1e293b' }}>
                 <label style={{ fontSize: '0.68rem', color: '#94a3b8', display: 'block', marginBottom: '2px' }}>Send to:</label>
-                <select
-                    value={chatRecipient}
-                    onChange={(e) => setChatRecipient(e.target.value)}
-                    style={{ width: '100%', padding: '5px 8px', background: '#131b2e', border: '1px solid #334155', color: '#38bdf8', borderRadius: '6px', fontSize: '0.75rem' }}
-                >
-                    <option value="Everyone">Everyone (Public)</option>
-                    <option value="HostOnly">🛡️ Host Only (Private)</option>
-                    {allowDirectChat && remoteParticipants.map(p => (
-                        <option key={p.identity} value={p.identity}>Direct: {p.name || p.identity}</option>
-                    ))}
-                </select>
+                {/* Point 4: If chatHostOnly is on and user is not moderator, only show Host Only */}
+                {chatHostOnly && !isEffectiveModerator ? (
+                    <div style={{ padding: '5px 8px', background: '#451a03', border: '1px solid #f59e0b', color: '#fcd34d', borderRadius: '6px', fontSize: '0.75rem', fontWeight: '700' }}>
+                        🛡️ Host Only (Private)
+                    </div>
+                ) : (
+                    <select
+                        value={chatHostOnly ? 'HostOnly' : chatRecipient}
+                        onChange={(e) => setChatRecipient(e.target.value)}
+                        style={{ width: '100%', padding: '5px 8px', background: '#131b2e', border: '1px solid #334155', color: '#38bdf8', borderRadius: '6px', fontSize: '0.75rem' }}
+                    >
+                        {!chatHostOnly && <option value="Everyone">Everyone (Public)</option>}
+                        <option value="HostOnly">🛡️ Host Only (Private)</option>
+                        {!chatHostOnly && allowDirectChat && remoteParticipants.map(p => (
+                            <option key={p.identity} value={p.identity}>Direct: {p.name || p.identity}</option>
+                        ))}
+                    </select>
+                )}
             </div>
 
             <div style={{ flex: 1, padding: '12px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -97,7 +106,7 @@ export default function ChatDrawer({
                 <input
                     type="text"
                     value={chatInput}
-                    placeholder={chatLocked && !isEffectiveModerator && chatRecipient !== 'HostOnly' ? "Public chat locked. Select 'Host Only'" : `Message ${chatRecipient}...`}
+                    placeholder={chatHostOnly && !isEffectiveModerator ? "Messaging Host privately..." : (chatLocked && !isEffectiveModerator ? "Public chat locked." : `Message ${chatHostOnly ? 'Host' : chatRecipient}...`)}
                     onChange={(e) => setChatInput(e.target.value)}
                     style={{ flex: 1, padding: '8px 10px', background: '#131b2e', border: '1px solid #334155', borderRadius: '6px', color: '#fff', fontSize: '0.78rem', outline: 'none' }}
                 />
