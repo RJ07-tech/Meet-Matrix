@@ -16,7 +16,6 @@
     "axios": "^1.20.0",
     "canvas-confetti": "^1.9.4",
     "emoji-picker-react": "^4.19.4",
-    "fabric": "^7.4.0",
     "jwt-decode": "^4.0.0",
     "livekit-client": "^2.22.1",
     "lucide-react": "^1.39.0",
