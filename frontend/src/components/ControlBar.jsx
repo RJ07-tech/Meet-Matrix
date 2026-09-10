@@ -38,7 +38,7 @@ export default function ControlBar({
                     background: !isMicrophoneEnabled ? '#ef4444' : '#1e293b',
                     opacity: (micLocked && !isEffectiveModerator) ? 0.6 : 1
                 }}
-                title={micLocked && !isEffectiveModerator ? "Mic locked by host" : "Toggle Mic"}
+                title={micLocked && !isEffectiveModerator ? "Mic permanently locked by host" : "Toggle Microphone"}
             >
                 {!isMicrophoneEnabled ? <MicOff size={18} /> : <Mic size={18} />}
                 <span className="mobile-hide" style={{ fontSize: '0.65rem' }}>
@@ -71,13 +71,13 @@ export default function ControlBar({
             </button>
 
             {(allowWhiteboard || isEffectiveModerator) && (
-                <button onClick={() => setShowWhiteboard(!showWhiteboard)} style={{ ...controlBtn, background: showWhiteboard ? '#0284c7' : '#1e293b' }}>
+                <button onClick={() => setShowWhiteboard(prev => !prev)} style={{ ...controlBtn, background: showWhiteboard ? '#0284c7' : '#1e293b' }}>
                     <PenTool size={18} />
                     <span className="mobile-hide" style={{ fontSize: '0.65rem' }}>Board</span>
                 </button>
             )}
 
-            <button onClick={() => { setShowChat(!showChat); setShowParticipants(false); }} style={{ ...controlBtn, background: showChat ? '#0284c7' : '#1e293b' }}>
+            <button onClick={() => { setShowChat(prev => !prev); setShowParticipants(false); }} style={{ ...controlBtn, background: showChat ? '#0284c7' : '#1e293b' }}>
                 <MessageSquare size={18} />
                 <span className="mobile-hide" style={{ fontSize: '0.65rem' }}>Chat</span>
             </button>

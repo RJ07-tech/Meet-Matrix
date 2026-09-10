@@ -54,19 +54,39 @@ export default function Header({
     useEffect(() => {
         try {
             localStorage.setItem('meetmatrix_quick_emojis', JSON.stringify(quickEmojis));
-        } catch (e) {}
+        } catch {}
     }, [quickEmojis]);
 
-    // Safe background download without page refresh/disconnect
+    // Download triggered using direct safe navigation without tab reset
     const handleDownloadAttendanceSafe = () => {
-        const downloadUrl = `${BACKEND_URL}/api/attendance/export/${roomName}`;
+        const downloadUrl = `${BACKEND_URL}/api/attendance/export/${encodeURIComponent(roomName)}`;
         const a = document.createElement('a');
         a.href = downloadUrl;
         a.setAttribute('download', `attendance-${roomName}.csv`);
+        a.rel = 'noopener noreferrer';
         a.style.display = 'none';
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
+    };
+
+    const handleCopyInvite = async () => {
+        const inviteUrl = `${window.location.origin}/?room=${encodeURIComponent(roomName)}`;
+        try {
+            if (navigator.clipboard && window.isSecureContext) {
+                await navigator.clipboard.writeText(inviteUrl);
+            } else {
+                const tempInput = document.createElement('input');
+                tempInput.value = inviteUrl;
+                document.body.appendChild(tempInput);
+                tempInput.select();
+                document.execCommand('copy');
+                document.body.removeChild(tempInput);
+            }
+            alert("Invite link copied to clipboard!");
+        } catch {
+            alert(`Copy failed. Room Link: ${inviteUrl}`);
+        }
     };
 
     return (
@@ -96,9 +116,9 @@ export default function Header({
                         ))}
 
                         <button
-                            onClick={() => setIsCustomizeOpen(!isCustomizeOpen)}
+                            onClick={() => setIsCustomizeOpen(prev => !prev)}
                             style={editChipBtn}
-                            title="Edit Emojis"
+                            title="Edit Quick Emojis"
                         >
                             <Edit3 size={11} /> {isCustomizeOpen ? 'Done' : 'Edit'}
                         </button>
@@ -143,9 +163,8 @@ export default function Header({
                     </div>
                 )}
 
-                {/* People Button */}
                 <button
-                    onClick={() => { setShowParticipants(!showParticipants); setShowChat(false); }}
+                    onClick={() => { setShowParticipants(prev => !prev); setShowChat(false); }}
                     style={{ ...topBtnStyle, background: showParticipants ? '#0284c7' : '#1e293b', color: '#fff' }}
                     title="View Participants"
                 >
@@ -153,10 +172,9 @@ export default function Header({
                     <span>People ({allPeersCount})</span>
                 </button>
 
-                {/* Lobby Button: Strict / Open me visible, Bypass (direct) me hidden */}
                 {isEffectiveModerator && waitingMode !== 'direct' && (
                     <button
-                        onClick={() => setShowAdmitModal(!showAdmitModal)}
+                        onClick={() => setShowAdmitModal(prev => !prev)}
                         style={{
                             ...topBtnStyle,
                             background: waitingList.length > 0 ? '#eab308' : '#1e293b',
@@ -172,15 +190,14 @@ export default function Header({
 
                 {isHost && (
                     <button
-                        onClick={() => setShowInMeetingSettings(!showInMeetingSettings)}
-                        style={topBtnStyle}
+                        onClick={() => setShowInMeetingSettings(prev => !prev)}
+                        style={{ ...topBtnStyle, background: showInMeetingSettings ? '#0284c7' : '#1e293b' }}
                         title="Host Security Settings"
                     >
                         <Settings size={14} />
                     </button>
                 )}
 
-                {/* Safe Background CSV Export */}
                 {isHost && (
                     <button
                         onClick={handleDownloadAttendanceSafe}
@@ -192,7 +209,7 @@ export default function Header({
                     </button>
                 )}
 
-                <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/?room=${roomName}`); alert("Invite Copied!"); }} style={{ ...topBtnStyle, background: '#0284c7', color: '#fff' }}>
+                <button onClick={handleCopyInvite} style={{ ...topBtnStyle, background: '#0284c7', color: '#fff' }}>
                     <Copy size={12} />
                     <span className="mobile-hide">Invite</span>
                 </button>

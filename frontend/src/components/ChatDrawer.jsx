@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { X, Smile, Send } from 'lucide-react';
 import EmojiPicker, { Theme } from 'emoji-picker-react';
 
@@ -16,16 +16,23 @@ export default function ChatDrawer({
                                    }) {
     const [chatInput, setChatInput] = useState('');
     const [showChatEmojiPicker, setShowChatEmojiPicker] = useState(false);
+    const messagesEndRef = useRef(null);
+
+    useEffect(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [chatMessages]);
 
     const handleChatEmojiPicked = (emojiData) => {
         setChatInput(prev => prev + emojiData.emoji);
         setShowChatEmojiPicker(false);
     };
 
+    const isInputDisabled = (chatLocked && !isEffectiveModerator) || (chatHostOnly && !isEffectiveModerator && chatRecipient !== 'HostOnly');
+
     const handleSubmit = (e) => {
         e.preventDefault();
-        if (!chatInput.trim()) return;
-        const targetRecipient = chatHostOnly ? 'HostOnly' : chatRecipient;
+        if (!chatInput.trim() || isInputDisabled) return;
+        const targetRecipient = chatHostOnly && !isEffectiveModerator ? 'HostOnly' : chatRecipient;
         onSendMessage(chatInput.trim(), targetRecipient);
         setChatInput('');
         setShowChatEmojiPicker(false);
@@ -40,7 +47,6 @@ export default function ChatDrawer({
 
             <div style={{ padding: '6px 12px', background: '#090d16', borderBottom: '1px solid #1e293b' }}>
                 <label style={{ fontSize: '0.68rem', color: '#94a3b8', display: 'block', marginBottom: '2px' }}>Send to:</label>
-                {/* Point 4: If chatHostOnly is on and user is not moderator, only show Host Only */}
                 {chatHostOnly && !isEffectiveModerator ? (
                     <div style={{ padding: '5px 8px', background: '#451a03', border: '1px solid #f59e0b', color: '#fcd34d', borderRadius: '6px', fontSize: '0.75rem', fontWeight: '700' }}>
                         🛡️ Host Only (Private)
@@ -76,6 +82,7 @@ export default function ChatDrawer({
                         </div>
                     ))
                 )}
+                <div ref={messagesEndRef} />
             </div>
 
             {showChatEmojiPicker && (
@@ -97,8 +104,9 @@ export default function ChatDrawer({
             <form onSubmit={handleSubmit} style={{ padding: '8px 12px', background: '#090d16', borderTop: '1px solid #1e293b', display: 'flex', gap: '6px', alignItems: 'center' }}>
                 <button
                     type="button"
-                    onClick={() => setShowChatEmojiPicker(!showChatEmojiPicker)}
-                    style={{ background: 'transparent', border: 'none', color: '#f59e0b', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center' }}
+                    disabled={isInputDisabled}
+                    onClick={() => setShowChatEmojiPicker(prev => !prev)}
+                    style={{ background: 'transparent', border: 'none', color: isInputDisabled ? '#475569' : '#f59e0b', cursor: isInputDisabled ? 'not-allowed' : 'pointer', padding: '4px', display: 'flex', alignItems: 'center' }}
                     title="Insert emoji into chat"
                 >
                     <Smile size={18} />
@@ -106,11 +114,12 @@ export default function ChatDrawer({
                 <input
                     type="text"
                     value={chatInput}
-                    placeholder={chatHostOnly && !isEffectiveModerator ? "Messaging Host privately..." : (chatLocked && !isEffectiveModerator ? "Public chat locked." : `Message ${chatHostOnly ? 'Host' : chatRecipient}...`)}
+                    disabled={isInputDisabled}
+                    placeholder={chatHostOnly && !isEffectiveModerator ? "Messaging Host privately..." : (chatLocked && !isEffectiveModerator ? "Public chat locked by host." : `Message ${chatHostOnly ? 'Host' : chatRecipient}...`)}
                     onChange={(e) => setChatInput(e.target.value)}
-                    style={{ flex: 1, padding: '8px 10px', background: '#131b2e', border: '1px solid #334155', borderRadius: '6px', color: '#fff', fontSize: '0.78rem', outline: 'none' }}
+                    style={{ flex: 1, padding: '8px 10px', background: '#131b2e', border: '1px solid #334155', borderRadius: '6px', color: '#fff', fontSize: '0.78rem', outline: 'none', opacity: isInputDisabled ? 0.6 : 1 }}
                 />
-                <button type="submit" style={{ background: '#0284c7', border: 'none', color: '#fff', borderRadius: '6px', padding: '8px 12px', cursor: 'pointer' }}>
+                <button type="submit" disabled={isInputDisabled} style={{ background: isInputDisabled ? '#334155' : '#0284c7', border: 'none', color: '#fff', borderRadius: '6px', padding: '8px 12px', cursor: isInputDisabled ? 'not-allowed' : 'pointer' }}>
                     <Send size={14} />
                 </button>
             </form>

@@ -13,7 +13,7 @@ html, body, #root {
   font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
 }
 
-/* Fix mobile video cropping & aspect ratio */
+/* Video Containers */
 .lk-video-container {
   display: flex !important;
   align-items: center !important;
@@ -34,157 +34,6 @@ html, body, #root {
   border: 1px solid #1e293b;
 }
 
-/* Realistic Physics-based Emoji Float & Wobble Animation */
-@keyframes emojiBurst {
-  0% {
-    transform: translateY(0) scale(0.4) rotate(0deg);
-    opacity: 0;
-  }
-  15% {
-    transform: translateY(-40px) scale(1.3) rotate(-8deg);
-    opacity: 1;
-  }
-  35% {
-    transform: translateY(-120px) scale(1.1) rotate(10deg);
-  }
-  60% {
-    transform: translateY(-220px) scale(1) rotate(-6deg);
-    opacity: 0.9;
-  }
-  85% {
-    transform: translateY(-340px) scale(0.9) rotate(4deg);
-    opacity: 0.5;
-  }
-  100% {
-    transform: translateY(-450px) scale(0.7) rotate(0deg);
-    opacity: 0;
-  }
-}
-
-.floating-emoji-item {
-  position: absolute;
-  bottom: 80px;
-  font-size: 2.6rem;
-  pointer-events: none;
-  animation: emojiBurst 2.6s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
-  filter: drop-shadow(0 4px 10px rgba(0,0,0,0.5));
-}
-
-@media (max-width: 768px) {
-  .btn-label {
-    display: none !important;
-  }
-
-  .desktop-only {
-    display: none !important;
-  }
-
-  .mobile-compact-btn {
-    padding: 6px 10px !important;
-    min-width: 44px !important;
-  }
-
-  .floating-emoji-item {
-    font-size: 2.2rem;
-  }
-}
-/* Modern Discord/Slack Style Emoji Popover */
-.emoji-popover {
-  position: absolute;
-  top: 42px;
-  right: 8px;
-  background: rgba(19, 27, 46, 0.88);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(56, 189, 248, 0.35);
-  border-radius: 14px;
-  padding: 10px;
-  box-shadow: 0 15px 35px rgba(0, 0, 0, 0.6), 0 0 15px rgba(56, 189, 248, 0.15);
-  z-index: 9999;
-  width: 260px;
-  animation: popIn 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  transform-origin: top right;
-}
-
-@keyframes popIn {
-  0% {
-    opacity: 0;
-    transform: scale(0.9) translateY(-6px);
-  }
-  100% {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
-}
-
-.emoji-grid {
-  display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: 4px;
-}
-
-.emoji-tile {
-  background: transparent;
-  border: none;
-  border-radius: 8px;
-  font-size: 1.35rem;
-  padding: 6px 2px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.15s ease;
-  user-select: none;
-}
-
-.emoji-tile:hover {
-  background-color: rgba(255, 255, 255, 0.12);
-  transform: scale(1.28);
-  z-index: 2;
-}
-
-.emoji-tile:active {
-  transform: scale(0.95);
-}
-/* Mobile Optimizations for MeetMatrix */
-@media (max-width: 768px) {
-  .mobile-header {
-    padding: 6px 8px !important;
-    gap: 4px !important;
-  }
-  .mobile-hide {
-    display: none !important;
-  }
-  .mobile-room-pill {
-    max-width: 85px !important;
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
-    white-space: nowrap !important;
-    font-size: 0.7rem !important;
-  }
-  .mobile-control-bar {
-    padding: 6px 8px !important;
-    gap: 6px !important;
-    justify-content: flex-start !important;
-    overflow-x: auto !important;
-    white-space: nowrap !important;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-  }
-  .mobile-control-bar::-webkit-scrollbar {
-    display: none;
-  }
-  .mobile-control-bar button {
-    flex-shrink: 0 !important;
-    padding: 8px 10px !important;
-    min-width: 44px !important;
-    height: 42px !important;
-  }
-  .lk-participant-tile video {
-    object-fit: cover !important;
-  }
-}
-/* Screenshare/Whiteboard should never be cropped */
 .lk-focus-layout video,
 .lk-grid-layout [data-lk-source="screen_share"] video,
 video[data-lk-source="screen_share"] {
@@ -192,45 +41,7 @@ video[data-lk-source="screen_share"] {
   background: #000 !important;
 }
 
-@media (max-width: 768px) {
-  .mobile-header {
-    padding: 6px 8px !important;
-    gap: 4px !important;
-  }
-  .mobile-hide {
-    display: none !important;
-  }
-  .mobile-room-pill {
-    max-width: 85px !important;
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
-    white-space: nowrap !important;
-    font-size: 0.7rem !important;
-  }
-  .mobile-control-bar {
-    padding: 6px 8px !important;
-    gap: 6px !important;
-    justify-content: flex-start !important;
-    overflow-x: auto !important;
-    white-space: nowrap !important;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-  }
-  .mobile-control-bar::-webkit-scrollbar {
-    display: none;
-  }
-  .mobile-control-bar button {
-    flex-shrink: 0 !important;
-    padding: 8px 10px !important;
-    min-width: 44px !important;
-    height: 42px !important;
-  }
-  /* Regular camera feeds cover, but screenshare stays fit */
-  .lk-participant-tile:not([data-lk-source="screen_share"]) video {
-    object-fit: cover !important;
-  }
-}
-/* Dynamic Focus Stage for Screen Share & Whiteboard */
+/* Focus Stage Layout */
 .stage-focus-container {
   display: flex;
   flex-direction: column;
@@ -278,37 +89,13 @@ video[data-lk-source="screen_share"] {
   overflow: hidden;
 }
 
-/* Hand Raise Video Badge */
-.video-hand-badge {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  background: rgba(234, 179, 8, 0.9);
-  color: #000;
-  font-weight: 800;
-  font-size: 0.75rem;
-  padding: 3px 8px;
-  border-radius: 20px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  z-index: 30;
-  box-shadow: 0 4px 10px rgba(0,0,0,0.5);
-  animation: pulseBadge 1.5s infinite;
-}
-
-@keyframes pulseBadge {
-  0% { transform: scale(1); }
-  50% { transform: scale(1.08); }
-  100% { transform: scale(1); }
-}
-/* Custom Safe Video Stage Grid */
+/* Stage Video Grid */
 .matrix-stage-grid {
   display: grid;
   width: 100%;
   height: 100%;
   gap: 8px;
-  padding: 6px;
+  padding: 8px;
   box-sizing: border-box;
 }
 
@@ -323,15 +110,8 @@ video[data-lk-source="screen_share"] {
 }
 
 .matrix-grid-multi {
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   grid-auto-rows: 1fr;
-}
-
-@media (max-width: 768px) {
-  .matrix-grid-2 {
-    grid-template-columns: 1fr;
-    grid-template-rows: 1fr 1fr;
-  }
 }
 
 .video-tile-wrapper {
@@ -339,9 +119,10 @@ video[data-lk-source="screen_share"] {
   width: 100%;
   height: 100%;
   min-height: 0;
-  border-radius: 8px;
+  border-radius: 12px;
   overflow: hidden;
-  background: #000;
+  background: #0b0f19;
+  border: 1px solid #1e293b;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -350,9 +131,16 @@ video[data-lk-source="screen_share"] {
 .video-tile-wrapper .lk-participant-tile {
   width: 100% !important;
   height: 100% !important;
+  border: none !important;
 }
 
-/* Hand Raise Video Badge */
+.video-tile-wrapper video {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+}
+
+/* Badges */
 .video-hand-badge {
   position: absolute;
   top: 8px;
@@ -376,106 +164,25 @@ video[data-lk-source="screen_share"] {
   50% { transform: scale(1.08); }
   100% { transform: scale(1); }
 }
-/* Responsive Dynamic Video Stage */
-.matrix-stage-grid {
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  height: 100%;
-  gap: 8px;
-  padding: 8px;
-  box-sizing: border-box;
-  justify-content: center;
-  align-items: center;
-}
 
-/* 1 Participant: Center-fit without distortion */
-.matrix-grid-1 .video-tile-wrapper {
-  width: 100%;
-  height: 100%;
-  max-width: 900px;
-  max-height: 85vh;
-}
-
-/* 2 Participants: Even distribution */
-.matrix-grid-2 {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  width: 100%;
-  height: 100%;
-}
-
-@media (max-width: 768px) {
-  .matrix-grid-2 {
-    grid-template-columns: 1fr !important;
-    grid-template-rows: 1fr 1fr !important;
-    gap: 6px !important;
-    padding: 4px !important;
-  }
-}
-
-/* 3+ Participants */
-.matrix-grid-multi {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  width: 100%;
-  height: 100%;
-}
-
-.video-tile-wrapper {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  border-radius: 12px;
-  overflow: hidden;
-  background: #0b0f19;
-  border: 1px solid #1e293b;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.video-tile-wrapper .lk-participant-tile {
-  width: 100% !important;
-  height: 100% !important;
-  border: none !important;
-}
-
-.video-tile-wrapper video {
-  width: 100% !important;
-  height: 100% !important;
-  object-fit: cover !important;
-}
-
-/* Floating Emoji Animation */
-.floating-emoji-item {
+.video-hold-badge {
   position: absolute;
-  bottom: 60px;
-  font-size: 2.2rem;
-  pointer-events: none;
-  animation: floatUpAnim 2.5s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
-  z-index: 99999;
+  top: 10px;
+  left: 10px;
+  background: rgba(234, 179, 8, 0.95);
+  color: #0f172a;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  z-index: 20;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.5);
 }
 
-@keyframes floatUpAnim {
-  0% {
-    opacity: 0;
-    transform: translateY(0) scale(0.6);
-  }
-  15% {
-    opacity: 1;
-    transform: translateY(-40px) scale(1.2);
-  }
-  75% {
-    opacity: 0.9;
-    transform: translateY(-260px) scale(1);
-  }
-  100% {
-    opacity: 0;
-    transform: translateY(-380px) scale(0.8);
-  }
-}
-/* Sender Tagged Floating Emoji Bubble */
+/* Floating Emoji Animations */
 .floating-emoji-item {
   position: absolute;
   bottom: 60px;
@@ -523,25 +230,48 @@ video[data-lk-source="screen_share"] {
     transform: translateY(-400px) scale(0.8);
   }
 }
-.video-hold-badge {
-  position: absolute;
-  top: 10px;
-  left: 10px;
-  background: rgba(234, 179, 8, 0.95);
-  color: #0f172a;
-  padding: 4px 8px;
-  border-radius: 6px;
-  font-size: 0.72rem;
-  font-weight: 800;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  z-index: 20;
-  box-shadow: 0 4px 10px rgba(0,0,0,0.5);
-}
 
-@keyframes pulse {
-  0% { transform: scale(1); }
-  50% { transform: scale(1.05); }
-  100% { transform: scale(1); }
+/* Mobile Responsive Optimizations */
+@media (max-width: 768px) {
+  .mobile-header {
+    padding: 6px 8px !important;
+    gap: 4px !important;
+  }
+  .mobile-hide {
+    display: none !important;
+  }
+  .mobile-room-pill {
+    max-width: 85px !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+    font-size: 0.7rem !important;
+  }
+  .mobile-control-bar {
+    padding: 6px 8px !important;
+    gap: 6px !important;
+    justify-content: flex-start !important;
+    overflow-x: auto !important;
+    white-space: nowrap !important;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .mobile-control-bar::-webkit-scrollbar {
+    display: none;
+  }
+  .mobile-control-bar button {
+    flex-shrink: 0 !important;
+    padding: 8px 10px !important;
+    min-width: 44px !important;
+    height: 42px !important;
+  }
+  .matrix-grid-2 {
+    grid-template-columns: 1fr !important;
+    grid-template-rows: 1fr 1fr !important;
+    gap: 6px !important;
+    padding: 4px !important;
+  }
+  .lk-participant-tile:not([data-lk-source="screen_share"]) video {
+    object-fit: cover !important;
+  }
 }

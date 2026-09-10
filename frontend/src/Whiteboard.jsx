@@ -1,8 +1,6 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { Pen, Eraser, RotateCcw, X, Share2, Square, Circle, Type } from 'lucide-react';
 import { LocalVideoTrack } from 'livekit-client';
-
-let persistentDrawingHistory = [];
 
 export default function Whiteboard({
                                        isHost,
@@ -13,15 +11,17 @@ export default function Whiteboard({
                                        localParticipant
                                    }) {
     const canvasRef = useRef(null);
+    const drawingHistoryRef = useRef([]);
     const [isDrawing, setIsDrawing] = useState(false);
     const [tool, setTool] = useState('pen');
     const [color, setColor] = useState('#000000');
     const [brushSize, setBrushSize] = useState(4);
     const [isSharingBoard, setIsSharingBoard] = useState(false);
+
     const screenTrackRef = useRef(null);
     const startPosRef = useRef({ x: 0, y: 0 });
     const snapshotRef = useRef(null);
-    const animFrameIdRef = useRef(null);
+    const currentPointsRef = useRef([]);
 
     const [textItems, setTextItems] = useState([]);
     const [activeTextId, setActiveTextId] = useState(null);
@@ -31,7 +31,6 @@ export default function Whiteboard({
         textItemsRef.current = textItems;
     }, [textItems]);
 
-    // Point 2: Can this user share the whiteboard?
     const canPresentWhiteboard = isHost || (isCoHost && allowCohostWhiteboard);
 
     const fillWhiteBackground = (ctx, width, height) => {
@@ -39,10 +38,15 @@ export default function Whiteboard({
         ctx.fillRect(0, 0, width, height);
     };
 
-    const redrawAll = (ctx, width, height) => {
+    const redrawAll = useCallback(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const { width, height } = canvas;
+
         fillWhiteBackground(ctx, width, height);
 
-        persistentDrawingHistory.forEach(action => {
+        drawingHistoryRef.current.forEach(action => {
             if (action.type === 'stroke') {
                 ctx.strokeStyle = action.color;
                 ctx.lineWidth = action.size;
@@ -74,57 +78,30 @@ export default function Whiteboard({
                 ctx.fillText(item.text, item.x, item.y + 18);
             }
         });
-    };
-
-    const startHeartbeatPump = () => {
-        const pump = () => {
-            const canvas = canvasRef.current;
-            if (canvas && !isDrawing) {
-                const ctx = canvas.getContext('2d');
-                redrawAll(ctx, canvas.width, canvas.height);
-            }
-            animFrameIdRef.current = requestAnimationFrame(pump);
-        };
-        pump();
-    };
+    }, []);
 
     useEffect(() => {
         const canvas = canvasRef.current;
         if (!canvas) return;
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight - 56;
 
-        const ctx = canvas.getContext('2d');
-        redrawAll(ctx, canvas.width, canvas.height);
-        startHeartbeatPump();
-
-        const handleResize = () => {
-            if (!canvas) return;
+        const resize = () => {
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight - 56;
-            const ctxResize = canvas.getContext('2d');
-            redrawAll(ctxResize, canvas.width, canvas.height);
+            redrawAll();
         };
 
-        window.addEventListener('resize', handleResize);
-        return () => {
-            window.removeEventListener('resize', handleResize);
-            if (animFrameIdRef.current) cancelAnimationFrame(animFrameIdRef.current);
-        };
-    }, []);
+        resize();
+        window.addEventListener('resize', resize);
+        return () => window.removeEventListener('resize', resize);
+    }, [redrawAll]);
 
     const stopWhiteboardSharing = async () => {
         if (screenTrackRef.current && localParticipant) {
             try {
                 await localParticipant.unpublishTrack(screenTrackRef.current);
                 screenTrackRef.current.stop();
-            } catch (e) {}
+            } catch {}
             screenTrackRef.current = null;
-        }
-        if (localParticipant?.isScreenShareEnabled) {
-            try {
-                await localParticipant.setScreenShareEnabled(false);
-            } catch (e) {}
         }
         setIsSharingBoard(false);
     };
@@ -134,7 +111,6 @@ export default function Whiteboard({
         onClose();
     };
 
-    // Point 3: Strict Single Screen Sharer rule
     const toggleShareCanvas = async () => {
         if (!canPresentWhiteboard) {
             alert("Host has restricted whiteboard presentation permissions.");
@@ -145,7 +121,6 @@ export default function Whiteboard({
         if (isSharingBoard) {
             await stopWhiteboardSharing();
         } else {
-            // Check if someone else is already sharing
             if (activeScreenSharer && activeScreenSharer !== localParticipant.identity) {
                 alert("Someone is already sharing their screen. Only one person can share at a time.");
                 return;
@@ -153,8 +128,7 @@ export default function Whiteboard({
 
             try {
                 const canvas = canvasRef.current;
-                const ctx = canvas.getContext('2d');
-                redrawAll(ctx, canvas.width, canvas.height);
+                redrawAll();
 
                 const stream = canvas.captureStream(30);
                 const track = stream.getVideoTracks()[0];
@@ -194,8 +168,6 @@ export default function Whiteboard({
     const handleTextChange = (id, newContent) => {
         setTextItems(prev => prev.map(t => t.id === id ? { ...t, text: newContent } : t));
     };
-
-    const currentPointsRef = useRef([]);
 
     const startDraw = (e) => {
         if (tool === 'text') return;
@@ -253,13 +225,12 @@ export default function Whiteboard({
         if (!isDrawing || tool === 'text') return;
         setIsDrawing(false);
 
-        const canvas = canvasRef.current;
-        const rect = canvas.getBoundingClientRect();
+        const rect = canvasRef.current.getBoundingClientRect();
         const x = ((e?.clientX || e?.changedTouches?.[0]?.clientX) || startPosRef.current.x) - rect.left;
         const y = ((e?.clientY || e?.changedTouches?.[0]?.clientY) || startPosRef.current.y) - rect.top;
 
         if (tool === 'pen' || tool === 'eraser') {
-            persistentDrawingHistory.push({
+            drawingHistoryRef.current.push({
                 type: 'stroke',
                 color: tool === 'eraser' ? '#ffffff' : color,
                 size: tool === 'eraser' ? brushSize * 4 : brushSize,
@@ -267,7 +238,7 @@ export default function Whiteboard({
             });
             currentPointsRef.current = [];
         } else if (tool === 'rectangle') {
-            persistentDrawingHistory.push({
+            drawingHistoryRef.current.push({
                 type: 'rect',
                 color,
                 size: brushSize,
@@ -278,7 +249,7 @@ export default function Whiteboard({
             });
         } else if (tool === 'circle') {
             const r = Math.hypot(x - startPosRef.current.x, y - startPosRef.current.y);
-            persistentDrawingHistory.push({
+            drawingHistoryRef.current.push({
                 type: 'circle',
                 color,
                 size: brushSize,
@@ -294,7 +265,7 @@ export default function Whiteboard({
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
         fillWhiteBackground(ctx, canvas.width, canvas.height);
-        persistentDrawingHistory = [];
+        drawingHistoryRef.current = [];
         setTextItems([]);
         setActiveTextId(null);
     };
@@ -398,6 +369,7 @@ export default function Whiteboard({
                             value={item.text}
                             placeholder="Type live text..."
                             onChange={(e) => handleTextChange(item.id, e.target.value)}
+                            onBlur={redrawAll}
                             onFocus={() => setActiveTextId(item.id)}
                             style={{
                                 background: activeTextId === item.id ? 'rgba(255, 255, 255, 0.9)' : 'transparent',

@@ -3,7 +3,7 @@ import { X, VolumeX, AlertTriangle, UserCheck, UserX, Sliders, Calendar, Video }
 
 export function LobbyModal({ waitingList, onAdmitAction, onClose }) {
     return (
-        <div style={{ position: 'fixed', top: '55px', right: '14px', background: 'rgba(15, 23, 42, 0.96)', backdropFilter: 'blur(16px)', padding: '14px', borderRadius: '14px', border: '2px solid #eab308', boxShadow: '0 25px 50px rgba(0,0,0,0.85)', zIndex: 99999, width: '300px', color: '#f8fafc' }}>
+        <div style={{ position: 'fixed', top: '55px', right: '14px', background: 'rgba(15, 23, 42, 0.96)', backdropFilter: 'blur(16px)', padding: '14px', borderRadius: '14px', border: '2px solid #eab308', boxShadow: '0 25px 50px rgba(0,0,0,0.85)', zIndex: 100000, width: '300px', color: '#f8fafc' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <AlertTriangle size={16} color="#eab308" />
@@ -45,7 +45,7 @@ export function LobbyModal({ waitingList, onAdmitAction, onClose }) {
 
 export function VideoRequestModal({ onAccept, onDecline }) {
     return (
-        <div style={{ position: 'fixed', top: '70px', left: '50%', transform: 'translateX(-50%)', background: '#0f172a', padding: '16px 20px', borderRadius: '16px', border: '2px solid #38bdf8', boxShadow: '0 25px 60px rgba(0,0,0,0.95)', zIndex: 999999, width: '320px', color: '#f8fafc', textAlign: 'center' }}>
+        <div style={{ position: 'fixed', top: '70px', left: '50%', transform: 'translateX(-50%)', background: '#0f172a', padding: '16px 20px', borderRadius: '16px', border: '2px solid #38bdf8', boxShadow: '0 25px 60px rgba(0,0,0,0.95)', zIndex: 100002, width: '320px', color: '#f8fafc', textAlign: 'center' }}>
             <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '8px' }}>
                 <div style={{ background: '#0284c7', padding: '10px', borderRadius: '50%' }}>
                     <Video size={24} color="#fff" />
@@ -97,7 +97,7 @@ export function InMeetingSettingsModal({
                                            onUpdateLiveSettings
                                        }) {
     return (
-        <div style={{ position: 'fixed', top: '55px', right: '14px', background: 'rgba(30, 41, 59, 0.95)', backdropFilter: 'blur(16px)', padding: '16px', borderRadius: '14px', border: '2px solid #38bdf8', boxShadow: '0 25px 50px rgba(0,0,0,0.85)', zIndex: 99999, width: '320px', color: '#f8fafc', maxHeight: '80vh', overflowY: 'auto' }}>
+        <div style={{ position: 'fixed', top: '55px', right: '14px', background: 'rgba(30, 41, 59, 0.95)', backdropFilter: 'blur(16px)', padding: '16px', borderRadius: '14px', border: '2px solid #38bdf8', boxShadow: '0 25px 50px rgba(0,0,0,0.85)', zIndex: 100000, width: '320px', color: '#f8fafc', maxHeight: '80vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                 <h4 style={{ margin: 0, fontSize: '0.92rem', color: '#38bdf8', fontWeight: '800' }}>Host Security Controls</h4>
                 <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: '#f8fafc', cursor: 'pointer' }}><X size={16} /></button>
@@ -337,8 +337,8 @@ export function PreFlightModal({
                             <span style={{ fontWeight: '700', color: chatHostOnly ? '#38bdf8' : '#f8fafc' }}>Host-Only Chat Mode</span>
                         </label>
                         <label style={checkboxRowStyle}>
-                            <input type="checkbox" checked={!chatLocked} onChange={(e) => setChatLocked(!e.target.checked)} style={{ accentColor: '#38bdf8' }} />
-                            <span>Allow Public In-Meeting Chat</span>
+                            <input type="checkbox" checked={chatLocked} onChange={(e) => setChatLocked(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
+                            <span>Lock Public In-Meeting Chat</span>
                         </label>
                         <label style={checkboxRowStyle}>
                             <input type="checkbox" checked={allowDirectChat} onChange={(e) => setAllowDirectChat(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
@@ -386,6 +386,8 @@ export function ScheduleModal({
                                   setChatLocked,
                                   chatHostOnly,
                                   setChatHostOnly,
+                                  allowDirectChat,
+                                  setAllowDirectChat,
                                   allowReactions,
                                   setAllowReactions,
                                   autoDownloadCsv,
@@ -445,7 +447,7 @@ export function ScheduleModal({
                         <label style={settingLabelStyle}>Estimated Duration</label>
                         <select
                             value={scheduleDuration}
-                            onChange={(e) => setScheduleDuration(parseInt(e.target.value))}
+                            onChange={(e) => setScheduleDuration(parseInt(e.target.value, 10))}
                             style={selectInputStyle}
                         >
                             <option value={15}>15 Minutes</option>
@@ -463,8 +465,20 @@ export function ScheduleModal({
                             <span>Lock Mic Permanently</span>
                         </label>
                         <label style={checkboxRowStyle}>
+                            <input type="checkbox" checked={muteOnEntry} onChange={(e) => setMuteOnEntry(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
+                            <span>Mute Participants Mic on Entry</span>
+                        </label>
+                        <label style={checkboxRowStyle}>
                             <input type="checkbox" checked={chatHostOnly} onChange={(e) => setChatHostOnly(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
                             <span>Host-Only Chat</span>
+                        </label>
+                        <label style={checkboxRowStyle}>
+                            <input type="checkbox" checked={chatLocked} onChange={(e) => setChatLocked(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
+                            <span>Lock Public In-Meeting Chat</span>
+                        </label>
+                        <label style={checkboxRowStyle}>
+                            <input type="checkbox" checked={allowDirectChat} onChange={(e) => setAllowDirectChat(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
+                            <span>Allow 1-on-1 Direct Chat</span>
                         </label>
                         <label style={checkboxRowStyle}>
                             <input type="checkbox" checked={allowScreenshare} onChange={(e) => setAllowScreenshare(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
@@ -477,6 +491,10 @@ export function ScheduleModal({
                         <label style={checkboxRowStyle}>
                             <input type="checkbox" checked={allowWhiteboard} onChange={(e) => setAllowWhiteboard(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
                             <span>Enable Whiteboard</span>
+                        </label>
+                        <label style={checkboxRowStyle}>
+                            <input type="checkbox" checked={allowReactions} onChange={(e) => setAllowReactions(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
+                            <span>Allow Emoji Reactions</span>
                         </label>
                         <label style={checkboxRowStyle}>
                             <input type="checkbox" checked={autoDownloadCsv} onChange={(e) => setAutoDownloadCsv(e.target.checked)} style={{ accentColor: '#10b981' }} />
@@ -493,7 +511,7 @@ export function ScheduleModal({
     );
 }
 
-const modalBackdropStyle = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(6px)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' };
+const modalBackdropStyle = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(6px)', zIndex: 100001, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' };
 const modalCardStyle = { background: '#131b2e', border: '1px solid #38bdf8', borderRadius: '16px', padding: '20px', width: '100%', maxWidth: '450px', boxShadow: '0 30px 60px rgba(0,0,0,0.8)' };
 const settingLabelStyle = { fontSize: '0.78rem', color: '#94a3b8', display: 'block', marginBottom: '6px', fontWeight: '700' };
 const selectInputStyle = { width: '100%', padding: '9px', background: '#090d16', border: '1px solid #334155', color: '#fff', borderRadius: '7px', fontSize: '0.8rem', boxSizing: 'border-box' };

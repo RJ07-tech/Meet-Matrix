@@ -11,7 +11,7 @@ export default function ParticipantsDrawer({
                                                onToggleCoHost,
                                                onHostMute,
                                                onHostKick,
-                                               onRequestVideo  // Point 7: Request Video Call
+                                               onRequestVideo
                                            }) {
     const [isEditingName, setIsEditingName] = useState(false);
     const [editNameValue, setEditNameValue] = useState('');
@@ -44,7 +44,9 @@ export default function ParticipantsDrawer({
                                         type="text"
                                         value={editNameValue}
                                         onChange={(e) => setEditNameValue(e.target.value)}
-                                        style={{ background: '#090d16', border: '1px solid #38bdf8', color: '#fff', padding: '2px 6px', borderRadius: '4px', fontSize: '0.75rem', width: '90px' }}
+                                        onKeyDown={(e) => e.key === 'Enter' && handleSave()}
+                                        autoFocus
+                                        style={{ background: '#090d16', border: '1px solid #38bdf8', color: '#fff', padding: '2px 6px', borderRadius: '4px', fontSize: '0.75rem', width: '110px' }}
                                     />
                                     <button onClick={handleSave} style={{ background: '#10b981', border: 'none', color: '#fff', padding: '2px 6px', borderRadius: '4px', cursor: 'pointer' }}><Check size={12} /></button>
                                 </div>
@@ -72,11 +74,10 @@ export default function ParticipantsDrawer({
                                 </button>
                             )}
 
-                            {/* Host Immunity: Host cannot be muted/kicked by anyone */}
                             {isEffectiveModerator && !p.isSelf && !p.isHost && (
                                 <div style={{ position: 'relative' }}>
                                     <button
-                                        onClick={() => setActiveMenuIdentity(activeMenuIdentity === p.identity ? null : p.identity)}
+                                        onClick={() => setActiveMenuIdentity(prev => prev === p.identity ? null : p.identity)}
                                         style={drawerActionBtn}
                                     >
                                         <MoreVertical size={14} />
@@ -84,7 +85,6 @@ export default function ParticipantsDrawer({
 
                                     {activeMenuIdentity === p.identity && (
                                         <div style={contextMenuStyle}>
-                                            {/* Point 7: Ask to start video */}
                                             <button onClick={() => { onRequestVideo(p.identity, p.name); setActiveMenuIdentity(null); }} style={contextMenuItemStyle}>
                                                 <Video size={14} color="#38bdf8" /> Ask to Start Video
                                             </button>
