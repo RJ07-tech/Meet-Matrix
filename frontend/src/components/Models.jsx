@@ -125,7 +125,6 @@ export function InMeetingSettingsModal({
                     <span style={{ fontWeight: '700', color: micLocked ? '#f87171' : '#f8fafc' }}>🔒 Permanent Mic Lock</span>
                 </label>
 
-                {/* Point 4: Chat Only with Host */}
                 <label style={{ ...checkboxRowStyle, background: chatHostOnly ? 'rgba(2, 132, 199, 0.2)' : 'transparent', padding: '4px', borderRadius: '6px' }}>
                     <input
                         type="checkbox"
@@ -152,7 +151,6 @@ export function InMeetingSettingsModal({
                     <span>Allow Participant Screen Sharing</span>
                 </label>
 
-                {/* Point 2: Co-Host Whiteboard Share Permission */}
                 <label style={checkboxRowStyle}>
                     <input
                         type="checkbox"
@@ -218,7 +216,6 @@ export function InMeetingSettingsModal({
                     <span>Allow Emoji Reactions</span>
                 </label>
 
-                {/* Point 5: Auto-download CSV Attendance on End Meeting */}
                 <label style={{ ...checkboxRowStyle, background: autoDownloadCsv ? 'rgba(16, 185, 129, 0.15)' : 'transparent', padding: '4px', borderRadius: '6px' }}>
                     <input
                         type="checkbox"

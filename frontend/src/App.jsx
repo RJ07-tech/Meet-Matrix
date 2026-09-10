@@ -137,6 +137,7 @@ function MeetingStage({
                 axios.post(`${BACKEND_URL}/api/attendance/update`, {
                     room_name: roomName,
                     participant_name: participantName,
+                    participant_identity: localParticipant.identity,
                     was_on_hold: true,
                     action: "hold_update"
                 }).catch(() => {});
@@ -246,7 +247,7 @@ function MeetingStage({
                             localParticipant.setMicrophoneEnabled(false);
                         }
                     }
-                }if (data.type === 'screen_sharing_started') {
+                } if (data.type === 'screen_sharing_started') {
                     // Lock screen share state instantly for other peers
                     console.log("Sharer locked:", data.identity);
                 } else if (data.type === 'request_video') {
@@ -453,6 +454,7 @@ function MeetingStage({
             await axios.post(`${BACKEND_URL}/api/attendance/update`, {
                 room_name: roomName,
                 participant_name: participantName,
+                participant_identity: localParticipant?.identity,
                 action: "leave"
             });
         } catch (e) {}
@@ -791,6 +793,7 @@ export default function App() {
     const [roomName, setRoomName] = useState('');
     const [participantName, setParticipantName] = useState('');
     const [isHost, setIsHost] = useState(false);
+    const [hostSecret, setHostSecret] = useState('');
     const [loading, setLoading] = useState(false);
     const [isInviteFlow, setIsInviteFlow] = useState(false);
 
@@ -1009,16 +1012,19 @@ export default function App() {
                 auto_download_csv: autoDownloadCsv
             });
             const newRoomId = res.data.room_id;
+            const createdHostSecret = res.data.host_secret;
             const hostDisplayName = `${participantName || user?.name || 'Host'} (Host)`;
 
             setRoomName(newRoomId);
             setIsHost(true);
+            setHostSecret(createdHostSecret || '');
 
             const tokenRes = await axios.post(`${BACKEND_URL}/api/get-token`, {
                 room_name: newRoomId,
                 participant_name: hostDisplayName,
                 is_host: true,
-                role: "host"
+                role: "host",
+                host_secret: createdHostSecret
             });
 
             setToken(tokenRes.data.token);
@@ -1064,15 +1070,20 @@ export default function App() {
                 auto_download_csv: autoDownloadCsv
             };
 
-            await axios.post(`${BACKEND_URL}/api/schedule-meeting`, newScheduled);
+            const scheduleRes = await axios.post(`${BACKEND_URL}/api/schedule-meeting`, newScheduled);
+            const savedMeeting = {
+                ...newScheduled,
+                room_id: scheduleRes.data.room_id || generatedRoomId,
+                host_secret: scheduleRes.data.host_secret
+            };
 
-            const updatedList = [newScheduled, ...scheduledMeetings];
+            const updatedList = [savedMeeting, ...scheduledMeetings];
             setScheduledMeetings(updatedList);
             localStorage.setItem('meetmatrix_scheduled', JSON.stringify(updatedList));
 
             setShowScheduleModal(false);
             setScheduleTitle('');
-            alert(`Meeting scheduled! Room Code: ${generatedRoomId}`);
+            alert(`Meeting scheduled! Room Code: ${savedMeeting.room_id}`);
         } catch (err) {
             alert("Scheduling failed: " + err.message);
         } finally {
@@ -1099,6 +1110,9 @@ export default function App() {
                 is_host: false,
                 role: "participant"
             });
+            if (res.data.is_host) {
+                setIsHost(true);
+            }
 
             if (res.data.status === 'waiting') {
                 setIsWaiting(true);
@@ -1126,13 +1140,25 @@ export default function App() {
         }
     };
 
-    const joinRoomDirect = async (room, name, hostFlag) => {
+    const joinRoomDirect = async (room, name, hostFlag, secret) => {
+        const hostKey = secret || hostSecret;
         const res = await axios.post(`${BACKEND_URL}/api/get-token`, {
             room_name: room,
             participant_name: hostFlag ? `${name} (Host)` : name,
-            is_host: hostFlag,
-            role: hostFlag ? "host" : "participant"
+            is_host: Boolean(hostFlag && hostKey),
+            role: hostFlag ? "host" : "participant",
+            host_secret: hostFlag ? hostKey : undefined
         });
+        if (res.data.status === 'waiting') {
+            setIsWaiting(true);
+            setWaitingPid(res.data.participant_id);
+            setIsHost(false);
+            return;
+        }
+        setIsHost(Boolean(res.data.is_host));
+        if (hostFlag && hostKey) {
+            setHostSecret(hostKey);
+        }
         setToken(res.data.token);
         setServerUrl(res.data.server_url);
 
@@ -1402,7 +1428,8 @@ export default function App() {
                                                         onClick={() => {
                                                             setRoomName(item.room_id);
                                                             setIsHost(true);
-                                                            joinRoomDirect(item.room_id, user?.name || 'Host', true);
+                                                            setHostSecret(item.host_secret || '');
+                                                            joinRoomDirect(item.room_id, user?.name || 'Host', true, item.host_secret);
                                                         }}
                                                         style={{ ...iconActionBtnStyle, background: '#0284c7', color: '#fff' }}
                                                         title="Launch Scheduled Meeting"
