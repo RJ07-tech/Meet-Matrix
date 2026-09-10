@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import '@livekit/components-styles';
 import {
@@ -65,9 +65,20 @@ function MeetingStage({
     const [raisedHandsMap, setRaisedHandsMap] = useState({});
     const [holdParticipantsMap, setHoldParticipantsMap] = useState({});
 
-    // Persistent Whiteboard memory lifted to MeetingStage
+    // Persistent Whiteboard memory
     const drawingHistoryRef = useRef([]);
-    const [whiteboardTextItems, setWhiteboardTextItems] = useState([]);
+    const [boardText, setBoardText] = useState('');
+
+    // In-Meeting Notifications/Pop-ups (visible even over Whiteboard)
+    const [whiteboardAlerts, setWhiteboardAlerts] = useState([]);
+
+    const pushWhiteboardAlert = useCallback((message) => {
+        const id = Date.now() + Math.random();
+        setWhiteboardAlerts(prev => [...prev, { id, message }]);
+        setTimeout(() => {
+            setWhiteboardAlerts(prev => prev.filter(a => a.id !== id));
+        }, 4000);
+    }, []);
 
     const [coHostsMap, setCoHostsMap] = useState({});
     const [waitingList, setWaitingList] = useState([]);
@@ -76,8 +87,6 @@ function MeetingStage({
     const [showChat, setShowChat] = useState(false);
     const [showParticipants, setShowParticipants] = useState(false);
     const [showInMeetingSettings, setShowInMeetingSettings] = useState(false);
-
-    // Video Request Modal for this client
     const [showVideoRequestModal, setShowVideoRequestModal] = useState(false);
 
     const [floatingEmojis, setFloatingEmojis] = useState([]);
@@ -101,8 +110,6 @@ function MeetingStage({
 
     const screenShareTrack = allTracks.find(t => t.source === Track.Source.ScreenShare);
     const cameraTracks = allTracks.filter(t => t.source === Track.Source.Camera);
-
-    // Active Screen Sharer Identity (Single Presenter Rule)
     const activeScreenSharer = screenShareTrack?.participant?.identity || null;
 
     useEffect(() => {
@@ -122,7 +129,7 @@ function MeetingStage({
         if (!room || !localParticipant) return;
 
         const handleVisibilityChange = () => {
-            if (localParticipant.isScreenShareEnabled) return;
+            if (localParticipant.isScreenShareEnabled || isHost) return;
 
             const isHidden = document.visibilityState === 'hidden';
             setHoldParticipantsMap(prev => ({
@@ -133,6 +140,7 @@ function MeetingStage({
             const payload = JSON.stringify({
                 type: 'user_hold_status',
                 identity: localParticipant.identity,
+                name: participantName,
                 isOnHold: isHidden
             });
             room.localParticipant.publishData(new TextEncoder().encode(payload), { reliable: true });
@@ -150,7 +158,7 @@ function MeetingStage({
 
         document.addEventListener('visibilitychange', handleVisibilityChange);
         return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-    }, [room, localParticipant, roomName, participantName]);
+    }, [room, localParticipant, roomName, participantName, isHost]);
 
     // Live Room Settings Sync
     useEffect(() => {
@@ -235,7 +243,10 @@ function MeetingStage({
                 const decoded = new TextDecoder().decode(payload);
                 const data = JSON.parse(decoded);
 
-                if (data.type === 'settings_update') {
+                if (data.type === 'room_terminated') {
+                    alert("The host has ended the meeting for everyone.");
+                    onLeave();
+                } else if (data.type === 'settings_update') {
                     if (data.allow_participant_screenshare !== undefined) setAllowScreenshare(data.allow_participant_screenshare);
                     if (data.chat_locked !== undefined) setChatLocked(data.chat_locked);
                     if (data.chat_host_only !== undefined) setChatHostOnly(data.chat_host_only);
@@ -251,8 +262,6 @@ function MeetingStage({
                             localParticipant.setMicrophoneEnabled(false);
                         }
                     }
-                } else if (data.type === 'screen_sharing_started') {
-                    console.log("Sharer locked:", data.identity);
                 } else if (data.type === 'request_video') {
                     const myId = localParticipant?.identity || '';
                     if (data.targetIdentity === myId || myId.includes(data.targetIdentity) || data.targetIdentity.includes(myId)) {
@@ -263,6 +272,9 @@ function MeetingStage({
                         ...prev,
                         [data.identity]: data.isOnHold
                     }));
+                    if (data.isOnHold) {
+                        pushWhiteboardAlert(`⚠️ ${data.name || 'Participant'} switched tabs / on hold.`);
+                    }
                 } else if (data.type === 'co_host_update') {
                     setCoHostsMap(prev => ({ ...prev, [data.targetIdentity]: data.isCoHost }));
                 } else if (data.type === 'reaction') {
@@ -271,6 +283,9 @@ function MeetingStage({
                     }
                 } else if (data.type === 'hand_raise') {
                     setRaisedHandsMap(prev => ({ ...prev, [participant.identity]: data.raised }));
+                    if (data.raised) {
+                        pushWhiteboardAlert(`✋ ${participant.name || 'Participant'} raised hand.`);
+                    }
                 } else if (data.type === 'chat') {
                     const isForMe = data.recipient === 'Everyone' ||
                         data.recipient === localParticipant?.identity ||
@@ -300,7 +315,7 @@ function MeetingStage({
 
         room.on('dataReceived', handleDataReceived);
         return () => room.off('dataReceived', handleDataReceived);
-    }, [room, localParticipant, onLeave, setAllowScreenshare, setChatLocked, setChatHostOnly, setWaitingMode, setAllowReactions, setAllowWhiteboard, setAllowCohostWhiteboard, setAllowDirectChat, setMicLocked, setAutoDownloadCsv, allowReactions, isEffectiveModerator, isHost]);
+    }, [room, localParticipant, onLeave, setAllowScreenshare, setChatLocked, setChatHostOnly, setWaitingMode, setAllowReactions, setAllowWhiteboard, setAllowCohostWhiteboard, setAllowDirectChat, setMicLocked, setAutoDownloadCsv, allowReactions, isEffectiveModerator, isHost, pushWhiteboardAlert]);
 
     const triggerReactionBroadcast = (emoji) => {
         if (!allowReactions) {
@@ -457,20 +472,30 @@ function MeetingStage({
     const handleTerminateWithCsv = async () => {
         if (!isHost) return;
 
-        if (autoDownloadCsv) {
-            const downloadUrl = `${BACKEND_URL}/api/attendance/export/${roomName}`;
-            const a = document.createElement('a');
-            a.href = downloadUrl;
-            a.setAttribute('download', `attendance-${roomName}.csv`);
-            a.style.display = 'none';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-        }
+        if (window.confirm("End meeting for everyone?")) {
+            if (room?.localParticipant) {
+                const payload = JSON.stringify({ type: 'room_terminated' });
+                room.localParticipant.publishData(new TextEncoder().encode(payload), { reliable: true });
+            }
 
-        setTimeout(() => {
-            onTerminate();
-        }, 1500);
+            if (autoDownloadCsv) {
+                const downloadUrl = `${BACKEND_URL}/api/attendance/export/${roomName}`;
+                const a = document.createElement('a');
+                a.href = downloadUrl;
+                a.setAttribute('download', `attendance-${roomName}.csv`);
+                a.style.display = 'none';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            }
+
+            setTimeout(async () => {
+                try {
+                    await axios.post(`${BACKEND_URL}/api/terminate-room`, { room_name: roomName });
+                } catch (e) {}
+                onTerminate();
+            }, 1200);
+        }
     };
 
     const handleUpdateLiveRoomSettings = async (updates) => {
@@ -546,7 +571,6 @@ function MeetingStage({
         }
     };
 
-    // Away/On-hold badges disabled for Host
     const allPeers = [
         {
             identity: localParticipant?.identity,
@@ -722,7 +746,7 @@ function MeetingStage({
                 onTerminate={handleTerminateWithCsv}
             />
 
-            {/* Whiteboard with Persistent Props */}
+            {/* Whiteboard with Multiline Text & Floating Alerts */}
             {showWhiteboard && (
                 <Whiteboard
                     isHost={isHost}
@@ -732,8 +756,9 @@ function MeetingStage({
                     onClose={() => setShowWhiteboard(false)}
                     localParticipant={localParticipant}
                     drawingHistoryRef={drawingHistoryRef}
-                    textItems={whiteboardTextItems}
-                    setTextItems={setWhiteboardTextItems}
+                    boardText={boardText}
+                    setBoardText={setBoardText}
+                    whiteboardAlerts={whiteboardAlerts}
                 />
             )}
 
@@ -775,7 +800,7 @@ function MeetingStage({
                 />
             )}
 
-            {/* Video Request Pop-up for this participant */}
+            {/* Video Request Pop-up */}
             {showVideoRequestModal && (
                 <VideoRequestModal
                     onAccept={() => {

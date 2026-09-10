@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
-import { Pen, Eraser, RotateCcw, X, Share2, Square, Circle, Type } from 'lucide-react';
+import { Pen, Eraser, RotateCcw, X, Share2, Square, Circle, Type, Trash2, Bell } from 'lucide-react';
 import { LocalVideoTrack } from 'livekit-client';
 
 export default function Whiteboard({
@@ -10,8 +10,9 @@ export default function Whiteboard({
                                        onClose,
                                        localParticipant,
                                        drawingHistoryRef,
-                                       textItems,
-                                       setTextItems
+                                       boardText,
+                                       setBoardText,
+                                       whiteboardAlerts = []
                                    }) {
     const canvasRef = useRef(null);
     const [isDrawing, setIsDrawing] = useState(false);
@@ -24,7 +25,6 @@ export default function Whiteboard({
     const startPosRef = useRef({ x: 0, y: 0 });
     const snapshotRef = useRef(null);
     const currentPointsRef = useRef([]);
-    const [activeTextId, setActiveTextId] = useState(null);
 
     const canPresentWhiteboard = isHost || (isCoHost && allowCohostWhiteboard);
 
@@ -67,17 +67,7 @@ export default function Whiteboard({
                 }
             });
         }
-
-        if (textItems) {
-            textItems.forEach(item => {
-                if (item.text) {
-                    ctx.fillStyle = item.color || '#000000';
-                    ctx.font = 'bold 18px Inter, system-ui, sans-serif';
-                    ctx.fillText(item.text, item.x, item.y + 18);
-                }
-            });
-        }
-    }, [drawingHistoryRef, textItems]);
+    }, [drawingHistoryRef]);
 
     useEffect(() => {
         const canvas = canvasRef.current;
@@ -129,9 +119,18 @@ export default function Whiteboard({
                 const canvas = canvasRef.current;
                 redrawAll();
 
+                // Capture stream at 30fps
                 const stream = canvas.captureStream(30);
                 const track = stream.getVideoTracks()[0];
                 if (!track) return;
+
+                // FIX BLANK SCREEN: Force render frames for 2 seconds to prime the encoder
+                let frameCount = 0;
+                const primeInterval = setInterval(() => {
+                    redrawAll();
+                    frameCount++;
+                    if (frameCount > 20) clearInterval(primeInterval);
+                }, 100);
 
                 const localVideoTrack = new LocalVideoTrack(track, { name: 'whiteboard' });
                 screenTrackRef.current = localVideoTrack;
@@ -149,23 +148,6 @@ export default function Whiteboard({
                 alert("Could not share whiteboard: " + err.message);
             }
         }
-    };
-
-    const handleCanvasClick = (e) => {
-        if (tool !== 'text') return;
-        const canvas = canvasRef.current;
-        const rect = canvas.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-
-        const newId = Date.now();
-        const newText = { id: newId, x, y, text: '', color };
-        setTextItems(prev => [...prev, newText]);
-        setActiveTextId(newId);
-    };
-
-    const handleTextChange = (id, newContent) => {
-        setTextItems(prev => prev.map(t => t.id === id ? { ...t, text: newContent } : t));
     };
 
     const startDraw = (e) => {
@@ -265,12 +247,22 @@ export default function Whiteboard({
         const ctx = canvas.getContext('2d');
         fillWhiteBackground(ctx, canvas.width, canvas.height);
         drawingHistoryRef.current = [];
-        setTextItems([]);
-        setActiveTextId(null);
     };
 
     return (
         <div style={fixedContainerStyle}>
+            {/* Whiteboard In-App Meeting Notifications Overlay */}
+            {whiteboardAlerts.length > 0 && (
+                <div style={{ position: 'absolute', top: '65px', right: '20px', zIndex: 9999999, display: 'flex', flexDirection: 'column', gap: '8px', pointerEvents: 'none' }}>
+                    {whiteboardAlerts.map(alert => (
+                        <div key={alert.id} style={{ background: 'rgba(15, 23, 42, 0.95)', border: '1px solid #38bdf8', color: '#fff', padding: '8px 14px', borderRadius: '10px', display: 'flex', alignItems: 'center', gap: '8px', boxShadow: '0 8px 24px rgba(0,0,0,0.4)', fontSize: '0.82rem', fontWeight: '700' }}>
+                            <Bell size={15} color="#38bdf8" />
+                            <span>{alert.message}</span>
+                        </div>
+                    ))}
+                </div>
+            )}
+
             <div style={toolbarStyle}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                     <span style={{ fontWeight: '800', color: '#38bdf8', fontSize: '0.85rem' }}>Whiteboard</span>
@@ -279,7 +271,7 @@ export default function Whiteboard({
                         <button onClick={() => setTool('pen')} style={{ ...iconBtnStyle, background: tool === 'pen' ? '#0284c7' : 'transparent' }} title="Pen">
                             <Pen size={14} />
                         </button>
-                        <button onClick={() => setTool('text')} style={{ ...iconBtnStyle, background: tool === 'text' ? '#0284c7' : 'transparent' }} title="Text Tool">
+                        <button onClick={() => setTool('text')} style={{ ...iconBtnStyle, background: tool === 'text' ? '#0284c7' : 'transparent' }} title="Full Board Text Mode">
                             <Type size={14} />
                         </button>
                         <button onClick={() => setTool('eraser')} style={{ ...iconBtnStyle, background: tool === 'eraser' ? '#0284c7' : 'transparent' }} title="Eraser">
@@ -293,7 +285,7 @@ export default function Whiteboard({
                         </button>
                     </div>
 
-                    {tool !== 'eraser' && (
+                    {tool !== 'eraser' && tool !== 'text' && (
                         <input
                             type="color"
                             value={color}
@@ -302,17 +294,19 @@ export default function Whiteboard({
                         />
                     )}
 
-                    <input
-                        type="range"
-                        min="2"
-                        max="24"
-                        value={brushSize}
-                        onChange={(e) => setBrushSize(parseInt(e.target.value, 10))}
-                        style={{ width: '60px', accentColor: '#38bdf8' }}
-                    />
+                    {tool !== 'text' && (
+                        <input
+                            type="range"
+                            min="2"
+                            max="24"
+                            value={brushSize}
+                            onChange={(e) => setBrushSize(parseInt(e.target.value, 10))}
+                            style={{ width: '60px', accentColor: '#38bdf8' }}
+                        />
+                    )}
 
-                    <button onClick={clearBoard} style={actionBtnStyle} title="Clear Canvas">
-                        <RotateCcw size={14} /> Clear
+                    <button onClick={clearBoard} style={actionBtnStyle} title="Clear Canvas Drawings">
+                        <RotateCcw size={14} /> Clear Drawing
                     </button>
                 </div>
 
@@ -341,7 +335,6 @@ export default function Whiteboard({
             <div style={{ flex: 1, width: '100%', height: '100%', position: 'relative', background: '#ffffff', overflow: 'hidden' }}>
                 <canvas
                     ref={canvasRef}
-                    onClick={handleCanvasClick}
                     onMouseDown={startDraw}
                     onMouseMove={draw}
                     onMouseUp={stopDraw}
@@ -349,42 +342,57 @@ export default function Whiteboard({
                     onTouchStart={startDraw}
                     onTouchMove={draw}
                     onTouchEnd={stopDraw}
-                    style={{ display: 'block', width: '100%', height: '100%', cursor: tool === 'text' ? 'text' : tool === 'eraser' ? 'cell' : 'crosshair', touchAction: 'none', background: '#ffffff' }}
+                    style={{
+                        display: 'block',
+                        width: '100%',
+                        height: '100%',
+                        cursor: tool === 'text' ? 'default' : tool === 'eraser' ? 'cell' : 'crosshair',
+                        touchAction: 'none',
+                        background: '#ffffff'
+                    }}
                 />
 
-                {textItems.map(item => (
-                    <div
-                        key={item.id}
-                        style={{
-                            position: 'absolute',
-                            left: `${item.x}px`,
-                            top: `${item.y}px`,
-                            zIndex: 20
-                        }}
-                    >
-                        <input
+                {/* FULL-BOARD TEXT EDITOR OVERLAY */}
+                {tool === 'text' && (
+                    <div style={{ position: 'absolute', inset: 0, background: 'rgba(255, 255, 255, 0.96)', zIndex: 50, display: 'flex', flexDirection: 'column', padding: '16px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px' }}>
+                            <span style={{ fontSize: '0.85rem', fontWeight: '800', color: '#0284c7' }}>📝 Full-Board Notebook / Text Mode</span>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                                <button
+                                    onClick={() => setBoardText('')}
+                                    style={{ ...actionBtnStyle, background: '#fee2e2', border: '1px solid #f87171', color: '#b91c1c', fontWeight: '700' }}
+                                    title="Delete all text"
+                                >
+                                    <Trash2 size={13} /> Delete Text
+                                </button>
+                                <button
+                                    onClick={() => setTool('pen')}
+                                    style={{ ...actionBtnStyle, background: '#0284c7', color: '#fff', fontWeight: '700' }}
+                                >
+                                    Done Writing
+                                </button>
+                            </div>
+                        </div>
+                        <textarea
                             autoFocus
-                            type="text"
-                            value={item.text}
-                            placeholder="Type text..."
-                            onChange={(e) => handleTextChange(item.id, e.target.value)}
-                            onBlur={redrawAll}
-                            onFocus={() => setActiveTextId(item.id)}
+                            value={boardText}
+                            placeholder="Type notes, code, or ideas here (Press Enter for next line)..."
+                            onChange={(e) => setBoardText(e.target.value)}
                             style={{
-                                background: activeTextId === item.id ? 'rgba(255, 255, 255, 0.9)' : 'transparent',
-                                border: activeTextId === item.id ? '1px dashed #0284c7' : '1px solid transparent',
+                                flex: 1,
+                                width: '100%',
+                                border: 'none',
                                 outline: 'none',
-                                color: item.color,
-                                fontSize: '18px',
-                                fontWeight: '700',
-                                fontFamily: 'Inter, system-ui, sans-serif',
-                                padding: '2px 4px',
-                                borderRadius: '4px',
-                                minWidth: '120px'
+                                resize: 'none',
+                                background: 'transparent',
+                                fontSize: '1.1rem',
+                                lineHeight: '1.6',
+                                fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
+                                color: '#0f172a'
                             }}
                         />
                     </div>
-                ))}
+                )}
             </div>
         </div>
     );
