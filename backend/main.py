@@ -3,7 +3,7 @@ import uuid
 import csv
 import io
 import hmac
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List, Set
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
@@ -13,6 +13,15 @@ from livekit import api
 from livekit.api import AccessToken, VideoGrants
 
 app = FastAPI(title="MeetMatrix Backend API")
+
+# Indian Standard Time (IST = UTC + 5:30)
+IST = timezone(timedelta(hours=5, minutes=30))
+
+def get_ist_now_dt() -> datetime:
+    return datetime.now(IST)
+
+def get_ist_now_str() -> str:
+    return get_ist_now_dt().strftime("%Y-%m-%d %I:%M:%S %p")
 
 _cors_raw = os.getenv("FRONTEND_ORIGINS", "*").strip()
 if _cors_raw == "*":
@@ -105,8 +114,7 @@ class AttendanceUpdateRequest(BaseModel):
     room_name: str
     participant_name: str
     participant_identity: Optional[str] = None
-    was_on_hold: Optional[bool] = False
-    action: str
+    action: str  # "join", "leave", "hold_start", "hold_end"
 
 
 def new_room_id() -> str:
@@ -185,7 +193,7 @@ def mark_attendance_join(
     if room_name not in attendance_db:
         attendance_db[room_name] = []
     records = attendance_db[room_name]
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now_str = get_ist_now_str()
     rec = find_attendance(records, identity=identity, name=name)
     if rec:
         rec["leave_time"] = "Active"
@@ -201,7 +209,8 @@ def mark_attendance_join(
         "is_host": is_host,
         "join_time": now_str,
         "leave_time": "Active",
-        "was_on_hold": "No",
+        "current_hold_start": None,
+        "hold_logs": [],
     })
 
 
@@ -328,7 +337,8 @@ async def update_attendance(req: AttendanceUpdateRequest):
 
     records = attendance_db[req.room_name]
     rec = find_attendance(records, identity=req.participant_identity, name=req.participant_name)
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now_dt = get_ist_now_dt()
+    now_str = now_dt.strftime("%Y-%m-%d %I:%M:%S %p")
 
     if req.action == "join":
         mark_attendance_join(
@@ -340,32 +350,70 @@ async def update_attendance(req: AttendanceUpdateRequest):
     elif rec:
         if req.action == "leave":
             rec["leave_time"] = now_str
-        elif req.action == "hold_update" and req.was_on_hold:
-            rec["was_on_hold"] = "Yes (Detected Away/On-Hold)"
+            if rec.get("current_hold_start"):
+                start_dt = rec["current_hold_start"]
+                dur = int((now_dt - start_dt).total_seconds())
+                rec.setdefault("hold_logs", []).append(
+                    f"{start_dt.strftime('%I:%M:%S %p')} to {now_dt.strftime('%I:%M:%S %p')} ({dur}s)"
+                )
+                rec["current_hold_start"] = None
+
+        elif req.action == "hold_start":
+            rec["current_hold_start"] = now_dt
+
+        elif req.action == "hold_end":
+            if rec.get("current_hold_start"):
+                start_dt = rec["current_hold_start"]
+                dur = int((now_dt - start_dt).total_seconds())
+                rec.setdefault("hold_logs", []).append(
+                    f"{start_dt.strftime('%I:%M:%S %p')} to {now_dt.strftime('%I:%M:%S %p')} ({dur}s)"
+                )
+                rec["current_hold_start"] = None
+
     return {"status": "success"}
 
 
 @app.get("/api/attendance/export/{room_name}")
 async def export_attendance(room_name: str):
     records = attendance_db.get(room_name, [])
+    now_dt = get_ist_now_dt()
+    now_str = now_dt.strftime("%Y-%m-%d %I:%M:%S %p")
     output = io.StringIO()
     writer = csv.writer(output)
 
-    writer.writerow(["Meeting Attendance Report", f"Room: {room_name}", f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"])
+    writer.writerow(["Meeting Attendance Report", f"Room: {room_name}", f"Generated: {now_str} (IST)"])
     writer.writerow([])
-    writer.writerow(["Participant Name", "Role", "Join Time", "Leave Time", "Status / Away Detected"])
+    writer.writerow([
+        "Participant Name",
+        "Role",
+        "Join Time (IST)",
+        "Leave Time (IST)",
+        "Hold / Away Status & Intervals (IST)"
+    ])
 
     if not records:
         writer.writerow(["No participants recorded", "-", "-", "-", "-"])
     else:
         for r in records:
             role = "Host" if r.get("is_host") else "Participant"
+            leave_time = r.get("leave_time", "Active")
+            if leave_time == "Active":
+                leave_time = f"{now_str} (Meeting Ended)"
+
+            logs = list(r.get("hold_logs") or [])
+            if r.get("current_hold_start"):
+                s_dt = r["current_hold_start"]
+                dur = int((now_dt - s_dt).total_seconds())
+                logs.append(f"{s_dt.strftime('%I:%M:%S %p')} to {now_dt.strftime('%I:%M:%S %p')} ({dur}s)")
+
+            hold_display = "No" if not logs else " | ".join(logs)
+
             writer.writerow([
                 r.get("name", "Unknown"),
                 role,
                 r.get("join_time", "-"),
-                r.get("leave_time", "Active"),
-                r.get("was_on_hold", "No")
+                leave_time,
+                hold_display
             ])
 
     output.seek(0)
@@ -470,6 +518,21 @@ async def kick_participant(req: KickRequest):
 
 @app.post("/api/terminate-room")
 async def terminate_room(req: TerminateRequest):
+    # Mark leave times before terminating room
+    if req.room_name in attendance_db:
+        now_dt = get_ist_now_dt()
+        now_str = now_dt.strftime("%Y-%m-%d %I:%M:%S %p")
+        for r in attendance_db[req.room_name]:
+            if r.get("leave_time") == "Active":
+                r["leave_time"] = f"{now_str} (Meeting Ended)"
+            if r.get("current_hold_start"):
+                s_dt = r["current_hold_start"]
+                dur = int((now_dt - s_dt).total_seconds())
+                r.setdefault("hold_logs", []).append(
+                    f"{s_dt.strftime('%I:%M:%S %p')} to {now_dt.strftime('%I:%M:%S %p')} ({dur}s)"
+                )
+                r["current_hold_start"] = None
+
     lk_api = api.LiveKitAPI(LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET)
     try:
         await lk_api.room.delete_room(api.DeleteRoomRequest(room=req.room_name))

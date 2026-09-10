@@ -124,7 +124,7 @@ function MeetingStage({
         }
     }, [localParticipant, initialCam, initialMic, participantName, micLocked, isEffectiveModerator]);
 
-    // Visibility / Hold status
+    // Visibility / Hold status with hold_start & hold_end
     useEffect(() => {
         if (!room || !localParticipant) return;
 
@@ -145,15 +145,13 @@ function MeetingStage({
             });
             room.localParticipant.publishData(new TextEncoder().encode(payload), { reliable: true });
 
-            if (isHidden) {
-                axios.post(`${BACKEND_URL}/api/attendance/update`, {
-                    room_name: roomName,
-                    participant_name: participantName,
-                    participant_identity: localParticipant.identity,
-                    was_on_hold: true,
-                    action: "hold_update"
-                }).catch(() => {});
-            }
+            // Post action hold_start or hold_end for IST duration calculation
+            axios.post(`${BACKEND_URL}/api/attendance/update`, {
+                room_name: roomName,
+                participant_name: participantName,
+                participant_identity: localParticipant.identity,
+                action: isHidden ? "hold_start" : "hold_end"
+            }).catch(() => {});
         };
 
         document.addEventListener('visibilitychange', handleVisibilityChange);
