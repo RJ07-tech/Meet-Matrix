@@ -8,10 +8,12 @@ export default function Whiteboard({
                                        allowCohostWhiteboard,
                                        activeScreenSharer,
                                        onClose,
-                                       localParticipant
+                                       localParticipant,
+                                       drawingHistoryRef,
+                                       textItems,
+                                       setTextItems
                                    }) {
     const canvasRef = useRef(null);
-    const drawingHistoryRef = useRef([]);
     const [isDrawing, setIsDrawing] = useState(false);
     const [tool, setTool] = useState('pen');
     const [color, setColor] = useState('#000000');
@@ -22,14 +24,7 @@ export default function Whiteboard({
     const startPosRef = useRef({ x: 0, y: 0 });
     const snapshotRef = useRef(null);
     const currentPointsRef = useRef([]);
-
-    const [textItems, setTextItems] = useState([]);
     const [activeTextId, setActiveTextId] = useState(null);
-    const textItemsRef = useRef([]);
-
-    useEffect(() => {
-        textItemsRef.current = textItems;
-    }, [textItems]);
 
     const canPresentWhiteboard = isHost || (isCoHost && allowCohostWhiteboard);
 
@@ -46,39 +41,43 @@ export default function Whiteboard({
 
         fillWhiteBackground(ctx, width, height);
 
-        drawingHistoryRef.current.forEach(action => {
-            if (action.type === 'stroke') {
-                ctx.strokeStyle = action.color;
-                ctx.lineWidth = action.size;
-                ctx.lineCap = 'round';
-                ctx.lineJoin = 'round';
-                ctx.beginPath();
-                action.points.forEach((pt, idx) => {
-                    if (idx === 0) ctx.moveTo(pt.x, pt.y);
-                    else ctx.lineTo(pt.x, pt.y);
-                });
-                ctx.stroke();
-            } else if (action.type === 'rect') {
-                ctx.strokeStyle = action.color;
-                ctx.lineWidth = action.size;
-                ctx.strokeRect(action.x, action.y, action.w, action.h);
-            } else if (action.type === 'circle') {
-                ctx.strokeStyle = action.color;
-                ctx.lineWidth = action.size;
-                ctx.beginPath();
-                ctx.arc(action.x, action.y, action.r, 0, 2 * Math.PI);
-                ctx.stroke();
-            }
-        });
+        if (drawingHistoryRef && drawingHistoryRef.current) {
+            drawingHistoryRef.current.forEach(action => {
+                if (action.type === 'stroke') {
+                    ctx.strokeStyle = action.color;
+                    ctx.lineWidth = action.size;
+                    ctx.lineCap = 'round';
+                    ctx.lineJoin = 'round';
+                    ctx.beginPath();
+                    action.points.forEach((pt, idx) => {
+                        if (idx === 0) ctx.moveTo(pt.x, pt.y);
+                        else ctx.lineTo(pt.x, pt.y);
+                    });
+                    ctx.stroke();
+                } else if (action.type === 'rect') {
+                    ctx.strokeStyle = action.color;
+                    ctx.lineWidth = action.size;
+                    ctx.strokeRect(action.x, action.y, action.w, action.h);
+                } else if (action.type === 'circle') {
+                    ctx.strokeStyle = action.color;
+                    ctx.lineWidth = action.size;
+                    ctx.beginPath();
+                    ctx.arc(action.x, action.y, action.r, 0, 2 * Math.PI);
+                    ctx.stroke();
+                }
+            });
+        }
 
-        textItemsRef.current.forEach(item => {
-            if (item.text) {
-                ctx.fillStyle = item.color || '#000000';
-                ctx.font = 'bold 18px Inter, system-ui, sans-serif';
-                ctx.fillText(item.text, item.x, item.y + 18);
-            }
-        });
-    }, []);
+        if (textItems) {
+            textItems.forEach(item => {
+                if (item.text) {
+                    ctx.fillStyle = item.color || '#000000';
+                    ctx.font = 'bold 18px Inter, system-ui, sans-serif';
+                    ctx.fillText(item.text, item.x, item.y + 18);
+                }
+            });
+        }
+    }, [drawingHistoryRef, textItems]);
 
     useEffect(() => {
         const canvas = canvasRef.current;
@@ -280,7 +279,7 @@ export default function Whiteboard({
                         <button onClick={() => setTool('pen')} style={{ ...iconBtnStyle, background: tool === 'pen' ? '#0284c7' : 'transparent' }} title="Pen">
                             <Pen size={14} />
                         </button>
-                        <button onClick={() => setTool('text')} style={{ ...iconBtnStyle, background: tool === 'text' ? '#0284c7' : 'transparent' }} title="Live Text (Click to write)">
+                        <button onClick={() => setTool('text')} style={{ ...iconBtnStyle, background: tool === 'text' ? '#0284c7' : 'transparent' }} title="Text Tool">
                             <Type size={14} />
                         </button>
                         <button onClick={() => setTool('eraser')} style={{ ...iconBtnStyle, background: tool === 'eraser' ? '#0284c7' : 'transparent' }} title="Eraser">
@@ -308,7 +307,7 @@ export default function Whiteboard({
                         min="2"
                         max="24"
                         value={brushSize}
-                        onChange={(e) => setBrushSize(parseInt(e.target.value))}
+                        onChange={(e) => setBrushSize(parseInt(e.target.value, 10))}
                         style={{ width: '60px', accentColor: '#38bdf8' }}
                     />
 
@@ -367,7 +366,7 @@ export default function Whiteboard({
                             autoFocus
                             type="text"
                             value={item.text}
-                            placeholder="Type live text..."
+                            placeholder="Type text..."
                             onChange={(e) => handleTextChange(item.id, e.target.value)}
                             onBlur={redrawAll}
                             onFocus={() => setActiveTextId(item.id)}

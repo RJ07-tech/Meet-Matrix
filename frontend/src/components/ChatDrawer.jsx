@@ -22,6 +22,13 @@ export default function ChatDrawer({
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [chatMessages]);
 
+    // Force recipient to 'HostOnly' if chatHostOnly is active
+    useEffect(() => {
+        if (chatHostOnly && chatRecipient === 'Everyone') {
+            setChatRecipient('HostOnly');
+        }
+    }, [chatHostOnly, chatRecipient, setChatRecipient]);
+
     const handleChatEmojiPicked = (emojiData) => {
         setChatInput(prev => prev + emojiData.emoji);
         setShowChatEmojiPicker(false);
@@ -32,7 +39,7 @@ export default function ChatDrawer({
     const handleSubmit = (e) => {
         e.preventDefault();
         if (!chatInput.trim() || isInputDisabled) return;
-        const targetRecipient = chatHostOnly && !isEffectiveModerator ? 'HostOnly' : chatRecipient;
+        const targetRecipient = chatHostOnly ? 'HostOnly' : chatRecipient;
         onSendMessage(chatInput.trim(), targetRecipient);
         setChatInput('');
         setShowChatEmojiPicker(false);
@@ -57,6 +64,7 @@ export default function ChatDrawer({
                         onChange={(e) => setChatRecipient(e.target.value)}
                         style={{ width: '100%', padding: '5px 8px', background: '#131b2e', border: '1px solid #334155', color: '#38bdf8', borderRadius: '6px', fontSize: '0.75rem' }}
                     >
+                        {/* Completely hide Everyone when host-only chat is active */}
                         {!chatHostOnly && <option value="Everyone">Everyone (Public)</option>}
                         <option value="HostOnly">🛡️ Host Only (Private)</option>
                         {!chatHostOnly && allowDirectChat && remoteParticipants.map(p => (

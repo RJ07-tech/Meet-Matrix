@@ -65,6 +65,10 @@ function MeetingStage({
     const [raisedHandsMap, setRaisedHandsMap] = useState({});
     const [holdParticipantsMap, setHoldParticipantsMap] = useState({});
 
+    // Persistent Whiteboard memory lifted to MeetingStage
+    const drawingHistoryRef = useRef([]);
+    const [whiteboardTextItems, setWhiteboardTextItems] = useState([]);
+
     const [coHostsMap, setCoHostsMap] = useState({});
     const [waitingList, setWaitingList] = useState([]);
     const [showAdmitModal, setShowAdmitModal] = useState(false);
@@ -73,7 +77,7 @@ function MeetingStage({
     const [showParticipants, setShowParticipants] = useState(false);
     const [showInMeetingSettings, setShowInMeetingSettings] = useState(false);
 
-    // Point 7: Video Request Modal for this client
+    // Video Request Modal for this client
     const [showVideoRequestModal, setShowVideoRequestModal] = useState(false);
 
     const [floatingEmojis, setFloatingEmojis] = useState([]);
@@ -247,20 +251,13 @@ function MeetingStage({
                             localParticipant.setMicrophoneEnabled(false);
                         }
                     }
-                } if (data.type === 'screen_sharing_started') {
-                    // Lock screen share state instantly for other peers
+                } else if (data.type === 'screen_sharing_started') {
                     console.log("Sharer locked:", data.identity);
                 } else if (data.type === 'request_video') {
-                    // Match identity cleanly by substring or exact identity
                     const myId = localParticipant?.identity || '';
                     if (data.targetIdentity === myId || myId.includes(data.targetIdentity) || data.targetIdentity.includes(myId)) {
                         setShowVideoRequestModal(true);
                     }
-                }
-
-                else if (data.type === 'request_video' && data.targetIdentity === localParticipant?.identity) {
-                    // Point 7: Video request pop-up
-                    setShowVideoRequestModal(true);
                 } else if (data.type === 'user_hold_status') {
                     setHoldParticipantsMap(prev => ({
                         ...prev,
@@ -337,7 +334,6 @@ function MeetingStage({
         } catch (err) {}
     };
 
-// Point 3: Single Presenter Lock for Normal Screen Share
     const toggleScreenShare = async () => {
         if (!isEffectiveModerator && !allowScreenshare) {
             alert("Screen sharing is restricted by Host.");
@@ -350,7 +346,6 @@ function MeetingStage({
 
         const isCurrentlySharing = Boolean(localParticipant?.isScreenShareEnabled);
 
-        // Block if someone else is already sharing screen or presenting whiteboard
         if (!isCurrentlySharing && activeScreenSharer && activeScreenSharer !== localParticipant?.identity) {
             alert("Someone is already sharing their screen. Only one person can share at a time.");
             return;
@@ -360,7 +355,6 @@ function MeetingStage({
             await localParticipant.setScreenShareEnabled(!isCurrentlySharing);
             setIsScreenSharing(!isCurrentlySharing);
 
-            // Broadcast sharing status instantly across DataChannel for zero latency
             if (room?.localParticipant) {
                 const payload = JSON.stringify({
                     type: !isCurrentlySharing ? 'screen_sharing_started' : 'screen_sharing_stopped',
@@ -428,7 +422,6 @@ function MeetingStage({
         room.localParticipant.publishData(new TextEncoder().encode(payload), { reliable: true });
     };
 
-    // Point 7: Send Ask-to-Start Video Request
     const handleRequestVideo = (targetIdentity, targetName) => {
         if (!room || !isEffectiveModerator) return;
         const payload = JSON.stringify({ type: 'request_video', targetIdentity });
@@ -460,7 +453,7 @@ function MeetingStage({
         } catch (e) {}
         onLeave();
     };
-// Point 5: Auto CSV Download on Meeting End with safety delay before destroying room
+
     const handleTerminateWithCsv = async () => {
         if (!isHost) return;
 
@@ -475,7 +468,6 @@ function MeetingStage({
             document.body.removeChild(a);
         }
 
-        // Wait 1.5 seconds for CSV export to stream before terminating room
         setTimeout(() => {
             onTerminate();
         }, 1500);
@@ -498,7 +490,6 @@ function MeetingStage({
         } catch (e) {}
     };
 
-    // Point 4: Host-Only chat enforcement
     const handleSendMessage = (text, recipient) => {
         if (!room) return;
         if (chatHostOnly && !isEffectiveModerator && recipient !== 'HostOnly') {
@@ -555,6 +546,7 @@ function MeetingStage({
         }
     };
 
+    // Away/On-hold badges disabled for Host
     const allPeers = [
         {
             identity: localParticipant?.identity,
@@ -562,18 +554,21 @@ function MeetingStage({
             isHost,
             isCoHost,
             isSelf: true,
-            isOnHold: !!holdParticipantsMap[localParticipant?.identity],
+            isOnHold: !isHost && !!holdParticipantsMap[localParticipant?.identity],
             isHandRaised: !!raisedHandsMap[localParticipant?.identity]
         },
-        ...remoteParticipants.map(p => ({
-            identity: p.identity,
-            name: p.name || p.identity,
-            isHost: !isHost && (p.identity?.includes('Host') || p.name?.includes('Host')),
-            isCoHost: Boolean(coHostsMap[p.identity]),
-            isSelf: false,
-            isOnHold: !!holdParticipantsMap[p.identity],
-            isHandRaised: !!raisedHandsMap[p.identity]
-        }))
+        ...remoteParticipants.map(p => {
+            const targetIsHost = !isHost && (p.identity?.includes('Host') || p.name?.includes('Host'));
+            return {
+                identity: p.identity,
+                name: p.name || p.identity,
+                isHost: targetIsHost,
+                isCoHost: Boolean(coHostsMap[p.identity]),
+                isSelf: false,
+                isOnHold: !targetIsHost && !!holdParticipantsMap[p.identity],
+                isHandRaised: !!raisedHandsMap[p.identity]
+            };
+        })
     ];
 
     const getGridClass = () => {
@@ -627,8 +622,11 @@ function MeetingStage({
                             <div className="stage-camera-strip">
                                 {cameraTracks.map(track => {
                                     const peerId = track.participant?.identity;
+                                    const peerName = track.participant?.name;
+                                    const targetIsHost = (track.participant?.isLocal && isHost) || peerId?.includes('Host') || peerName?.includes('Host');
                                     const hasHandRaised = !!raisedHandsMap[peerId];
-                                    const isOnHold = !!holdParticipantsMap[peerId];
+                                    const isOnHold = !targetIsHost && !!holdParticipantsMap[peerId];
+
                                     return (
                                         <div key={track.publication?.trackSid || peerId} style={{ position: 'relative', height: '100%' }}>
                                             {isOnHold && !isScreenSharing && <div className="video-hold-badge"><PauseCircle size={12} /> ON HOLD</div>}
@@ -643,8 +641,11 @@ function MeetingStage({
                         <div className={`matrix-stage-grid ${getGridClass()}`}>
                             {cameraTracks.map(track => {
                                 const peerId = track.participant?.identity;
+                                const peerName = track.participant?.name;
+                                const targetIsHost = (track.participant?.isLocal && isHost) || peerId?.includes('Host') || peerName?.includes('Host');
                                 const hasHandRaised = !!raisedHandsMap[peerId];
-                                const isOnHold = !!holdParticipantsMap[peerId];
+                                const isOnHold = !targetIsHost && !!holdParticipantsMap[peerId];
+
                                 return (
                                     <div key={track.publication?.trackSid || peerId} className="video-tile-wrapper">
                                         {isOnHold && !isScreenSharing && (
@@ -671,6 +672,7 @@ function MeetingStage({
                         chatRecipient={chatHostOnly ? 'HostOnly' : chatRecipient}
                         setChatRecipient={setChatRecipient}
                         chatLocked={chatLocked || chatHostOnly}
+                        chatHostOnly={chatHostOnly}
                         isEffectiveModerator={isEffectiveModerator}
                         onSendMessage={handleSendMessage}
                     />
@@ -720,7 +722,7 @@ function MeetingStage({
                 onTerminate={handleTerminateWithCsv}
             />
 
-            {/* Whiteboard Overlay */}
+            {/* Whiteboard with Persistent Props */}
             {showWhiteboard && (
                 <Whiteboard
                     isHost={isHost}
@@ -729,6 +731,9 @@ function MeetingStage({
                     activeScreenSharer={activeScreenSharer}
                     onClose={() => setShowWhiteboard(false)}
                     localParticipant={localParticipant}
+                    drawingHistoryRef={drawingHistoryRef}
+                    textItems={whiteboardTextItems}
+                    setTextItems={setWhiteboardTextItems}
                 />
             )}
 
@@ -770,7 +775,7 @@ function MeetingStage({
                 />
             )}
 
-            {/* Point 7: Video Request Pop-up for this participant */}
+            {/* Video Request Pop-up for this participant */}
             {showVideoRequestModal && (
                 <VideoRequestModal
                     onAccept={() => {
@@ -1320,6 +1325,8 @@ export default function App() {
                     setChatLocked={setChatLocked}
                     chatHostOnly={chatHostOnly}
                     setChatHostOnly={setChatHostOnly}
+                    allowDirectChat={allowDirectChat}
+                    setAllowDirectChat={setAllowDirectChat}
                     allowReactions={allowReactions}
                     setAllowReactions={setAllowReactions}
                     autoDownloadCsv={autoDownloadCsv}
@@ -1462,4 +1469,4 @@ const primaryBtnStyle = { width: '100%', padding: '11px', background: 'linear-gr
 const secondaryBtnStyle = { width: '100%', padding: '10px', background: 'rgba(30, 41, 59, 0.6)', border: '1px solid #0284c7', color: '#38bdf8', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '0.85rem' };
 const topBtnStyle = { display: 'flex', alignItems: 'center', gap: '5px', background: '#1e293b', color: '#ffffff', border: '1px solid #334155', padding: '5px 9px', borderRadius: '7px', fontSize: '0.75rem', cursor: 'pointer', fontWeight: '600' };
 const toggleBtnStyle = { display: 'flex', alignItems: 'center', gap: '6px', color: '#ffffff', border: 'none', padding: '7px 12px', borderRadius: '7px', fontSize: '0.75rem', cursor: 'pointer', fontWeight: '700' };
-const iconActionBtnStyle = { background:    '#1e293b', border: '1px solid #334155', color: '#cbd5e1', padding: '5px 7px', borderRadius: '5px', cursor: 'pointer', display: 'flex', alignItems: 'center' };
+const iconActionBtnStyle = { background: '#1e293b', border: '1px solid #334155', color: '#cbd5e1', padding: '5px 7px', borderRadius: '5px', cursor: 'pointer', display: 'flex', alignItems: 'center' };
