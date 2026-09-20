@@ -275,3 +275,56 @@ video[data-lk-source="screen_share"] {
     object-fit: cover !important;
   }
 }
+/* Enforce rigid alignment for all modal and drawer setting rows */
+.setting-checkbox-row {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  padding: 6px 8px !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+  cursor: pointer !important;
+  margin: 0 !important;
+  line-height: 1.2 !important;
+}
+
+.setting-checkbox-row input[type="checkbox"] {
+  appearance: auto !important;
+  -webkit-appearance: auto !important;
+  width: 16px !important;
+  height: 16px !important;
+  min-width: 16px !important;
+  min-height: 16px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  cursor: pointer !important;
+  flex-shrink: 0 !important;
+  vertical-align: middle !important;
+}
+
+.setting-checkbox-row span {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  font-size: 0.82rem !important;
+  line-height: 1 !important;
+  user-select: none !important;
+}
+
+.setting-dropdown-box {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 6px !important;
+  padding: 6px 8px !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+.setting-dropdown-box select {
+  width: 100% !important;
+  box-sizing: border-box !important;
+  height: 36px !important;
+  margin: 0 !important;
+}
