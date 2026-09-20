@@ -376,7 +376,7 @@ export default function Whiteboard({
                         <textarea
                             autoFocus
                             value={boardText}
-                            placeholder="Type notes, code, or ideas here (Press Enter for next line)..."
+                            placeholder="Type notes, code, or ideas here..."
                             onChange={(e) => setBoardText(e.target.value)}
                             style={{
                                 flex: 1,

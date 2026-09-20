@@ -242,7 +242,7 @@ function MeetingStage({
                 const data = JSON.parse(decoded);
 
                 if (data.type === 'room_terminated') {
-                    alert("The host has ended the meeting for everyone.");
+                    // Instantly leave without a blocking alert
                     onLeave();
                 } else if (data.type === 'settings_update') {
                     if (data.allow_participant_screenshare !== undefined) setAllowScreenshare(data.allow_participant_screenshare);
@@ -413,18 +413,16 @@ function MeetingStage({
             return;
         }
         if (!isEffectiveModerator) return;
-        if (window.confirm(`Remove ${targetName || 'user'}?`)) {
-            try {
-                const payload = JSON.stringify({ type: 'kick_user', targetIdentity: identity });
-                room?.localParticipant?.publishData(new TextEncoder().encode(payload), { reliable: true });
+        try {
+            const payload = JSON.stringify({ type: 'kick_user', targetIdentity: identity });
+            room?.localParticipant?.publishData(new TextEncoder().encode(payload), { reliable: true });
 
-                await axios.post(`${BACKEND_URL}/api/kick-participant`, {
-                    room_name: roomName,
-                    participant_identity: identity,
-                    participant_name: targetName
-                });
-            } catch (err) {}
-        }
+            await axios.post(`${BACKEND_URL}/api/kick-participant`, {
+                room_name: roomName,
+                participant_identity: identity,
+                participant_name: targetName
+            });
+        } catch (err) {}
     };
 
     const handleToggleCoHost = (identity) => {
@@ -467,33 +465,33 @@ function MeetingStage({
         onLeave();
     };
 
-    const handleTerminateWithCsv = async () => {
+    // Instant Terminate without confirmation lock or lag
+    const handleTerminateWithCsv = () => {
         if (!isHost) return;
 
-        if (window.confirm("End meeting for everyone?")) {
-            if (room?.localParticipant) {
-                const payload = JSON.stringify({ type: 'room_terminated' });
-                room.localParticipant.publishData(new TextEncoder().encode(payload), { reliable: true });
-            }
-
-            if (autoDownloadCsv) {
-                const downloadUrl = `${BACKEND_URL}/api/attendance/export/${roomName}`;
-                const a = document.createElement('a');
-                a.href = downloadUrl;
-                a.setAttribute('download', `attendance-${roomName}.csv`);
-                a.style.display = 'none';
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-            }
-
-            setTimeout(async () => {
-                try {
-                    await axios.post(`${BACKEND_URL}/api/terminate-room`, { room_name: roomName });
-                } catch (e) {}
-                onTerminate();
-            }, 1200);
+        // 1. Instant DataChannel broadcast to all peers
+        if (room?.localParticipant) {
+            const payload = JSON.stringify({ type: 'room_terminated' });
+            room.localParticipant.publishData(new TextEncoder().encode(payload), { reliable: true });
         }
+
+        // 2. Immediate CSV download if checked
+        if (autoDownloadCsv) {
+            const downloadUrl = `${BACKEND_URL}/api/attendance/export/${roomName}`;
+            const a = document.createElement('a');
+            a.href = downloadUrl;
+            a.setAttribute('download', `attendance-${roomName}.csv`);
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+
+        // 3. Fire-and-forget backend closure
+        axios.post(`${BACKEND_URL}/api/terminate-room`, { room_name: roomName }).catch(() => {});
+
+        // 4. Immediately end the host's session
+        onTerminate();
     };
 
     const handleUpdateLiveRoomSettings = async (updates) => {
@@ -1220,15 +1218,12 @@ export default function App() {
         }
     };
 
-    const handleTerminateMeeting = async () => {
-        if (window.confirm("End meeting for everyone?")) {
-            try {
-                await axios.post(`${BACKEND_URL}/api/terminate-room`, { room_name: roomName });
-            } catch (err) {}
-            setInMeeting(false);
-            setToken('');
-            setRoomName('');
-        }
+    // Immediate cleanup for Host
+    const handleTerminateMeeting = () => {
+        axios.post(`${BACKEND_URL}/api/terminate-room`, { room_name: roomName }).catch(() => {});
+        setInMeeting(false);
+        setToken('');
+        setRoomName('');
     };
 
     if (isWaiting) {
@@ -1367,11 +1362,23 @@ export default function App() {
                     <div style={{ padding: '1.8rem', background: '#0c1222', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '0.8rem' }}>
                             <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981', boxShadow: '0 0 8px #10b981' }}></div>
-                            <h3 style={{ fontSize: '0.82rem', color: '#cbd5e1', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Green Room Hardware Preview</h3>
+                            <h3 style={{ fontSize: '0.82rem', color: '#cbd5e1', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Green Room Preview</h3>
                         </div>
 
                         <div style={{ width: '100%', maxWidth: '320px', height: '190px', background: '#000', borderRadius: '12px', overflow: 'hidden', position: 'relative', border: '1px solid #1e293b' }}>
-                            <video ref={videoPreviewRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                            {/* Mirrored Horizontal Viewport */}
+                            <video
+                                ref={videoPreviewRef}
+                                autoPlay
+                                playsInline
+                                muted
+                                style={{
+                                    width: '100%',
+                                    height: '100%',
+                                    objectFit: 'contain',
+                                    transform: 'scaleX(-1)'
+                                }}
+                            />
                             {!cameraEnabled && (
                                 <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#090d16', color: '#64748b', fontSize: '0.85rem' }}>
                                     Camera is turned off
@@ -1490,6 +1497,5 @@ export default function App() {
 const inputStyle = { width: '100%', padding: '11px 12px', background: '#090d16', border: '1px solid #334155', borderRadius: '8px', color: '#ffffff', fontSize: '0.85rem', outline: 'none', boxSizing: 'border-box' };
 const primaryBtnStyle = { width: '100%', padding: '11px', background: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '0.85rem', boxShadow: '0 4px 14px rgba(2,132,199,0.3)' };
 const secondaryBtnStyle = { width: '100%', padding: '10px', background: 'rgba(30, 41, 59, 0.6)', border: '1px solid #0284c7', color: '#38bdf8', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '0.85rem' };
-const topBtnStyle = { display: 'flex', alignItems: 'center', gap: '5px', background: '#1e293b', color: '#ffffff', border: '1px solid #334155', padding: '5px 9px', borderRadius: '7px', fontSize: '0.75rem', cursor: 'pointer', fontWeight: '600' };
 const toggleBtnStyle = { display: 'flex', alignItems: 'center', gap: '6px', color: '#ffffff', border: 'none', padding: '7px 12px', borderRadius: '7px', fontSize: '0.75rem', cursor: 'pointer', fontWeight: '700' };
 const iconActionBtnStyle = { background: '#1e293b', border: '1px solid #334155', color: '#cbd5e1', padding: '5px 7px', borderRadius: '5px', cursor: 'pointer', display: 'flex', alignItems: 'center' };
