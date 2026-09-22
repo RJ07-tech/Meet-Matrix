@@ -266,23 +266,24 @@ async def get_token(req: TokenRequest):
     must_wait = (waiting_mode == "strict" or is_banned) and not is_host
 
     if must_wait:
-        current_list = waiting_room_db.get(req.room_name, [])
-        admitted_record = next(
-            (p for p in current_list if names_match(p.get("name"), clean_name) and p.get("status") == "admitted"),
+        if req.room_name not in waiting_room_db:
+            waiting_room_db[req.room_name] = []
+
+        current_list = waiting_room_db[req.room_name]
+        admitted_index = next(
+            (i for i, p in enumerate(current_list) if names_match(p.get("name"), clean_name) and p.get("status") == "admitted"),
             None
         )
 
-        if not admitted_record:
-            new_pid = str(uuid.uuid4())
-            if req.room_name not in waiting_room_db:
-                waiting_room_db[req.room_name] = []
-
+        # If not admitted yet by host, put in queue and block entry
+        if admitted_index is None:
             existing = next(
-                (p for p in waiting_room_db[req.room_name] if names_match(p.get("name"), clean_name)),
+                (p for p in current_list if names_match(p.get("name"), clean_name)),
                 None
             )
             if not existing:
-                waiting_room_db[req.room_name].append({
+                new_pid = str(uuid.uuid4())
+                current_list.append({
                     "participant_id": new_pid,
                     "name": req.participant_name,
                     "status": "waiting"
@@ -296,6 +297,9 @@ async def get_token(req: TokenRequest):
                 "participant_id": new_pid,
                 "message": "Waiting for host admission"
             }
+        else:
+            # Participant was admitted by host; consume and pop the ticket so rejoins cannot bypass
+            current_list.pop(admitted_index)
 
     try:
         grants = VideoGrants(

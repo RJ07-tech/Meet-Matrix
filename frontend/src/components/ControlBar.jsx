@@ -1,7 +1,7 @@
 import React from 'react';
 import {
     Mic, MicOff, Video, VideoOff, Hand, MonitorUp,
-    PenTool, MessageSquare, Square, Disc, PhoneOff
+    PenTool, MessageSquare, Square, Disc, PhoneOff, Download
 } from 'lucide-react';
 
 export default function ControlBar({
@@ -27,7 +27,8 @@ export default function ControlBar({
                                        startRecording,
                                        stopRecording,
                                        onLeave,
-                                       onTerminate
+                                       onTerminate,
+                                       onDownloadAttendance
                                    }) {
     return (
         <div className="mobile-control-bar" style={bottomBarStyle}>
@@ -86,6 +87,18 @@ export default function ControlBar({
                 {isRecording ? <Square size={18} /> : <Disc size={18} />}
                 <span style={{ fontSize: '0.65rem' }}>{isRecording ? 'Rec' : 'Record'}</span>
             </button>
+
+            {/* Dedicated Mid-Meeting CSV Download for Host/CoHost */}
+            {isEffectiveModerator && onDownloadAttendance && (
+                <button
+                    onClick={onDownloadAttendance}
+                    title="Export Current Attendance CSV"
+                    style={{ ...controlBtn, background: '#065f46', borderColor: '#059669', color: '#34d399' }}
+                >
+                    <Download size={18} />
+                    <span className="mobile-hide" style={{ fontSize: '0.65rem' }}>CSV</span>
+                </button>
+            )}
 
             {isHost ? (
                 <button onClick={onTerminate} style={{ ...controlBtn, background: '#ef4444', color: '#fff' }}>

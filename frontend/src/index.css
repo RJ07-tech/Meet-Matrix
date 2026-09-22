@@ -328,3 +328,41 @@ video[data-lk-source="screen_share"] {
   height: 36px !important;
   margin: 0 !important;
 }
+
+/* Top reaction bar / header container */
+.header-container,
+.top-bar-reactions {
+  position: relative !important;
+  z-index: 50 !important;
+  width: 100% !important;
+  flex-shrink: 0 !important;
+}
+
+/* Stage viewport containing the video feeds */
+.matrix-stage-grid,
+.stage-focus-container {
+  position: relative !important;
+  z-index: 10 !important;
+  flex: 1 1 0% !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  padding-top: 4px !important;
+}
+
+/* Individual video tiles */
+.video-tile-wrapper {
+  position: relative !important;
+  overflow: hidden !important;
+  border-radius: 12px !important;
+  height: 100% !important;
+  width: 100% !important;
+  background-color: #000000 !important;
+}
+
+/* Force video to fit neatly without clipping under absolute controls */
+.video-tile-wrapper video {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  display: block !important;
+}

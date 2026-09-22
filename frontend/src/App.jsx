@@ -465,6 +465,18 @@ function MeetingStage({
         onLeave();
     };
 
+    // Dedicated mid-meeting attendance export (DOES NOT LEAVE OR END MEETING)
+    const handleDownloadAttendanceLive = () => {
+        const downloadUrl = `${BACKEND_URL}/api/attendance/export/${roomName}`;
+        const a = document.createElement('a');
+        a.href = downloadUrl;
+        a.setAttribute('download', `attendance-${roomName}.csv`);
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+    };
+
     // Instant Terminate without confirmation lock or lag
     const handleTerminateWithCsv = () => {
         if (!isHost) return;
@@ -574,7 +586,7 @@ function MeetingStage({
             isHost,
             isCoHost,
             isSelf: true,
-            isOnHold: !isHost && !!holdParticipantsMap[localParticipant?.identity],
+            isOnHold: !isHost && !isCoHost && !!holdParticipantsMap[localParticipant?.identity],
             isHandRaised: !!raisedHandsMap[localParticipant?.identity]
         },
         ...remoteParticipants.map(p => {
@@ -585,7 +597,7 @@ function MeetingStage({
                 isHost: targetIsHost,
                 isCoHost: Boolean(coHostsMap[p.identity]),
                 isSelf: false,
-                isOnHold: !targetIsHost && !!holdParticipantsMap[p.identity],
+                isOnHold: !targetIsHost && !Boolean(coHostsMap[p.identity]) && !!holdParticipantsMap[p.identity],
                 isHandRaised: !!raisedHandsMap[p.identity]
             };
         })
@@ -644,8 +656,9 @@ function MeetingStage({
                                     const peerId = track.participant?.identity;
                                     const peerName = track.participant?.name;
                                     const targetIsHost = (track.participant?.isLocal && isHost) || peerId?.includes('Host') || peerName?.includes('Host');
+                                    const targetIsCoHost = (track.participant?.isLocal && isCoHost) || Boolean(coHostsMap[peerId]);
                                     const hasHandRaised = !!raisedHandsMap[peerId];
-                                    const isOnHold = !targetIsHost && !!holdParticipantsMap[peerId];
+                                    const isOnHold = !targetIsHost && !targetIsCoHost && !!holdParticipantsMap[peerId];
 
                                     return (
                                         <div key={track.publication?.trackSid || peerId} style={{ position: 'relative', height: '100%' }}>
@@ -663,8 +676,9 @@ function MeetingStage({
                                 const peerId = track.participant?.identity;
                                 const peerName = track.participant?.name;
                                 const targetIsHost = (track.participant?.isLocal && isHost) || peerId?.includes('Host') || peerName?.includes('Host');
+                                const targetIsCoHost = (track.participant?.isLocal && isCoHost) || Boolean(coHostsMap[peerId]);
                                 const hasHandRaised = !!raisedHandsMap[peerId];
-                                const isOnHold = !targetIsHost && !!holdParticipantsMap[peerId];
+                                const isOnHold = !targetIsHost && !targetIsCoHost && !!holdParticipantsMap[peerId];
 
                                 return (
                                     <div key={track.publication?.trackSid || peerId} className="video-tile-wrapper">
@@ -740,6 +754,7 @@ function MeetingStage({
                 stopRecording={stopRecording}
                 onLeave={handleLeaveMeeting}
                 onTerminate={handleTerminateWithCsv}
+                onDownloadAttendance={handleDownloadAttendanceLive}
             />
 
             {/* Whiteboard with Multiline Text & Floating Alerts */}
@@ -1127,17 +1142,22 @@ export default function App() {
     };
 
     const proceedJoin = async (nameToUse) => {
-        setIsHost(false);
         setLoading(true);
         try {
+            const hasHostKey = Boolean(hostSecret);
+
             const res = await axios.post(`${BACKEND_URL}/api/get-token`, {
                 room_name: roomName.trim(),
-                participant_name: nameToUse,
-                is_host: false,
-                role: "participant"
+                participant_name: hasHostKey ? `${nameToUse} (Host)` : nameToUse,
+                is_host: hasHostKey,
+                role: hasHostKey ? "host" : "participant",
+                host_secret: hasHostKey ? hostSecret : undefined
             });
+
             if (res.data.is_host) {
                 setIsHost(true);
+            } else {
+                setIsHost(false);
             }
 
             if (res.data.status === 'waiting') {
@@ -1147,13 +1167,15 @@ export default function App() {
                 setToken(res.data.token);
                 setServerUrl(res.data.server_url);
 
-                if (res.data.mute_on_entry) {
-                    setInitialMuteAudio(true);
-                    setMicEnabled(false);
-                }
-                if (res.data.camera_off_on_entry) {
-                    setInitialMuteVideo(true);
-                    setCameraEnabled(false);
+                if (!res.data.is_host) {
+                    if (res.data.mute_on_entry) {
+                        setInitialMuteAudio(true);
+                        setMicEnabled(false);
+                    }
+                    if (res.data.camera_off_on_entry) {
+                        setInitialMuteVideo(true);
+                        setCameraEnabled(false);
+                    }
                 }
 
                 stopLobbyPreviewTracks();
