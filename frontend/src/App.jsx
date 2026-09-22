@@ -465,16 +465,20 @@ function MeetingStage({
         onLeave();
     };
 
-    // Dedicated mid-meeting attendance export (DOES NOT LEAVE OR END MEETING)
+    // Standalone attendance download: DOES NOT terminate, leave, or change inMeeting state
     const handleDownloadAttendanceLive = () => {
-        const downloadUrl = `${BACKEND_URL}/api/attendance/export/${roomName}`;
-        const a = document.createElement('a');
-        a.href = downloadUrl;
-        a.setAttribute('download', `attendance-${roomName}.csv`);
-        a.style.display = 'none';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
+        try {
+            const downloadUrl = `${BACKEND_URL}/api/attendance/export/${roomName}`;
+            const a = document.createElement('a');
+            a.href = downloadUrl;
+            a.setAttribute('download', `attendance-${roomName}.csv`);
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        } catch (err) {
+            console.error("Attendance download failed:", err);
+        }
     };
 
     // Instant Terminate without confirmation lock or lag

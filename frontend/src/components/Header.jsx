@@ -198,17 +198,6 @@ export default function Header({
                     </button>
                 )}
 
-                {isHost && (
-                    <button
-                        onClick={handleDownloadAttendanceSafe}
-                        className="mobile-hide"
-                        style={topBtnStyle}
-                        title="Download CSV Attendance Report"
-                    >
-                        <Download size={12} /> CSV
-                    </button>
-                )}
-
                 <button onClick={handleCopyInvite} style={{ ...topBtnStyle, background: '#0284c7', color: '#fff' }}>
                     <Copy size={12} />
                     <span className="mobile-hide">Invite</span>
