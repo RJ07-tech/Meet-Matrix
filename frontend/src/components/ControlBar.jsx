@@ -91,8 +91,13 @@ export default function ControlBar({
             {/* Dedicated Mid-Meeting CSV Download for Host/CoHost */}
             {isEffectiveModerator && onDownloadAttendance && (
                 <button
-                    onClick={onDownloadAttendance}
-                    title="Export Current Attendance CSV"
+                    type="button"
+                    onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onDownloadAttendance(e);
+                    }}
+                    title="Download Current Attendance CSV"
                     style={{ ...controlBtn, background: '#065f46', borderColor: '#059669', color: '#34d399' }}
                 >
                     <Download size={18} />

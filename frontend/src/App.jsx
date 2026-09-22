@@ -466,18 +466,30 @@ function MeetingStage({
     };
 
     // Standalone attendance download: DOES NOT terminate, leave, or change inMeeting state
-    const handleDownloadAttendanceLive = () => {
+    const handleDownloadAttendanceLive = async (e) => {
+        if (e && e.preventDefault) e.preventDefault();
+        if (e && e.stopPropagation) e.stopPropagation();
+
         try {
-            const downloadUrl = `${BACKEND_URL}/api/attendance/export/${roomName}`;
-            const a = document.createElement('a');
-            a.href = downloadUrl;
-            a.setAttribute('download', `attendance-${roomName}.csv`);
-            a.style.display = 'none';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
+            const response = await axios.get(`${BACKEND_URL}/api/attendance/export/${roomName}`, {
+                responseType: 'blob'
+            });
+
+            // Create an in-memory blob URL that never causes navigation or unmounts
+            const blob = new Blob([response.data], { type: 'text/csv;charset=utf-8;' });
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `attendance-${roomName}.csv`);
+            document.body.appendChild(link);
+            link.click();
+
+            // Cleanup memory cleanly
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(url);
         } catch (err) {
-            console.error("Attendance download failed:", err);
+            console.error("Attendance download error:", err);
+            alert("Failed to export attendance CSV.");
         }
     };
 
