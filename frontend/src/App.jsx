@@ -959,10 +959,13 @@ export default function App() {
     }, [isWaiting, waitingPid, roomName, user, participantName]);
 
     useEffect(() => {
-        if (!inMeeting && !isWaiting && !isJoiningRef.current) {
+        // When returning to the lobby, reset the joining flag so preview can acquire camera
+        if (!inMeeting && !isWaiting) {
+            isJoiningRef.current = false;
+
             navigator.mediaDevices.getUserMedia({
                 video: { facingMode: 'user' },
-                audio: true
+                audio: false // keep audio false here so you don't hear your own feedback in lobby
             })
                 .then((stream) => {
                     if (isJoiningRef.current) {
@@ -970,9 +973,14 @@ export default function App() {
                         return;
                     }
                     previewStreamRef.current = stream;
-                    if (videoPreviewRef.current) videoPreviewRef.current.srcObject = stream;
+                    if (videoPreviewRef.current) {
+                        videoPreviewRef.current.srcObject = stream;
+                        videoPreviewRef.current.play().catch(() => {});
+                    }
                 })
-                .catch(() => {});
+                .catch((err) => {
+                    console.warn("Lobby camera preview error:", err);
+                });
         } else {
             stopLobbyPreviewTracks();
         }
