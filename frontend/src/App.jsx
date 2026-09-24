@@ -1160,8 +1160,11 @@ export default function App() {
             setServerUrl(tokenRes.data.server_url);
 
             stopLobbyPreviewTracks();
-            setInMeeting(true);
-            setStep('meeting');
+
+            setTimeout(() => {
+                setInMeeting(true);
+                setStep('meeting');
+            }, 150);
         } catch (e) {
             alert("Create room failed: " + (e.response?.data?.detail || e.message));
         } finally {
@@ -1268,8 +1271,11 @@ export default function App() {
                 }
 
                 stopLobbyPreviewTracks();
-                setInMeeting(true);
-                setStep('meeting');
+
+                setTimeout(() => {
+                    setInMeeting(true);
+                    setStep('meeting');
+                }, 150);
             }
         } catch (err) {
             alert(err.response?.data?.detail || "Could not join room");
@@ -1312,8 +1318,11 @@ export default function App() {
         }
 
         stopLobbyPreviewTracks();
-        setInMeeting(true);
-        setStep('meeting');
+
+        setTimeout(() => {
+            setInMeeting(true);
+            setStep('meeting');
+        }, 150);
     };
 
     const handleJoinClick = (e) => {
@@ -1368,7 +1377,7 @@ export default function App() {
                         isHost={isHost}
                         participantName={participantName}
                         setParticipantName={setParticipantName}
-                        initialCam={!initialMuteVideo}
+                        initialCam={cameraEnabled}
                         initialMic={!initialMuteAudio}
                         onLeave={() => { setInMeeting(false); setToken(''); setStep('landing'); }}
                         onTerminate={handleTerminateMeeting}
