@@ -21,6 +21,7 @@ import ChatDrawer from './components/ChatDrawer';
 import ParticipantsDrawer from './components/ParticipantsDrawer';
 import { LobbyModal, InMeetingSettingsModal, PreFlightModal, ScheduleModal, VideoRequestModal } from './components/Modals';
 import Whiteboard from './Whiteboard';
+import LandingHero from './components/LandingHero';
 
 const BACKEND_URL = 'https://meetmatrix-backend-3l9l.onrender.com';
 
@@ -854,6 +855,22 @@ export default function App() {
     const [loading, setLoading] = useState(false);
     const [isInviteFlow, setIsInviteFlow] = useState(false);
 
+    const [step, setStep] = useState('landing'); // 'landing' | 'lobby' | 'meeting'
+    const [isHostIntent, setIsHostIntent] = useState(false);
+
+    const handleStartHostLanding = () => {
+        const newRoomId = `mm-${Math.random().toString(36).substring(2, 6)}-${Math.random().toString(36).substring(2, 6)}`;
+        setRoomName(newRoomId);
+        setIsHostIntent(true);
+        setStep('lobby');
+    };
+
+    const handleJoinGuestLanding = (code) => {
+        setRoomName(code);
+        setIsHostIntent(false);
+        setStep('lobby');
+    };
+
     const [initialMuteAudio, setInitialMuteAudio] = useState(false);
     const [initialMuteVideo, setInitialMuteVideo] = useState(false);
 
@@ -1097,6 +1114,7 @@ export default function App() {
 
             stopLobbyPreviewTracks();
             setInMeeting(true);
+            setStep('meeting');
         } catch (e) {
             alert("Create room failed: " + (e.response?.data?.detail || e.message));
         } finally {
@@ -1204,6 +1222,7 @@ export default function App() {
 
                 stopLobbyPreviewTracks();
                 setInMeeting(true);
+                setStep('meeting');
             }
         } catch (err) {
             alert(err.response?.data?.detail || "Could not join room");
@@ -1247,6 +1266,7 @@ export default function App() {
 
         stopLobbyPreviewTracks();
         setInMeeting(true);
+        setStep('meeting');
     };
 
     const handleJoinClick = (e) => {
@@ -1268,6 +1288,7 @@ export default function App() {
     const handleTerminateMeeting = () => {
         axios.post(`${BACKEND_URL}/api/terminate-room`, { room_name: roomName }).catch(() => {});
         setInMeeting(false);
+        setStep('landing');
         setToken('');
         setRoomName('');
     };
@@ -1293,7 +1314,7 @@ export default function App() {
                     serverUrl={serverUrl}
                     data-lk-theme="default"
                     style={{ height: '100%', width: '100%' }}
-                    onDisconnected={() => { setInMeeting(false); setToken(''); }}
+                    onDisconnected={() => { setInMeeting(false); setToken(''); setStep('landing'); }}
                 >
                     <MeetingStage
                         roomName={roomName}
@@ -1302,7 +1323,7 @@ export default function App() {
                         setParticipantName={setParticipantName}
                         initialCam={!initialMuteVideo}
                         initialMic={!initialMuteAudio}
-                        onLeave={() => { setInMeeting(false); setToken(''); }}
+                        onLeave={() => { setInMeeting(false); setToken(''); setStep('landing'); }}
                         onTerminate={handleTerminateMeeting}
                         showWhiteboard={showWhiteboard}
                         setShowWhiteboard={setShowWhiteboard}
@@ -1333,7 +1354,7 @@ export default function App() {
     }
 
     return (
-        <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'radial-gradient(circle at top, #1e293b 0%, #090d16 100%)', color: '#f8fafc', padding: '12px' }}>
+        <div style={{ minHeight: '100dvh', background: 'var(--bg-gradient)', color: '#f8fafc' }}>
             {showPreSettingsModal && (
                 <PreFlightModal
                     waitingMode={waitingMode}
@@ -1401,147 +1422,136 @@ export default function App() {
                 />
             )}
 
-            {/* Landing Dashboard View */}
-            <div style={{ background: '#131b2e', borderRadius: '18px', width: '100%', maxWidth: '850px', display: 'flex', flexDirection: 'column', border: '1px solid rgba(255,255,255,0.08)', overflow: 'hidden', boxShadow: '0 30px 60px rgba(0,0,0,0.6)' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' }}>
+            {/* STAGE 1: LANDING & HERO */}
+            {step === 'landing' && (
+                <LandingHero
+                    onStartHost={handleStartHostLanding}
+                    onJoinGuest={handleJoinGuestLanding}
+                />
+            )}
 
-                    <div style={{ padding: '1.8rem', background: '#0c1222', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '0.8rem' }}>
-                            <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981', boxShadow: '0 0 8px #10b981' }}></div>
-                            <h3 style={{ fontSize: '0.82rem', color: '#cbd5e1', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Green Room Preview</h3>
-                        </div>
-
-                        <div style={{ width: '100%', maxWidth: '320px', height: '190px', background: '#000', borderRadius: '12px', overflow: 'hidden', position: 'relative', border: '1px solid #1e293b' }}>
-                            {/* Mirrored Horizontal Viewport */}
-                            <video
-                                ref={videoPreviewRef}
-                                autoPlay
-                                playsInline
-                                muted
-                                style={{
-                                    width: '100%',
-                                    height: '100%',
-                                    objectFit: 'contain',
-                                    transform: 'scaleX(-1)'
-                                }}
-                            />
-                            {!cameraEnabled && (
-                                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#090d16', color: '#64748b', fontSize: '0.85rem' }}>
-                                    Camera is turned off
-                                </div>
-                            )}
-                        </div>
-
-                        <div style={{ display: 'flex', gap: '10px', marginTop: '1.2rem' }}>
-                            <button onClick={toggleLobbyCam} style={{ ...toggleBtnStyle, background: cameraEnabled ? '#334155' : '#ef4444' }}>
-                                {cameraEnabled ? <Video size={15} /> : <VideoOff size={15} />} {cameraEnabled ? 'Cam On' : 'Cam Off'}
-                            </button>
-                            <button onClick={toggleLobbyMic} style={{ ...toggleBtnStyle, background: micEnabled ? '#334155' : '#ef4444' }}>
-                                {micEnabled ? <Mic size={15} /> : <MicOff size={15} />} {micEnabled ? 'Mic On' : 'Mic Off'}
-                            </button>
-                        </div>
+            {/* STAGE 2: GREEN ROOM PREVIEW (LOBBY) */}
+            {step === 'lobby' && (
+                <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
+                    <div style={{ width: '100%', maxWidth: '850px', marginBottom: '14px' }}>
+                        <button
+                            onClick={() => setStep('landing')}
+                            style={{ background: 'transparent', border: '1px solid var(--surface-border)', color: '#94a3b8', padding: '6px 14px', borderRadius: '8px', cursor: 'pointer', fontSize: '0.82rem' }}
+                        >
+                            &larr; Back to Home
+                        </button>
                     </div>
 
-                    <div style={{ padding: '1.8rem', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                        <h1 style={{ fontSize: '1.7rem', fontWeight: '900', background: 'linear-gradient(135deg, #38bdf8 0%, #818cf8 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', marginBottom: '0.4rem' }}>MeetMatrix</h1>
-                        {isInviteFlow && (
-                            <p style={{ color: '#94a3b8', fontSize: '0.8rem', marginBottom: '1rem' }}>
-                                Joining Meeting: <strong style={{ color: '#38bdf8' }}>{roomName}</strong>
-                            </p>
-                        )}
+                    <div style={{ background: 'var(--surface-card)', borderRadius: '18px', width: '100%', maxWidth: '850px', display: 'flex', flexDirection: 'column', border: '1px solid var(--surface-border)', overflow: 'hidden', boxShadow: '0 30px 60px rgba(0,0,0,0.6)' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' }}>
 
-                        {user && (
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(9, 13, 22, 0.6)', padding: '6px 14px', borderRadius: '24px', marginBottom: '14px', border: '1px solid #334155' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
-                                    {user.picture ? <img src={user.picture} alt="" style={{ width: '22px', height: '22px', borderRadius: '50%' }} /> : <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#0284c7' }} />}
-                                    <span style={{ fontSize: '0.82rem', color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: '600' }}>{user.name}</span>
+                            {/* Camera Preview Left Column */}
+                            <div style={{ padding: '1.8rem', background: 'rgba(0, 0, 0, 0.4)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '0.8rem' }}>
+                                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981', boxShadow: '0 0 8px #10b981' }}></div>
+                                    <h3 style={{ fontSize: '0.82rem', color: '#cbd5e1', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Green Room Preview</h3>
                                 </div>
-                                <button onClick={() => { localStorage.removeItem('meetmatrix_user'); setUser(null); }} style={{ background: 'transparent', border: 'none', color: '#ef4444', fontSize: '0.72rem', cursor: 'pointer', fontWeight: '700' }}>Switch</button>
+
+                                <div style={{ width: '100%', maxWidth: '320px', height: '190px', background: '#000', borderRadius: '12px', overflow: 'hidden', position: 'relative', border: '1px solid #1e293b' }}>
+                                    <video
+                                        ref={videoPreviewRef}
+                                        autoPlay
+                                        playsInline
+                                        muted
+                                        style={{
+                                            width: '100%',
+                                            height: '100%',
+                                            objectFit: 'contain',
+                                            transform: 'scaleX(-1)'
+                                        }}
+                                    />
+                                    {!cameraEnabled && (
+                                        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#090d16', color: '#64748b', fontSize: '0.85rem' }}>
+                                            Camera is turned off
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div style={{ display: 'flex', gap: '10px', marginTop: '1.2rem' }}>
+                                    <button onClick={toggleLobbyCam} style={{ ...toggleBtnStyle, background: cameraEnabled ? '#334155' : '#ef4444' }}>
+                                        {cameraEnabled ? <Video size={15} /> : <VideoOff size={15} />} {cameraEnabled ? 'Cam On' : 'Cam Off'}
+                                    </button>
+                                    <button onClick={toggleLobbyMic} style={{ ...toggleBtnStyle, background: micEnabled ? '#334155' : '#ef4444' }}>
+                                        {micEnabled ? <Mic size={15} /> : <MicOff size={15} />} {micEnabled ? 'Mic On' : 'Mic Off'}
+                                    </button>
+                                </div>
                             </div>
-                        )}
 
-                        {isInviteFlow ? (
-                            <button onClick={handleJoinClick} disabled={loading} style={{ ...primaryBtnStyle, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                                {!user && <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" style={{ width: '16px', height: '16px' }} />}
-                                {user ? `Enter Meeting as ${user.name.split(' ')[0]}` : `Sign in & Enter Meeting`}
-                            </button>
-                        ) : (
-                            <>
-                                <div style={{ display: 'flex', gap: '10px', marginBottom: '12px' }}>
-                                    <button onClick={handleStartCreateMeeting} disabled={loading} style={{ ...primaryBtnStyle, flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
-                                        <Sliders size={15} /> Configure & Host
-                                    </button>
-                                    <button onClick={handleStartScheduleMeeting} disabled={loading} style={{ ...secondaryBtnStyle, flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
-                                        <Calendar size={15} /> Schedule
-                                    </button>
-                                </div>
+                            {/* Session Setup Right Column */}
+                            <div style={{ padding: '1.8rem', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                                <h2 style={{ fontSize: '1.3rem', fontWeight: '800', marginBottom: '0.4rem' }}>
+                                    {isHostIntent ? "Host Session Setup" : "Join Session"}
+                                </h2>
+                                <p style={{ color: '#94a3b8', fontSize: '0.82rem', marginBottom: '1.2rem' }}>
+                                    Room: <strong style={{ color: 'var(--accent-saffron)' }}>{roomName}</strong>
+                                </p>
 
-                                <div style={{ display: 'flex', alignItems: 'center', margin: '0.8rem 0', color: '#475569' }}>
-                                    <hr style={{ flex: 1, borderColor: '#1e293b' }} />
-                                    <span style={{ padding: '0 8px', fontSize: '0.7rem', fontWeight: '700' }}>OR JOIN EXISTING</span>
-                                    <hr style={{ flex: 1, borderColor: '#1e293b' }} />
-                                </div>
-
-                                <form onSubmit={handleJoinClick} style={{ marginBottom: '14px' }}>
-                                    <input type="text" placeholder="Enter Room Code (e.g. mm-xxxx-xxxx)" value={roomName} onChange={(e) => setRoomName(e.target.value)} style={{ ...inputStyle, marginBottom: '0.8rem' }} />
-                                    <button type="submit" disabled={loading} style={{ ...secondaryBtnStyle, width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                                        {!user && <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" style={{ width: '16px', height: '16px' }} />}
-                                        {user ? `Join Meeting as ${user.name.split(' ')[0]}` : `Sign in & Join Meeting`}
-                                    </button>
-                                </form>
-
-                                {scheduledMeetings.length > 0 && (
-                                    <div style={{ background: '#090d16', borderRadius: '12px', padding: '12px', border: '1px solid #1e293b', maxHeight: '160px', overflowY: 'auto' }}>
-                                        <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: '800', display: 'block', marginBottom: '8px' }}>UPCOMING SCHEDULED MEETINGS</span>
-                                        {scheduledMeetings.map((item) => (
-                                            <div key={item.room_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: '1px solid #1e293b' }}>
-                                                <div style={{ overflow: 'hidden' }}>
-                                                    <span style={{ fontSize: '0.8rem', color: '#38bdf8', fontWeight: '700', display: 'block', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', maxWidth: '160px' }}>{item.title}</span>
-                                                    <span style={{ fontSize: '0.68rem', color: '#64748b' }}>{item.scheduled_date || item.date} at {item.scheduled_time || item.time} ({item.duration_mins || item.duration}m)</span>
-                                                </div>
-                                                <div style={{ display: 'flex', gap: '5px', alignItems: 'center' }}>
-                                                    <button
-                                                        onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/?room=${item.room_id}`); alert("Invite Link Copied!"); }}
-                                                        style={iconActionBtnStyle}
-                                                        title="Copy Invite Link"
-                                                    >
-                                                        <Copy size={13} />
-                                                    </button>
-                                                    <button
-                                                        onClick={() => {
-                                                            setRoomName(item.room_id);
-                                                            setIsHost(true);
-                                                            setHostSecret(item.host_secret || '');
-                                                            joinRoomDirect(item.room_id, user?.name || 'Host', true, item.host_secret);
-                                                        }}
-                                                        style={{ ...iconActionBtnStyle, background: '#0284c7', color: '#fff' }}
-                                                        title="Launch Scheduled Meeting"
-                                                    >
-                                                        <Play size={13} />
-                                                    </button>
-                                                    <button
-                                                        onClick={() => deleteScheduledMeeting(item.room_id)}
-                                                        style={{ ...iconActionBtnStyle, color: '#ef4444' }}
-                                                        title="Delete"
-                                                    >
-                                                        <Trash2 size={13} />
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        ))}
+                                {user && (
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(9, 13, 22, 0.6)', padding: '6px 14px', borderRadius: '24px', marginBottom: '14px', border: '1px solid #334155' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
+                                            {user.picture ? <img src={user.picture} alt="" style={{ width: '22px', height: '22px', borderRadius: '50%' }} /> : <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#0284c7' }} />}
+                                            <span style={{ fontSize: '0.82rem', color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: '600' }}>{user.name}</span>
+                                        </div>
+                                        <button onClick={() => { localStorage.removeItem('meetmatrix_user'); setUser(null); }} style={{ background: 'transparent', border: 'none', color: '#ef4444', fontSize: '0.72rem', cursor: 'pointer', fontWeight: '700' }}>Switch</button>
                                     </div>
                                 )}
-                            </>
-                        )}
+
+                                {isHostIntent ? (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                        <button
+                                            onClick={() => setShowPreSettingsModal(true)}
+                                            style={{ ...secondaryBtnStyle, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                                        >
+                                            <Sliders size={15} /> Room Rules & Settings
+                                        </button>
+                                        <button
+                                            onClick={handleConfirmAndLaunchRoom}
+                                            disabled={loading}
+                                            style={{
+                                                ...primaryBtnStyle,
+                                                background: 'linear-gradient(135deg, var(--accent-saffron) 0%, #e88523 100%)',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                gap: '8px'
+                                            }}
+                                        >
+                                            Launch Meeting as Host &rarr;
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <button
+                                        onClick={handleJoinClick}
+                                        disabled={loading}
+                                        style={{
+                                            ...primaryBtnStyle,
+                                            background: 'linear-gradient(135deg, var(--accent-green) 0%, #0f6e06 100%)',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: '8px'
+                                        }}
+                                    >
+                                        {!user && <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" style={{ width: '16px', height: '16px' }} />}
+                                        {user ? `Enter Room as ${user.name.split(' ')[0]}` : `Sign in & Enter Room`}
+                                    </button>
+                                )}
+                            </div>
+
+                        </div>
                     </div>
                 </div>
-            </div>
+            )}
         </div>
     );
 }
 
 const inputStyle = { width: '100%', padding: '11px 12px', background: '#090d16', border: '1px solid #334155', borderRadius: '8px', color: '#ffffff', fontSize: '0.85rem', outline: 'none', boxSizing: 'border-box' };
-const primaryBtnStyle = { width: '100%', padding: '11px', background: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '0.85rem', boxShadow: '0 4px 14px rgba(2,132,199,0.3)' };
-const secondaryBtnStyle = { width: '100%', padding: '10px', background: 'rgba(30, 41, 59, 0.6)', border: '1px solid #0284c7', color: '#38bdf8', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '0.85rem' };
+const primaryBtnStyle = { width: '100%', padding: '11px', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '0.85rem' };
+const secondaryBtnStyle = { width: '100%', padding: '10px', background: 'rgba(30, 41, 59, 0.6)', border: '1px solid #334155', color: '#cbd5e1', borderRadius: '8px', fontWeight: '700', cursor: 'pointer', fontSize: '0.85rem' };
 const toggleBtnStyle = { display: 'flex', alignItems: 'center', gap: '6px', color: '#ffffff', border: 'none', padding: '7px 12px', borderRadius: '7px', fontSize: '0.75rem', cursor: 'pointer', fontWeight: '700' };
-const iconActionBtnStyle = { background: '#1e293b', border: '1px solid #334155', color: '#cbd5e1', padding: '5px 7px', borderRadius: '5px', cursor: 'pointer', display: 'flex', alignItems: 'center' };

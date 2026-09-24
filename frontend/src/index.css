@@ -1,3 +1,27 @@
+:root {
+  /* Indian Tricolor Backdrop & Theme Tokens */
+  --bg-gradient: radial-gradient(circle at 15% 20%, rgba(255, 153, 51, 0.22) 0%, transparent 45%),
+  radial-gradient(circle at 85% 85%, rgba(19, 136, 8, 0.20) 0%, transparent 45%),
+  linear-gradient(145deg, #070a0f 0%, #0c131a 50%, #061009 100%);
+
+  --surface-card: rgba(18, 24, 33, 0.82);
+  --surface-border: rgba(255, 255, 255, 0.12);
+  --surface-hover: rgba(255, 255, 255, 0.06);
+
+  /* Accents */
+  --accent-saffron: #ff9933;
+  --accent-saffron-hover: #e88523;
+  --accent-green: #138808;
+  --accent-green-hover: #0f6e06;
+  --accent-navy: #2563eb;
+  --danger-crimson: #ef4444;
+
+  /* Text */
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -6,11 +30,16 @@
 }
 
 html, body, #root {
-  height: 100%;
+  min-height: 100%;
   width: 100%;
-  overflow: hidden;
-  background-color: #090d16;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+}
+
+body {
+  background: var(--bg-gradient);
+  background-attachment: fixed;
+  color: var(--text-primary);
+  min-height: 100vh;
 }
 
 /* Video Containers */
@@ -114,14 +143,15 @@ video[data-lk-source="screen_share"] {
   grid-auto-rows: 1fr;
 }
 
+/* Individual video tiles */
 .video-tile-wrapper {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  min-height: 0;
-  border-radius: 12px;
-  overflow: hidden;
-  background: #0b0f19;
+  position: relative !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  border-radius: 12px !important;
+  overflow: hidden !important;
+  background: #000000 !important;
   border: 1px solid #1e293b;
   display: flex;
   align-items: center;
@@ -138,6 +168,7 @@ video[data-lk-source="screen_share"] {
   width: 100% !important;
   height: 100% !important;
   object-fit: cover !important;
+  display: block !important;
 }
 
 /* Badges */
@@ -275,7 +306,8 @@ video[data-lk-source="screen_share"] {
     object-fit: cover !important;
   }
 }
-/* Enforce rigid alignment for all modal and drawer setting rows */
+
+/* Alignment for settings & drawers */
 .setting-checkbox-row {
   display: flex !important;
   align-items: center !important;
@@ -329,7 +361,7 @@ video[data-lk-source="screen_share"] {
   margin: 0 !important;
 }
 
-/* Top reaction bar / header container */
+/* Header & Viewport Stacking */
 .header-container,
 .top-bar-reactions {
   position: relative !important;
@@ -338,7 +370,6 @@ video[data-lk-source="screen_share"] {
   flex-shrink: 0 !important;
 }
 
-/* Stage viewport containing the video feeds */
 .matrix-stage-grid,
 .stage-focus-container {
   position: relative !important;
@@ -347,22 +378,4 @@ video[data-lk-source="screen_share"] {
   min-height: 0 !important;
   overflow: hidden !important;
   padding-top: 4px !important;
-}
-
-/* Individual video tiles */
-.video-tile-wrapper {
-  position: relative !important;
-  overflow: hidden !important;
-  border-radius: 12px !important;
-  height: 100% !important;
-  width: 100% !important;
-  background-color: #000000 !important;
-}
-
-/* Force video to fit neatly without clipping under absolute controls */
-.video-tile-wrapper video {
-  width: 100% !important;
-  height: 100% !important;
-  object-fit: cover !important;
-  display: block !important;
 }
