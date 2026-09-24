@@ -1399,6 +1399,7 @@ export default function App() {
 
     return (
         <div style={{ minHeight: '100dvh', background: 'var(--bg-gradient)', color: '#f8fafc' }}>
+            {/* Host Pre-flight Modal */}
             {showPreSettingsModal && (
                 <PreFlightModal
                     waitingMode={waitingMode}
@@ -1430,6 +1431,7 @@ export default function App() {
                 />
             )}
 
+            {/* Schedule Modal */}
             {showScheduleModal && (
                 <ScheduleModal
                     scheduleTitle={scheduleTitle}
@@ -1466,8 +1468,8 @@ export default function App() {
                 />
             )}
 
-            {/* STAGE 1: LANDING & HERO */}
-            {step === 'landing' && (
+            {/* STAGE 1: LANDING HERO */}
+            {(!step || step === 'landing') && (
                 <LandingHero
                     onStartHost={handleStartHostLanding}
                     onJoinGuest={handleJoinGuestLanding}
