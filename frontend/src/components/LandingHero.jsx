@@ -17,7 +17,7 @@ export default function LandingHero({ onStartHost, onJoinGuest }) {
                     <div style={styles.flagIndicator} />
                     <h1 style={styles.brandTitle}>Meet<span style={{ color: 'var(--accent-saffron)' }}>Matrix</span></h1>
                 </div>
-                <div style={styles.badge}>v2.0 • Secure WebRTC</div>
+                <div style={styles.badge}> • Secure WebRTC</div>
             </header>
 
             <div style={styles.heroSection}>
