@@ -996,6 +996,8 @@ export default function App() {
         if (roomParam) {
             setRoomName(roomParam);
             setIsInviteFlow(true);
+            setIsHostIntent(false);
+            setStep('lobby'); // <--- Skips Stage 1 directly to Green Room
         }
     }, []);
 
