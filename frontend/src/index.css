@@ -118,32 +118,65 @@ video[data-lk-source="screen_share"] {
   overflow: hidden;
 }
 
-/* Stage Video Grid */
+/* Stage Viewport with Tricolor Backdrop */
+.stage-main-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  position: relative;
+  overflow: hidden;
+  background: var(--bg-gradient) !important;
+  background-attachment: fixed;
+}
+
+/* Teams-style Dynamic Stage Grid */
 .matrix-stage-grid {
-  display: grid;
+  display: grid !important;
   width: 100%;
   height: 100%;
-  gap: 8px;
-  padding: 8px;
+  gap: 12px;
+  padding: 12px;
   box-sizing: border-box;
+  align-content: center;
+  justify-content: center;
 }
 
+/* 1 Participant: Centered focus card */
 .matrix-grid-1 {
-  grid-template-columns: 1fr;
-  grid-template-rows: 1fr;
+  grid-template-columns: minmax(auto, 900px);
+  grid-template-rows: minmax(auto, 85vh);
+  justify-content: center;
+  align-content: center;
 }
 
+/* 2 Participants: Clean 2 columns */
 .matrix-grid-2 {
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, 1fr);
   grid-template-rows: 1fr;
 }
 
+/* 3 or 4 Participants: Teams 2x2 layout (Prevents the awkward 3-in-a-row stretch) */
+.matrix-grid-3,
+.matrix-grid-4 {
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+}
+
+/* 5 or 6 Participants: 3 columns x 2 rows */
+.matrix-grid-5,
+.matrix-grid-6 {
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+}
+
+/* 7+ Participants: Responsive dynamic tiles */
 .matrix-grid-multi {
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   grid-auto-rows: 1fr;
 }
 
-/* Individual video tiles */
+/* Glassmorphism Video Tiles (Teams aesthetic with Tricolor borders) */
 .video-tile-wrapper {
   position: relative !important;
   width: 100% !important;
@@ -151,24 +184,31 @@ video[data-lk-source="screen_share"] {
   min-height: 0 !important;
   border-radius: 12px !important;
   overflow: hidden !important;
-  background: #000000 !important;
-  border: 1px solid #1e293b;
+  background: rgba(15, 23, 42, 0.75) !important;
+  backdrop-filter: blur(12px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5) !important;
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.video-tile-wrapper .lk-participant-tile {
-  width: 100% !important;
-  height: 100% !important;
-  border: none !important;
+/* Subtle saffron indicator for active host / speaker */
+.video-tile-wrapper.tile-host {
+  border-color: rgba(255, 153, 51, 0.4) !important;
 }
 
 .video-tile-wrapper video {
   width: 100% !important;
   height: 100% !important;
-  object-fit: cover !important;
+  object-fit: contain !important;
   display: block !important;
+}
+
+/* Default avatar / placeholder for turned off camera in Teams style */
+.video-tile-wrapper .lk-participant-placeholder {
+  background: radial-gradient(circle at center, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.95) 100%) !important;
 }
 
 /* Badges */

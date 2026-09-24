@@ -626,13 +626,16 @@ function MeetingStage({
     ];
 
     const getGridClass = () => {
-        if (cameraTracks.length <= 1) return 'matrix-grid-1';
-        if (cameraTracks.length === 2) return 'matrix-grid-2';
+        const count = cameraTracks.length;
+        if (count <= 1) return 'matrix-grid-1';
+        if (count === 2) return 'matrix-grid-2';
+        if (count === 3 || count === 4) return 'matrix-grid-4';
+        if (count === 5 || count === 6) return 'matrix-grid-6';
         return 'matrix-grid-multi';
     };
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', position: 'relative', overflow: 'hidden', background: '#090d16' }}>
+        <div className="stage-main-wrapper">
             <RoomAudioRenderer />
 
             {/* Floating Emojis */}
@@ -703,7 +706,10 @@ function MeetingStage({
                                 const isOnHold = !targetIsHost && !targetIsCoHost && !!holdParticipantsMap[peerId];
 
                                 return (
-                                    <div key={track.publication?.trackSid || peerId} className="video-tile-wrapper">
+                                    <div
+                                        key={track.publication?.trackSid || peerId}
+                                        className={`video-tile-wrapper ${targetIsHost ? 'tile-host' : ''}`}
+                                    >
                                         {isOnHold && !isScreenSharing && (
                                             <div className="video-hold-badge">
                                                 <PauseCircle size={14} /> AWAY / ON HOLD
@@ -1339,7 +1345,7 @@ export default function App() {
 
     if (inMeeting && token && serverUrl) {
         return (
-            <div style={{ height: '100dvh', width: '100vw', background: '#090d16', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ height: '100dvh', width: '100vw', background: 'var(--bg-gradient)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                 <LiveKitRoom
                     video={cameraEnabled ? { facingMode: 'user' } : false}
                     audio={micEnabled}
