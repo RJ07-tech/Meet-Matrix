@@ -909,6 +909,50 @@ export default function App() {
     const previewStreamRef = useRef(null);
     const isJoiningRef = useRef(false);
 
+    // Callback ref: fires immediately when the <video> tag mounts or unmounts in DOM
+    const setVideoPreviewRef = useCallback((node) => {
+        videoPreviewElRef.current = node;
+        if (node && previewStreamRef.current) {
+            node.srcObject = previewStreamRef.current;
+            node.play().catch(() => {});
+        }
+    }, []);
+
+    useEffect(() => {
+        let active = true;
+
+        if (step === 'lobby' && !isWaiting) {
+            isJoiningRef.current = false;
+
+            navigator.mediaDevices.getUserMedia({
+                video: { facingMode: 'user' },
+                audio: false
+            })
+                .then((stream) => {
+                    if (!active || isJoiningRef.current) {
+                        stream.getTracks().forEach(t => t.stop());
+                        return;
+                    }
+                    previewStreamRef.current = stream;
+
+                    // Attach immediately if video tag is already present
+                    if (videoPreviewElRef.current) {
+                        videoPreviewElRef.current.srcObject = stream;
+                        videoPreviewElRef.current.play().catch(() => {});
+                    }
+                })
+                .catch((err) => {
+                    console.warn("Lobby camera preview error:", err);
+                });
+        } else {
+            stopLobbyPreviewTracks();
+        }
+
+        return () => {
+            active = false;
+        };
+    }, [step, isWaiting]);
+
     const [user, setUser] = useState(() => {
         try {
             const saved = localStorage.getItem('meetmatrix_user');
@@ -927,8 +971,8 @@ export default function App() {
             previewStreamRef.current.getTracks().forEach(t => t.stop());
             previewStreamRef.current = null;
         }
-        if (videoPreviewRef.current) {
-            videoPreviewRef.current.srcObject = null;
+        if (videoPreviewElRef.current) {
+            videoPreviewElRef.current.srcObject = null;
         }
     };
 
@@ -1454,7 +1498,7 @@ export default function App() {
 
                                 <div style={{ width: '100%', maxWidth: '320px', height: '190px', background: '#000', borderRadius: '12px', overflow: 'hidden', position: 'relative', border: '1px solid #1e293b' }}>
                                     <video
-                                        ref={videoPreviewRef}
+                                        ref={setVideoPreviewRef}
                                         autoPlay
                                         playsInline
                                         muted
