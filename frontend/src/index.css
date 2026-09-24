@@ -1,4 +1,9 @@
 :root {
+  /* Indian Tricolor Backdrop */
+  --bg-gradient: radial-gradient(circle at 12% 18%, rgba(255, 153, 51, 0.38) 0%, transparent 55%),
+  radial-gradient(circle at 88% 82%, rgba(19, 136, 8, 0.35) 0%, transparent 55%),
+  linear-gradient(145deg, #090e17 0%, #0d1520 50%, #08140c 100%);
+}  :root {
   /* Indian Tricolor Backdrop & Theme Tokens */
   --bg-gradient: radial-gradient(circle at 15% 20%, rgba(255, 153, 51, 0.22) 0%, transparent 45%),
   radial-gradient(circle at 85% 85%, rgba(19, 136, 8, 0.20) 0%, transparent 45%),
@@ -156,11 +161,28 @@ video[data-lk-source="screen_share"] {
   grid-template-rows: 1fr;
 }
 
-/* 3 or 4 Participants: Teams 2x2 layout (Prevents the awkward 3-in-a-row stretch) */
-.matrix-grid-3,
+/* 3 Participants: 2 on top, 1 centered on bottom */
+.matrix-grid-3 {
+  grid-template-columns: repeat(2, 1fr) !important;
+  grid-template-rows: repeat(2, 1fr) !important;
+}
+
+.matrix-grid-3 > .video-tile-wrapper:nth-child(3) {
+  grid-column: 1 / span 2 !important;
+  justify-self: center !important;
+  width: 50% !important; /* Matches top card width */
+}
+
+@media (max-width: 768px) {
+  .matrix-grid-3 > .video-tile-wrapper:nth-child(3) {
+    width: 100% !important;
+  }
+}
+
+/* 4 Participants: Equal 2x2 */
 .matrix-grid-4 {
-  grid-template-columns: repeat(2, 1fr);
-  grid-template-rows: repeat(2, 1fr);
+  grid-template-columns: repeat(2, 1fr) !important;
+  grid-template-rows: repeat(2, 1fr) !important;
 }
 
 /* 5 or 6 Participants: 3 columns x 2 rows */

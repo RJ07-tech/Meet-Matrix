@@ -4,6 +4,9 @@ import '@livekit/components-styles';
 import {
     LiveKitRoom,
     ParticipantTile,
+    VideoTrack,
+    ParticipantName,
+    TrackMutedIndicator,
     useTracks,
     useLocalParticipant,
     useRemoteParticipants,
@@ -629,7 +632,8 @@ function MeetingStage({
         const count = cameraTracks.length;
         if (count <= 1) return 'matrix-grid-1';
         if (count === 2) return 'matrix-grid-2';
-        if (count === 3 || count === 4) return 'matrix-grid-4';
+        if (count === 3) return 'matrix-grid-3';
+        if (count === 4) return 'matrix-grid-4';
         if (count === 5 || count === 6) return 'matrix-grid-6';
         return 'matrix-grid-multi';
     };
@@ -698,12 +702,14 @@ function MeetingStage({
                     ) : (
                         <div className={`matrix-stage-grid ${getGridClass()}`}>
                             {cameraTracks.map(track => {
-                                const peerId = track.participant?.identity;
-                                const peerName = track.participant?.name;
-                                const targetIsHost = (track.participant?.isLocal && isHost) || peerId?.includes('Host') || peerName?.includes('Host');
-                                const targetIsCoHost = (track.participant?.isLocal && isCoHost) || Boolean(coHostsMap[peerId]);
+                                const participant = track.participant;
+                                const peerId = participant?.identity;
+                                const peerName = participant?.name || peerId;
+                                const targetIsHost = (participant?.isLocal && isHost) || peerId?.includes('Host') || peerName?.includes('Host');
+                                const targetIsCoHost = (participant?.isLocal && isCoHost) || Boolean(coHostsMap[peerId]);
                                 const hasHandRaised = !!raisedHandsMap[peerId];
                                 const isOnHold = !targetIsHost && !targetIsCoHost && !!holdParticipantsMap[peerId];
+                                const isCamActive = track.publication && !track.publication.isMuted && track.publication.track;
 
                                 return (
                                     <div
@@ -716,7 +722,59 @@ function MeetingStage({
                                             </div>
                                         )}
                                         {hasHandRaised && <div className="video-hand-badge">✋ Hand Raised</div>}
-                                        <ParticipantTile trackRef={track} />
+
+                                        {isCamActive ? (
+                                            <VideoTrack trackRef={track} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                                        ) : (
+                                            <div style={{
+                                                display: 'flex',
+                                                flexDirection: 'column',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                height: '100%',
+                                                width: '100%',
+                                                background: 'radial-gradient(circle, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.95) 100%)'
+                                            }}>
+                                                <div style={{
+                                                    width: '74px',
+                                                    height: '74px',
+                                                    borderRadius: '50%',
+                                                    background: targetIsHost ? 'var(--accent-saffron)' : 'rgba(51, 65, 85, 0.8)',
+                                                    border: '2px solid rgba(255, 255, 255, 0.15)',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    fontSize: '1.6rem',
+                                                    fontWeight: '800',
+                                                    color: '#ffffff',
+                                                    boxShadow: '0 8px 24px rgba(0,0,0,0.4)'
+                                                }}>
+                                                    {(peerName || 'U').charAt(0).toUpperCase()}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Bottom Participant Bar */}
+                                        <div style={{
+                                            position: 'absolute',
+                                            bottom: '8px',
+                                            left: '8px',
+                                            right: '8px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between',
+                                            padding: '4px 10px',
+                                            background: 'rgba(9, 13, 22, 0.65)',
+                                            backdropFilter: 'blur(6px)',
+                                            borderRadius: '6px',
+                                            border: '1px solid rgba(255, 255, 255, 0.08)',
+                                            zIndex: 15
+                                        }}>
+                    <span style={{ fontSize: '0.78rem', fontWeight: '600', color: '#f8fafc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {peerName} {targetIsHost ? '(Host)' : ''}
+                    </span>
+                                            <TrackMutedIndicator trackRef={{ participant, source: Track.Source.Microphone }} style={{ display: 'flex', alignItems: 'center' }} />
+                                        </div>
                                     </div>
                                 );
                             })}
