@@ -123,7 +123,7 @@ video[data-lk-source="screen_share"] {
   overflow: hidden;
 }
 
-/* Stage Viewport with Tricolor Backdrop */
+/* Stage Viewport with Indian Tricolor Backdrop */
 .stage-main-wrapper {
   display: flex;
   flex-direction: column;
@@ -135,103 +135,100 @@ video[data-lk-source="screen_share"] {
   background-attachment: fixed;
 }
 
-/* Teams-style Dynamic Stage Grid */
+/* Teams / Meet Responsive Flexible Layout */
 .matrix-stage-grid {
-  display: grid !important;
-  width: 100%;
-  height: 100%;
-  gap: 12px;
-  padding: 12px;
-  box-sizing: border-box;
-  align-content: center;
-  justify-content: center;
-}
-
-/* 1 Participant: Centered focus card */
-.matrix-grid-1 {
-  grid-template-columns: minmax(auto, 900px);
-  grid-template-rows: minmax(auto, 85vh);
-  justify-content: center;
-  align-content: center;
-}
-
-/* 2 Participants: Clean 2 columns */
-.matrix-grid-2 {
-  grid-template-columns: repeat(2, 1fr);
-  grid-template-rows: 1fr;
-}
-
-/* 3 Participants: 2 on top, 1 centered on bottom */
-.matrix-grid-3 {
-  grid-template-columns: repeat(2, 1fr) !important;
-  grid-template-rows: repeat(2, 1fr) !important;
-}
-
-.matrix-grid-3 > .video-tile-wrapper:nth-child(3) {
-  grid-column: 1 / span 2 !important;
-  justify-self: center !important;
-  width: calc(50% - 6px) !important; /* Exactly matches one top tile's width */
-  height: 100% !important;
-}
-
-@media (max-width: 768px) {
-  .matrix-grid-3 > .video-tile-wrapper:nth-child(3) {
-    width: 100% !important;
-  }
-}
-
-/* 4 Participants: Equal 2x2 */
-.matrix-grid-4 {
-  grid-template-columns: repeat(2, 1fr) !important;
-  grid-template-rows: repeat(2, 1fr) !important;
-}
-
-/* 5 or 6 Participants: 3 columns x 2 rows */
-.matrix-grid-5,
-.matrix-grid-6 {
-  grid-template-columns: repeat(3, 1fr);
-  grid-template-rows: repeat(2, 1fr);
-}
-
-/* 7+ Participants: Responsive dynamic tiles */
-.matrix-grid-multi {
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  grid-auto-rows: 1fr;
-}
-
-/* Glassmorphism Video Tiles (Teams aesthetic with Tricolor borders) */
-.video-tile-wrapper {
-  position: relative !important;
+  display: flex !important;
+  flex-wrap: wrap !important;
+  align-items: center !important;
+  justify-content: center !important;
+  align-content: center !important;
   width: 100% !important;
   height: 100% !important;
-  min-height: 0 !important;
+  padding: 16px !important;
+  gap: 14px !important;
+  box-sizing: border-box !important;
+  overflow-y: auto !important;
+}
+
+/* Base Card Setup - Fixed 16:9 widescreen ratio */
+.video-tile-wrapper {
+  position: relative !important;
+  aspect-ratio: 16 / 9 !important;
   border-radius: 12px !important;
   overflow: hidden !important;
   background: rgba(15, 23, 42, 0.75) !important;
   backdrop-filter: blur(12px) !important;
   border: 1px solid rgba(255, 255, 255, 0.08) !important;
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5) !important;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: transform 0.2s ease, border-color 0.2s ease;
+  flex: 0 0 auto !important;
 }
 
-/* Subtle saffron indicator for active host / speaker */
-.video-tile-wrapper.tile-host {
-  border-color: rgba(255, 153, 51, 0.4) !important;
-}
-
+/* Full edge-to-edge camera fill */
 .video-tile-wrapper video {
   width: 100% !important;
   height: 100% !important;
-  object-fit: contain !important;
+  object-fit: cover !important;
   display: block !important;
 }
 
-/* Default avatar / placeholder for turned off camera in Teams style */
-.video-tile-wrapper .lk-participant-placeholder {
-  background: radial-gradient(circle at center, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.95) 100%) !important;
+/* Dynamic Sizing based on Participant Counts */
+
+/* 1 Participant: Hero focus in center */
+.matrix-grid-1 .video-tile-wrapper {
+  width: min(82vw, 1000px) !important;
+  max-height: 80vh !important;
+}
+
+/* 2 Participants: Two balanced 16:9 cards side-by-side */
+.matrix-grid-2 .video-tile-wrapper {
+  width: min(45vw, 680px) !important;
+  max-height: 65vh !important;
+}
+
+/* 3 or 4 Participants: 2 per row (3rd person auto-centers at bottom) */
+.matrix-grid-3 .video-tile-wrapper,
+.matrix-grid-4 .video-tile-wrapper {
+  width: min(45vw, 580px) !important;
+  max-height: 42vh !important;
+}
+
+/* 5 or 6 Participants: 3 per row (5th and 6th auto-center at bottom) */
+.matrix-grid-5 .video-tile-wrapper,
+.matrix-grid-6 .video-tile-wrapper {
+  width: min(30vw, 440px) !important;
+  max-height: 38vh !important;
+}
+
+/* 7 to 9 Participants: 3x3 layout */
+.matrix-grid-7 .video-tile-wrapper,
+.matrix-grid-8 .video-tile-wrapper,
+.matrix-grid-9 .video-tile-wrapper {
+  width: min(29vw, 380px) !important;
+  max-height: 30vh !important;
+}
+
+/* 10+ Participants: Compact grid tiles */
+.matrix-grid-multi .video-tile-wrapper {
+  width: min(22vw, 320px) !important;
+  max-height: 25vh !important;
+}
+
+/* Mobile responsive fallback: Single column stack */
+@media (max-width: 768px) {
+  .video-tile-wrapper {
+    width: 95vw !important;
+    max-height: 32vh !important;
+  }
+}
+
+/* Host Highlight Border */
+.video-tile-wrapper.tile-host {
+  border-color: rgba(255, 153, 51, 0.45) !important;
+  box-shadow: 0 0 16px rgba(255, 153, 51, 0.15) !important;
 }
 
 /* Badges */

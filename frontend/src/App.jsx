@@ -634,7 +634,11 @@ function MeetingStage({
         if (count === 2) return 'matrix-grid-2';
         if (count === 3) return 'matrix-grid-3';
         if (count === 4) return 'matrix-grid-4';
-        if (count === 5 || count === 6) return 'matrix-grid-6';
+        if (count === 5) return 'matrix-grid-5';
+        if (count === 6) return 'matrix-grid-6';
+        if (count === 7) return 'matrix-grid-7';
+        if (count === 8) return 'matrix-grid-8';
+        if (count === 9) return 'matrix-grid-9';
         return 'matrix-grid-multi';
     };
 
