@@ -906,6 +906,7 @@ export default function App() {
     const [cameraEnabled, setCameraEnabled] = useState(true);
     const [micEnabled, setMicEnabled] = useState(true);
     const videoPreviewRef = useRef(null);
+    const videoPreviewElRef = useRef(null);
     const previewStreamRef = useRef(null);
     const isJoiningRef = useRef(false);
 
