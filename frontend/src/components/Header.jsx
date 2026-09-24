@@ -57,19 +57,6 @@ export default function Header({
         } catch {}
     }, [quickEmojis]);
 
-    // Download triggered using direct safe navigation without tab reset
-    const handleDownloadAttendanceSafe = () => {
-        const downloadUrl = `${BACKEND_URL}/api/attendance/export/${encodeURIComponent(roomName)}`;
-        const a = document.createElement('a');
-        a.href = downloadUrl;
-        a.setAttribute('download', `attendance-${roomName}.csv`);
-        a.rel = 'noopener noreferrer';
-        a.style.display = 'none';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-    };
-
     const handleCopyInvite = async () => {
         const inviteUrl = `${window.location.origin}/?room=${encodeURIComponent(roomName)}`;
         try {
@@ -91,19 +78,58 @@ export default function Header({
 
     return (
         <div className="mobile-header" style={headerBarStyle}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-                <span style={{ fontWeight: '900', letterSpacing: '0.5px', background: 'linear-gradient(135deg, #38bdf8 0%, #818cf8 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', fontSize: '0.92rem' }}>MeetMatrix</span>
-                <span style={{ color: '#334155' }}>|</span>
-                <span className="mobile-room-pill" style={{ fontSize: '0.72rem', color: '#94a3b8', background: '#1e293b', padding: '2px 8px', borderRadius: '12px', border: '1px solid #334155' }}>{roomName}</span>
-                {isHost && <span style={{ background: 'linear-gradient(135deg, #0284c7 0%, #2563eb 100%)', color: '#fff', padding: '1px 6px', borderRadius: '4px', fontSize: '0.62rem', fontWeight: '800' }}>HOST</span>}
+            {/* Left Brand and Room Info */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flexShrink: 1 }}>
+                <span style={{
+                    fontWeight: '900',
+                    letterSpacing: '0.5px',
+                    background: 'linear-gradient(135deg, #38bdf8 0%, #818cf8 100%)',
+                    WebkitBackgroundClip: 'text',
+                    WebkitTextFillColor: 'transparent',
+                    fontSize: '0.92rem',
+                    flexShrink: 0
+                }}>
+                    MeetMatrix
+                </span>
+
+                <span style={{ color: '#334155', flexShrink: 0 }}>|</span>
+
+                {/* Fixed Single-Line Room Code Pill */}
+                <span
+                    title={roomName}
+                    style={{
+                        fontSize: '0.72rem',
+                        color: '#94a3b8',
+                        background: '#1e293b',
+                        padding: '2px 8px',
+                        borderRadius: '12px',
+                        border: '1px solid #334155',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        maxWidth: '90px',
+                        display: 'inline-block'
+                    }}
+                >
+                    {roomName}
+                </span>
+
+                {isHost && (
+                    <span style={{ background: 'linear-gradient(135deg, #0284c7 0%, #2563eb 100%)', color: '#fff', padding: '1px 6px', borderRadius: '4px', fontSize: '0.62rem', fontWeight: '800', flexShrink: 0 }}>
+                        HOST
+                    </span>
+                )}
                 {!isHost && isCoHost && (
-                    <span style={{ background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)', color: '#fff', padding: '1px 6px', borderRadius: '4px', fontSize: '0.62rem', fontWeight: '800' }}>CO-HOST</span>
+                    <span style={{ background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)', color: '#fff', padding: '1px 6px', borderRadius: '4px', fontSize: '0.62rem', fontWeight: '800', flexShrink: 0 }}>
+                        CO-HOST
+                    </span>
                 )}
             </div>
 
+            {/* Right Action Controls */}
             <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0, position: 'relative' }}>
                 {allowReactions && (
-                    <div style={{ display: 'flex', gap: '3px', background: 'rgba(30, 41, 59, 0.8)', backdropFilter: 'blur(8px)', padding: '3px 6px', borderRadius: '10px', alignItems: 'center', border: '1px solid rgba(255,255,255,0.08)' }}>
+                    <div className="header-reactions-container" style={{ display: 'flex', gap: '3px', background: 'rgba(30, 41, 59, 0.8)', backdropFilter: 'blur(8px)', padding: '3px 6px', borderRadius: '10px', alignItems: 'center', border: '1px solid rgba(255,255,255,0.08)' }}>
                         {quickEmojis.map((e, idx) => (
                             <button
                                 key={`${e}-${idx}`}
@@ -200,14 +226,42 @@ export default function Header({
 
                 <button onClick={handleCopyInvite} style={{ ...topBtnStyle, background: '#0284c7', color: '#fff' }}>
                     <Copy size={12} />
-                    <span className="mobile-hide">Invite</span>
+                    <span>Invite</span>
                 </button>
             </div>
         </div>
     );
 }
 
-const headerBarStyle = { background: 'rgba(15, 23, 42, 0.95)', backdropFilter: 'blur(12px)', color: '#f8fafc', padding: '6px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #334155', zIndex: 1000, flexShrink: 0 };
-const topBtnStyle = { display: 'flex', alignItems: 'center', gap: '5px', background: '#1e293b', color: '#ffffff', border: '1px solid #334155', padding: '5px 9px', borderRadius: '7px', fontSize: '0.75rem', cursor: 'pointer', fontWeight: '600' };
+const headerBarStyle = {
+    background: 'rgba(15, 23, 42, 0.95)',
+    backdropFilter: 'blur(12px)',
+    color: '#f8fafc',
+    padding: '8px 12px',
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderBottom: '1px solid #334155',
+    zIndex: 1000,
+    flexShrink: 0,
+    width: '100%',
+    boxSizing: 'border-box'
+};
+
+const topBtnStyle = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '5px',
+    background: '#1e293b',
+    color: '#ffffff',
+    border: '1px solid #334155',
+    padding: '5px 8px',
+    borderRadius: '7px',
+    fontSize: '0.72rem',
+    cursor: 'pointer',
+    fontWeight: '600',
+    whiteSpace: 'nowrap'
+};
+
 const interactiveEmojiBtn = { background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: '2px 4px', borderRadius: '4px' };
 const editChipBtn = { background: '#0284c7', border: 'none', color: '#ffffff', borderRadius: '5px', padding: '3px 6px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px', fontSize: '0.68rem', fontWeight: '700', marginLeft: '3px' };

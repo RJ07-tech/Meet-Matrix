@@ -27,6 +27,25 @@
   --text-muted: #64748b;
 }
 
+/* Universal Font Normalization (Stops phone from using cursive fonts) */
+*, *::before, *::after {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+}
+
+/* Fix top header room code capsule from wrapping */
+.header-room-pill,
+[class*="room-pill"],
+header div span {
+  white-space: nowrap !important;
+  word-break: normal !important;
+}
+
+@media (max-width: 500px) {
+  .header-reactions-container {
+    display: none !important; /* Hide floating quick emoji bar on small phones so buttons fit */
+  }
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
