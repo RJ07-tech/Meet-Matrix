@@ -1164,7 +1164,7 @@ export default function App() {
             setTimeout(() => {
                 setInMeeting(true);
                 setStep('meeting');
-            }, 150);
+            }, 50);
         } catch (e) {
             alert("Create room failed: " + (e.response?.data?.detail || e.message));
         } finally {
@@ -1275,7 +1275,7 @@ export default function App() {
                 setTimeout(() => {
                     setInMeeting(true);
                     setStep('meeting');
-                }, 150);
+                }, 50);
             }
         } catch (err) {
             alert(err.response?.data?.detail || "Could not join room");
@@ -1322,7 +1322,7 @@ export default function App() {
         setTimeout(() => {
             setInMeeting(true);
             setStep('meeting');
-        }, 150);
+        }, 50);
     };
 
     const handleJoinClick = (e) => {
