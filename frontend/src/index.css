@@ -170,7 +170,8 @@ video[data-lk-source="screen_share"] {
 .matrix-grid-3 > .video-tile-wrapper:nth-child(3) {
   grid-column: 1 / span 2 !important;
   justify-self: center !important;
-  width: 50% !important; /* Matches top card width */
+  width: calc(50% - 6px) !important; /* Exactly matches one top tile's width */
+  height: 100% !important;
 }
 
 @media (max-width: 768px) {

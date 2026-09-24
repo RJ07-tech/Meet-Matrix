@@ -724,7 +724,14 @@ function MeetingStage({
                                         {hasHandRaised && <div className="video-hand-badge">✋ Hand Raised</div>}
 
                                         {isCamActive ? (
-                                            <VideoTrack trackRef={track} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                                            <VideoTrack
+                                                trackRef={track}
+                                                style={{
+                                                    width: '100%',
+                                                    height: '100%',
+                                                    objectFit: 'cover' // <--- Change from 'contain' to 'cover'
+                                                }}
+                                            />
                                         ) : (
                                             <div style={{
                                                 display: 'flex',
@@ -771,7 +778,7 @@ function MeetingStage({
                                             zIndex: 15
                                         }}>
                     <span style={{ fontSize: '0.78rem', fontWeight: '600', color: '#f8fafc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {peerName} {targetIsHost ? '(Host)' : ''}
+                        {peerName.replace(/\(Host\)/g, '').trim()} {targetIsHost ? '(Host)' : ''}
                     </span>
                                             <TrackMutedIndicator trackRef={{ participant, source: Track.Source.Microphone }} style={{ display: 'flex', alignItems: 'center' }} />
                                         </div>
