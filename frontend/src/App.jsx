@@ -117,10 +117,15 @@ function MeetingStage({
         if (!localParticipant) return;
         localParticipant.setName(participantName);
 
-        if (!initialMic || (micLocked && !isEffectiveModerator)) {
+        if (initialMic && (!micLocked || isEffectiveModerator)) {
+            localParticipant.setMicrophoneEnabled(true).catch(() => {});
+        } else {
             localParticipant.setMicrophoneEnabled(false).catch(() => {});
         }
-        if (!initialCam) {
+
+        if (initialCam) {
+            localParticipant.setCameraEnabled(true, { facingMode: 'user' }).catch(() => {});
+        } else {
             localParticipant.setCameraEnabled(false).catch(() => {});
         }
     }, [localParticipant, initialCam, initialMic, participantName, micLocked, isEffectiveModerator]);
@@ -1022,34 +1027,6 @@ export default function App() {
         return () => clearInterval(interval);
     }, [isWaiting, waitingPid, roomName, user, participantName]);
 
-    useEffect(() => {
-        // When returning to the lobby, reset the joining flag so preview can acquire camera
-        if (!inMeeting && !isWaiting) {
-            isJoiningRef.current = false;
-
-            navigator.mediaDevices.getUserMedia({
-                video: { facingMode: 'user' },
-                audio: false // keep audio false here so you don't hear your own feedback in lobby
-            })
-                .then((stream) => {
-                    if (isJoiningRef.current) {
-                        stream.getTracks().forEach(t => t.stop());
-                        return;
-                    }
-                    previewStreamRef.current = stream;
-                    if (videoPreviewRef.current) {
-                        videoPreviewRef.current.srcObject = stream;
-                        videoPreviewRef.current.play().catch(() => {});
-                    }
-                })
-                .catch((err) => {
-                    console.warn("Lobby camera preview error:", err);
-                });
-        } else {
-            stopLobbyPreviewTracks();
-        }
-    }, [inMeeting, isWaiting]);
-
     const toggleLobbyCam = () => {
         if (previewStreamRef.current) {
             const videoTrack = previewStreamRef.current.getVideoTracks()[0];
@@ -1378,7 +1355,7 @@ export default function App() {
                         participantName={participantName}
                         setParticipantName={setParticipantName}
                         initialCam={cameraEnabled}
-                        initialMic={!initialMuteAudio}
+                        initialMic={micEnabled}
                         onLeave={() => { setInMeeting(false); setToken(''); setStep('landing'); }}
                         onTerminate={handleTerminateMeeting}
                         showWhiteboard={showWhiteboard}
