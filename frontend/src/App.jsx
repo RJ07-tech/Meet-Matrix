@@ -133,22 +133,23 @@ function MeetingStage({
         }
     }, [localParticipant, initialCam, initialMic, participantName, micLocked, isEffectiveModerator]);
 
-    // Tab Visibility Tracker with Debug Logs
+    // Tab Visibility Tracker
     useEffect(() => {
-        if (!room || !room.localParticipant) return;
+        if (!room || !localParticipant) return;
 
         const reportStatus = (hidden) => {
-            // Screen-sharers or Host don't trigger hold
-            if (isHost || room.localParticipant.isScreenShareEnabled) return;
+            // Do not flag host or screen sharer
+            if (isHost || localParticipant.isScreenShareEnabled) return;
 
-            const myId = room.localParticipant.identity;
-            const myName = participantName || room.localParticipant.name || myId;
+            const myId = localParticipant.identity;
+            const myName = participantName || localParticipant.name || '';
 
-            console.log(`[HoldStatus] Local user (${myName} / ${myId}) reporting hold: ${hidden}`);
+            console.log(`[MeetMatrix Hold Emitter] Sending hold: ${hidden} for ID: ${myId}`);
 
             setHoldParticipantsMap(prev => ({
                 ...prev,
-                [myId]: hidden
+                [myId]: hidden,
+                ...(myName ? { [myName]: hidden } : {})
             }));
 
             try {
@@ -158,46 +159,47 @@ function MeetingStage({
                     name: myName,
                     isOnHold: hidden
                 });
-                room.localParticipant.publishData(new TextEncoder().encode(payload), { reliable: true });
+                const encoded = new TextEncoder().encode(payload);
+                room.localParticipant.publishData(encoded, { reliable: true });
             } catch (err) {
-                console.error("[HoldStatus] Broadcast error:", err);
+                console.error("[MeetMatrix Hold Emitter Error]", err);
             }
 
             if (typeof BACKEND_URL !== 'undefined') {
                 axios.post(`${BACKEND_URL}/api/attendance/update`, {
                     room_name: roomName,
-                    participant_name: myName,
+                    participant_name: myName || myId,
                     participant_identity: myId,
                     action: hidden ? "hold_start" : "hold_end"
                 }).catch(() => {});
             }
         };
 
-        const onVisibilityChange = () => {
+        const handleVisibilityChange = () => {
             reportStatus(document.visibilityState === 'hidden');
         };
 
-        const onWindowFocus = () => {
-            reportStatus(false);
-        };
-
-        const onWindowBlur = () => {
-            // On phones/browsers, switching tabs triggers blur
+        const handleBlur = () => {
             reportStatus(true);
         };
 
+        const handleFocus = () => {
+            reportStatus(false);
+        };
+
+        // Initialize to false on join
         reportStatus(false);
 
-        document.addEventListener('visibilitychange', onVisibilityChange);
-        window.addEventListener('focus', onWindowFocus);
-        window.addEventListener('blur', onWindowBlur);
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        window.addEventListener('blur', handleBlur);
+        window.addEventListener('focus', handleFocus);
 
         return () => {
-            document.removeEventListener('visibilitychange', onVisibilityChange);
-            window.removeEventListener('focus', onWindowFocus);
-            window.removeEventListener('blur', onWindowBlur);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+            window.removeEventListener('blur', handleBlur);
+            window.removeEventListener('focus', handleFocus);
         };
-    }, [room, participantName, isHost, roomName]);
+    }, [room, localParticipant, participantName, isHost, roomName]);
 
     // Live Room Settings Sync
     useEffect(() => {
@@ -307,23 +309,20 @@ function MeetingStage({
                     }
                 } else if (data.type === 'user_hold_status') {
                     const isHolding = Boolean(data.isOnHold);
-                    const senderId = participant?.identity || data.identity;
-                    const senderName = participant?.name || data.name;
+                    const idKey = data.identity || participant?.identity;
+                    const nameKey = data.name || participant?.name;
 
-                    console.log(`[HoldStatus] Received status from ${senderName} (${senderId}): ${isHolding}`);
+                    console.log(`[MeetMatrix Hold Event] Identity: ${idKey}, Name: ${nameKey}, Status: ${isHolding}`);
 
                     setHoldParticipantsMap(prev => {
-                        const updated = {
-                            ...prev,
-                            [senderId]: isHolding,
-                            [data.identity]: isHolding
-                        };
-                        console.log("[HoldStatus] Updated Map:", updated);
-                        return updated;
+                        const next = { ...prev };
+                        if (idKey) next[idKey] = isHolding;
+                        if (nameKey) next[nameKey] = isHolding;
+                        return next;
                     });
 
                     if (isHolding && (isHost || isCoHost)) {
-                        pushWhiteboardAlert(`⚠️ ${senderName || 'Participant'} switched tabs / on hold.`);
+                        pushWhiteboardAlert(`⚠️ ${nameKey || idKey || 'Participant'} switched tabs / on hold.`);
                     }
                 } else if (data.type === 'co_host_update') {
                     setCoHostsMap(prev => ({ ...prev, [data.targetIdentity]: data.isCoHost }));
@@ -749,28 +748,45 @@ function MeetingStage({
                         <div className={`matrix-stage-grid ${getGridClass()}`}>
                             {cameraTracks.map(track => {
                                 const participant = track.participant;
-                                const peerId = participant?.identity;
-                                const peerName = participant?.name || peerId;
+                                const peerId = participant?.identity || track.publication?.participant?.identity || '';
+                                const peerName = participant?.name || track.publication?.participant?.name || peerId;
 
-                                const targetIsHost = (participant?.isLocal && isHost) || peerId?.includes('(Host)') || peerName?.includes('(Host)');
-                                const targetIsCoHost = (participant?.isLocal && isCoHost) || Boolean(coHostsMap?.[peerId]);
-                                const hasHandRaised = Boolean(raisedHandsMap?.[peerId]);
+                                // A tile is ONLY the host if it is literally the local host OR if the server-assigned identity explicitly contains 'Host'
+                                const isThisTileHost = participant?.isLocal ? Boolean(isHost) : Boolean(peerId.toLowerCase().includes('host') || peerName.toLowerCase().includes('(host)'));
+                                const isThisTileCoHost = participant?.isLocal ? Boolean(isCoHost) : Boolean(coHostsMap?.[peerId]);
 
-                                const isOnHold = !targetIsHost && !targetIsCoHost && (
-                                    Boolean(holdParticipantsMap?.[peerId]) || Boolean(holdParticipantsMap?.[peerName])
-                                );
+                                // Check hold state by both peerId and peerName
+                                const peerHoldState = Boolean(holdParticipantsMap?.[peerId]) || Boolean(holdParticipantsMap?.[peerName]);
+                                const isOnHold = !isThisTileHost && !isThisTileCoHost && peerHoldState;
 
+                                // Host or CoHost can see the badge
                                 const canSeeBadge = Boolean(isHost || isCoHost);
                                 const isCamActive = Boolean(track.publication && !track.publication.isMuted && track.publication.track);
 
                                 return (
                                     <div
-                                        key={track.publication?.trackSid || peerId}
-                                        className={`video-tile-wrapper ${targetIsHost ? 'tile-host' : ''}`}
+                                        key={track.publication?.trackSid || peerId || Math.random()}
+                                        className={`video-tile-wrapper ${isThisTileHost ? 'tile-host' : ''}`}
                                     >
-                                        {/* Hold Badge */}
+                                        {/* The Badge */}
                                         {isOnHold && canSeeBadge && (
-                                            <div className="video-hold-badge" style={{ zIndex: 99 }}>
+                                            <div
+                                                className="video-hold-badge"
+                                                style={{
+                                                    position: 'absolute',
+                                                    top: '10px',
+                                                    left: '10px',
+                                                    background: '#eab308',
+                                                    color: '#000',
+                                                    fontWeight: '800',
+                                                    padding: '4px 8px',
+                                                    borderRadius: '6px',
+                                                    zIndex: 9999,
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '4px'
+                                                }}
+                                            >
                                                 <PauseCircle size={14} /> AWAY / ON HOLD
                                             </div>
                                         )}
