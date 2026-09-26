@@ -750,6 +750,7 @@ function MeetingStage({
                                 const participant = track.participant;
                                 const peerId = participant?.identity || track.publication?.participant?.identity || '';
                                 const peerName = participant?.name || track.publication?.participant?.name || peerId;
+                                const hasHandRaised = Boolean(raisedHandsMap?.[peerId]);
 
                                 // A tile is ONLY the host if it is literally the local host OR if the server-assigned identity explicitly contains 'Host'
                                 const isThisTileHost = participant?.isLocal ? Boolean(isHost) : Boolean(peerId.toLowerCase().includes('host') || peerName.toLowerCase().includes('(host)'));
