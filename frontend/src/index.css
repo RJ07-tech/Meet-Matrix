@@ -1,13 +1,8 @@
 :root {
-  /* Indian Tricolor Backdrop */
-  --bg-gradient: radial-gradient(circle at 12% 18%, rgba(255, 153, 51, 0.38) 0%, transparent 55%),
-  radial-gradient(circle at 88% 82%, rgba(19, 136, 8, 0.35) 0%, transparent 55%),
-  linear-gradient(145deg, #090e17 0%, #0d1520 50%, #08140c 100%);
-}  :root {
   /* Indian Tricolor Backdrop & Theme Tokens */
-  --bg-gradient: radial-gradient(circle at 15% 20%, rgba(255, 153, 51, 0.22) 0%, transparent 45%),
-  radial-gradient(circle at 85% 85%, rgba(19, 136, 8, 0.20) 0%, transparent 45%),
-  linear-gradient(145deg, #070a0f 0%, #0c131a 50%, #061009 100%);
+  --bg-gradient: radial-gradient(circle at 12% 18%, rgba(255, 153, 51, 0.35) 0%, transparent 55%),
+  radial-gradient(circle at 88% 82%, rgba(19, 136, 8, 0.32) 0%, transparent 55%),
+  linear-gradient(145deg, #090e17 0%, #0d1520 50%, #08140c 100%);
 
   --surface-card: rgba(18, 24, 33, 0.82);
   --surface-border: rgba(255, 255, 255, 0.12);
@@ -27,36 +22,20 @@
   --text-muted: #64748b;
 }
 
-/* Universal Font Normalization (Stops phone from using cursive fonts) */
+/* Universal Typography Normalization (Prevents Mobile Cursive Font Substitution) */
 *, *::before, *::after {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
-}
-
-/* Fix top header room code capsule from wrapping */
-.header-room-pill,
-[class*="room-pill"],
-header div span {
-  white-space: nowrap !important;
-  word-break: normal !important;
-}
-
-@media (max-width: 500px) {
-  .header-reactions-container {
-    display: none !important; /* Hide floating quick emoji bar on small phones so buttons fit */
-  }
-}
-
-* {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
   -webkit-tap-highlight-color: transparent;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Helvetica Neue", Arial, sans-serif !important;
 }
 
 html, body, #root {
   min-height: 100%;
   width: 100%;
-  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  height: 100%;
+  overflow: hidden;
 }
 
 body {
@@ -66,16 +45,31 @@ body {
   min-height: 100vh;
 }
 
+/* Header & Code Capsule Fixes */
+.header-room-pill,
+.mobile-room-pill,
+[class*="room-pill"],
+header div span {
+  white-space: nowrap !important;
+  word-break: normal !important;
+}
+
+@media (max-width: 500px) {
+  .header-reactions-container {
+    display: none !important; /* Hide reaction emoji bar on small phones so main buttons fit */
+  }
+}
+
 /* Video Containers */
 .lk-video-container {
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  background-color: #000 !important;
+  background-color: transparent !important;
 }
 
 .lk-video-container video {
-  object-fit: contain !important;
+  object-fit: cover !important;
   width: 100% !important;
   height: 100% !important;
   border-radius: 8px;
@@ -169,7 +163,7 @@ video[data-lk-source="screen_share"] {
   overflow-y: auto !important;
 }
 
-/* Base Card Setup - Fixed 16:9 widescreen ratio */
+/* Base Card Setup - 16:9 widescreen ratio */
 .video-tile-wrapper {
   position: relative !important;
   aspect-ratio: 16 / 9 !important;
@@ -194,7 +188,7 @@ video[data-lk-source="screen_share"] {
   display: block !important;
 }
 
-/* Dynamic Sizing based on Participant Counts */
+/* Dynamic Sizing based on Participant Counts (Desktop) */
 
 /* 1 Participant: Hero focus in center */
 .matrix-grid-1 .video-tile-wrapper {
@@ -215,7 +209,7 @@ video[data-lk-source="screen_share"] {
   max-height: 42vh !important;
 }
 
-/* 5 or 6 Participants: 3 per row (5th and 6th auto-center at bottom) */
+/* 5 or 6 Participants: 3 per row */
 .matrix-grid-5 .video-tile-wrapper,
 .matrix-grid-6 .video-tile-wrapper {
   width: min(30vw, 440px) !important;
@@ -234,14 +228,6 @@ video[data-lk-source="screen_share"] {
 .matrix-grid-multi .video-tile-wrapper {
   width: min(22vw, 320px) !important;
   max-height: 25vh !important;
-}
-
-/* Mobile responsive fallback: Single column stack */
-@media (max-width: 768px) {
-  .video-tile-wrapper {
-    width: 95vw !important;
-    max-height: 32vh !important;
-  }
 }
 
 /* Host Highlight Border */
@@ -323,84 +309,122 @@ video[data-lk-source="screen_share"] {
 }
 
 @keyframes floatUpAnim {
-  0% {
-    opacity: 0;
-    transform: translateY(0) scale(0.6);
-  }
-  15% {
-    opacity: 1;
-    transform: translateY(-40px) scale(1.15);
-  }
-  75% {
-    opacity: 0.95;
-    transform: translateY(-280px) scale(1);
-  }
-  100% {
-    opacity: 0;
-    transform: translateY(-400px) scale(0.8);
-  }
+  0% { opacity: 0; transform: translateY(0) scale(0.6); }
+  15% { opacity: 1; transform: translateY(-40px) scale(1.15); }
+  75% { opacity: 0.95; transform: translateY(-280px) scale(1); }
+  100% { opacity: 0; transform: translateY(-400px) scale(0.8); }
 }
 
-/* Mobile Viewport Optimization */
+/* Mobile Viewport Optimization (Phones & Small Tablets) */
 @media (max-width: 768px) {
   .matrix-stage-grid {
     padding: 8px !important;
     gap: 8px !important;
-    align-content: stretch !important;
+    align-content: center !important;
     justify-content: center !important;
+    height: calc(100dvh - 130px) !important;
   }
 
-  /* When 1 participant on mobile: Fill most of the tall screen */
+  /* 1 Participant on Mobile */
   .matrix-grid-1 .video-tile-wrapper {
     width: 100% !important;
-    height: 80vh !important;
+    height: 75vh !important;
     aspect-ratio: auto !important;
   }
 
-  /* When 2 participants on mobile: 2 tall stacked cards */
+  /* 2 Participants on Mobile */
   .matrix-grid-2 {
     flex-direction: column !important;
   }
   .matrix-grid-2 .video-tile-wrapper {
     width: 100% !important;
-    height: calc(42vh - 12px) !important;
+    height: calc(38vh - 8px) !important;
     aspect-ratio: auto !important;
   }
 
-  /* When 3 participants on mobile: Top 2 side-by-side, bottom 1 centered */
+  /* 3 Participants on Mobile: Top 2 side-by-side, Bottom 1 centered matching size */
+  .matrix-grid-3 {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    justify-content: center !important;
+    align-content: center !important;
+    gap: 8px !important;
+  }
+
   .matrix-grid-3 .video-tile-wrapper:nth-child(1),
   .matrix-grid-3 .video-tile-wrapper:nth-child(2) {
-    width: calc(50% - 6px) !important;
-    height: 38vh !important;
+    width: calc(50% - 5px) !important;
+    height: 32vh !important;
     aspect-ratio: auto !important;
   }
 
   .matrix-grid-3 .video-tile-wrapper:nth-child(3) {
-    width: 100% !important;
-    height: 38vh !important;
+    width: calc(50% - 5px) !important;
+    height: 32vh !important;
     aspect-ratio: auto !important;
   }
 
-  /* When 4+ participants on mobile: Clean 2-column grid */
+  /* 4+ Participants on Mobile: 2-column balanced grid */
   .matrix-grid-4 .video-tile-wrapper,
   .matrix-grid-multi .video-tile-wrapper {
-    width: calc(50% - 6px) !important;
-    height: 26vh !important;
+    width: calc(50% - 5px) !important;
+    height: 24vh !important;
     aspect-ratio: auto !important;
+  }
+
+  /* Bottom Control Dock Responsive Mobile Fix */
+  .control-bar,
+  footer,
+  div[class*="control-bar"] {
+    padding: 6px 4px !important;
+    gap: 3px !important;
+    width: 100% !important;
+    max-width: 100vw !important;
+    box-sizing: border-box !important;
+    justify-content: space-between !important;
+    overflow-x: hidden !important;
+  }
+
+  .control-bar button,
+  footer button,
+  div[class*="control-bar"] button {
+    min-width: 0 !important;
+    padding: 4px 2px !important;
+    flex: 1 1 0 !important;
+    max-width: 48px !important;
+    height: 46px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    font-size: 0.62rem !important;
+  }
+
+  .control-bar button span,
+  footer button span,
+  div[class*="control-bar"] button span {
+    font-size: 0.58rem !important;
+    line-height: 1 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    max-width: 42px !important;
+    font-weight: 600 !important;
   }
 }
 
-/* Nameplate Font Fix for Mobile */
+/* Explicit System Font Rules for Badges and Nameplates */
 .video-tile-wrapper span,
 .stage-camera-strip span,
-.spotlight-nameplate {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+.spotlight-nameplate,
+.mobile-room-pill,
+button span {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
   font-style: normal !important;
-  font-weight: 600 !important;
   letter-spacing: 0.2px !important;
 }
 
-/* Alignment for settings & drawers */
+/* Settings and Modals Checkboxes */
 .setting-checkbox-row {
   display: flex !important;
   align-items: center !important;
@@ -418,24 +442,9 @@ video[data-lk-source="screen_share"] {
   -webkit-appearance: auto !important;
   width: 16px !important;
   height: 16px !important;
-  min-width: 16px !important;
-  min-height: 16px !important;
   margin: 0 !important;
-  padding: 0 !important;
   cursor: pointer !important;
   flex-shrink: 0 !important;
-  vertical-align: middle !important;
-}
-
-.setting-checkbox-row span {
-  display: inline-flex !important;
-  align-items: center !important;
-  gap: 6px !important;
-  margin: 0 !important;
-  padding: 0 !important;
-  font-size: 0.82rem !important;
-  line-height: 1 !important;
-  user-select: none !important;
 }
 
 .setting-dropdown-box {
@@ -451,10 +460,9 @@ video[data-lk-source="screen_share"] {
   width: 100% !important;
   box-sizing: border-box !important;
   height: 36px !important;
-  margin: 0 !important;
 }
 
-/* Header & Viewport Stacking */
+/* Viewport Stacking Integrity */
 .header-container,
 .top-bar-reactions {
   position: relative !important;
@@ -470,5 +478,4 @@ video[data-lk-source="screen_share"] {
   flex: 1 1 0% !important;
   min-height: 0 !important;
   overflow: hidden !important;
-  padding-top: 4px !important;
 }
