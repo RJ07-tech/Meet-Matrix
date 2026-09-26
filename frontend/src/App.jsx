@@ -133,28 +133,28 @@ function MeetingStage({
         }
     }, [localParticipant, initialCam, initialMic, participantName, micLocked, isEffectiveModerator]);
 
-    // Visibility / Hold status with hold_start & hold_end
+    // Visibility / Hold status with reliable focus & initial reset
     useEffect(() => {
         if (!room || !localParticipant) return;
 
-        const handleVisibilityChange = () => {
+        const broadcastHoldStatus = (isHidden) => {
             if (localParticipant.isScreenShareEnabled || isHost) return;
 
-            const isHidden = document.visibilityState === 'hidden';
             setHoldParticipantsMap(prev => ({
                 ...prev,
                 [localParticipant.identity]: isHidden
             }));
 
-            const payload = JSON.stringify({
-                type: 'user_hold_status',
-                identity: localParticipant.identity,
-                name: participantName,
-                isOnHold: isHidden
-            });
-            room.localParticipant.publishData(new TextEncoder().encode(payload), { reliable: true });
+            try {
+                const payload = JSON.stringify({
+                    type: 'user_hold_status',
+                    identity: localParticipant.identity,
+                    name: participantName,
+                    isOnHold: isHidden
+                });
+                room.localParticipant.publishData(new TextEncoder().encode(payload), { reliable: true });
+            } catch (e) {}
 
-            // Post action hold_start or hold_end for IST duration calculation
             axios.post(`${BACKEND_URL}/api/attendance/update`, {
                 room_name: roomName,
                 participant_name: participantName,
@@ -163,8 +163,30 @@ function MeetingStage({
             }).catch(() => {});
         };
 
+        const handleVisibilityChange = () => {
+            broadcastHoldStatus(document.visibilityState === 'hidden');
+        };
+
+        const handleWindowFocus = () => {
+            broadcastHoldStatus(false);
+        };
+
+        const handleWindowBlur = () => {
+            broadcastHoldStatus(true);
+        };
+
+        // Immediately clear hold status upon entering
+        broadcastHoldStatus(false);
+
         document.addEventListener('visibilitychange', handleVisibilityChange);
-        return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+        window.addEventListener('focus', handleWindowFocus);
+        window.addEventListener('blur', handleWindowBlur);
+
+        return () => {
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+            window.removeEventListener('focus', handleWindowFocus);
+            window.removeEventListener('blur', handleWindowBlur);
+        };
     }, [room, localParticipant, roomName, participantName, isHost]);
 
     // Live Room Settings Sync
@@ -277,9 +299,9 @@ function MeetingStage({
                 } else if (data.type === 'user_hold_status') {
                     setHoldParticipantsMap(prev => ({
                         ...prev,
-                        [data.identity]: data.isOnHold
+                        [data.identity]: Boolean(data.isOnHold)
                     }));
-                    if (data.isOnHold) {
+                    if (data.isOnHold && isEffectiveModerator) {
                         pushWhiteboardAlert(`⚠️ ${data.name || 'Participant'} switched tabs / on hold.`);
                     }
                 } else if (data.type === 'co_host_update') {
@@ -695,7 +717,11 @@ function MeetingStage({
 
                                     return (
                                         <div key={track.publication?.trackSid || peerId} style={{ position: 'relative', height: '100%' }}>
-                                            {isOnHold && !isScreenSharing && <div className="video-hold-badge"><PauseCircle size={12} /> ON HOLD</div>}
+                                            {isOnHold && !isScreenSharing && isEffectiveModerator && (
+                                                <div className="video-hold-badge">
+                                                    <PauseCircle size={12} /> ON HOLD
+                                                </div>
+                                            )}
                                             {hasHandRaised && <div className="video-hand-badge">✋ Raised</div>}
                                             <ParticipantTile trackRef={track} />
                                         </div>
@@ -720,7 +746,7 @@ function MeetingStage({
                                         key={track.publication?.trackSid || peerId}
                                         className={`video-tile-wrapper ${targetIsHost ? 'tile-host' : ''}`}
                                     >
-                                        {isOnHold && !isScreenSharing && (
+                                        {isOnHold && !isScreenSharing && isEffectiveModerator && (
                                             <div className="video-hold-badge">
                                                 <PauseCircle size={14} /> AWAY / ON HOLD
                                             </div>

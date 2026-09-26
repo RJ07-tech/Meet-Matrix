@@ -332,15 +332,28 @@ video[data-lk-source="screen_share"] {
     aspect-ratio: auto !important;
   }
 
-  /* 2 Participants on Mobile */
+  /* 2 Participants on Mobile: Strict Vertical Stack (1 on top, 1 on bottom) */
   .matrix-grid-2 {
+    display: flex !important;
     flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 100% !important;
+    height: calc(100dvh - 130px) !important;
+    gap: 10px !important;
+    padding: 8px !important;
+    box-sizing: border-box !important;
   }
+
   .matrix-grid-2 .video-tile-wrapper {
     width: 100% !important;
-    height: calc(38vh - 8px) !important;
+    max-width: 100% !important;
+    height: calc(48% - 5px) !important;
+    max-height: 40vh !important;
     aspect-ratio: auto !important;
+    flex: 1 1 auto !important;
   }
+}
 
   /* 3 Participants on Mobile: Top 2 side-by-side, Bottom 1 centered matching size */
   .matrix-grid-3 {
