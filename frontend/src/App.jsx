@@ -752,9 +752,15 @@ function MeetingStage({
                                 const peerName = participant?.name || track.publication?.participant?.name || peerId;
                                 const hasHandRaised = Boolean(raisedHandsMap?.[peerId]);
 
-                                // A tile is ONLY the host if it is literally the local host OR if the server-assigned identity explicitly contains 'Host'
-                                const isThisTileHost = participant?.isLocal ? Boolean(isHost) : Boolean(peerId.toLowerCase().includes('host') || peerName.toLowerCase().includes('(host)'));
-                                const isThisTileCoHost = participant?.isLocal ? Boolean(isCoHost) : Boolean(coHostsMap?.[peerId]);
+                                const targetIsHost = participant?.isLocal
+                                    ? Boolean(isHost)
+                                    : Boolean(peerId.toLowerCase().includes('host') || peerName.toLowerCase().includes('(host)'));
+                                const isThisTileHost = targetIsHost;
+
+                                const targetIsCoHost = participant?.isLocal
+                                    ? Boolean(isCoHost)
+                                    : Boolean(coHostsMap?.[peerId]);
+                                const isThisTileCoHost = targetIsCoHost;
 
                                 // Check hold state by both peerId and peerName
                                 const peerHoldState = Boolean(holdParticipantsMap?.[peerId]) || Boolean(holdParticipantsMap?.[peerName]);
