@@ -73,7 +73,7 @@ function MeetingStage({
     const drawingHistoryRef = useRef([]);
     const [boardText, setBoardText] = useState('');
 
-    // In-Meeting Notifications/Pop-ups (visible even over Whiteboard)
+    // In-Meeting Notifications/Pop-ups
     const [whiteboardAlerts, setWhiteboardAlerts] = useState([]);
 
     const pushWhiteboardAlert = useCallback((message) => {
@@ -133,34 +133,44 @@ function MeetingStage({
         }
     }, [localParticipant, initialCam, initialMic, participantName, micLocked, isEffectiveModerator]);
 
-    // Tab Visibility Tracker
+    // Tab Visibility Tracker with Debug Logs
     useEffect(() => {
-        if (!room || !localParticipant) return;
+        if (!room || !room.localParticipant) return;
 
         const reportStatus = (hidden) => {
-            if (isHost || localParticipant.isScreenShareEnabled) return;
+            // Screen-sharers or Host don't trigger hold
+            if (isHost || room.localParticipant.isScreenShareEnabled) return;
+
+            const myId = room.localParticipant.identity;
+            const myName = participantName || room.localParticipant.name || myId;
+
+            console.log(`[HoldStatus] Local user (${myName} / ${myId}) reporting hold: ${hidden}`);
 
             setHoldParticipantsMap(prev => ({
                 ...prev,
-                [localParticipant.identity]: hidden
+                [myId]: hidden
             }));
 
             try {
                 const payload = JSON.stringify({
                     type: 'user_hold_status',
-                    identity: localParticipant.identity,
-                    name: participantName || localParticipant.name || 'Participant',
+                    identity: myId,
+                    name: myName,
                     isOnHold: hidden
                 });
                 room.localParticipant.publishData(new TextEncoder().encode(payload), { reliable: true });
-            } catch (err) {}
+            } catch (err) {
+                console.error("[HoldStatus] Broadcast error:", err);
+            }
 
-            axios.post(`${BACKEND_URL}/api/attendance/update`, {
-                room_name: roomName,
-                participant_name: participantName,
-                participant_identity: localParticipant.identity,
-                action: hidden ? "hold_start" : "hold_end"
-            }).catch(() => {});
+            if (typeof BACKEND_URL !== 'undefined') {
+                axios.post(`${BACKEND_URL}/api/attendance/update`, {
+                    room_name: roomName,
+                    participant_name: myName,
+                    participant_identity: myId,
+                    action: hidden ? "hold_start" : "hold_end"
+                }).catch(() => {});
+            }
         };
 
         const onVisibilityChange = () => {
@@ -171,16 +181,23 @@ function MeetingStage({
             reportStatus(false);
         };
 
+        const onWindowBlur = () => {
+            // On phones/browsers, switching tabs triggers blur
+            reportStatus(true);
+        };
+
         reportStatus(false);
 
         document.addEventListener('visibilitychange', onVisibilityChange);
         window.addEventListener('focus', onWindowFocus);
+        window.addEventListener('blur', onWindowBlur);
 
         return () => {
             document.removeEventListener('visibilitychange', onVisibilityChange);
             window.removeEventListener('focus', onWindowFocus);
+            window.removeEventListener('blur', onWindowBlur);
         };
-    }, [room, localParticipant, roomName, participantName, isHost]);
+    }, [room, participantName, isHost, roomName]);
 
     // Live Room Settings Sync
     useEffect(() => {
@@ -289,17 +306,24 @@ function MeetingStage({
                         setShowVideoRequestModal(true);
                     }
                 } else if (data.type === 'user_hold_status') {
-                    const senderId = participant?.identity || data.identity;
                     const isHolding = Boolean(data.isOnHold);
+                    const senderId = participant?.identity || data.identity;
+                    const senderName = participant?.name || data.name;
 
-                    setHoldParticipantsMap(prev => ({
-                        ...prev,
-                        [senderId]: isHolding,
-                        [data.identity]: isHolding
-                    }));
+                    console.log(`[HoldStatus] Received status from ${senderName} (${senderId}): ${isHolding}`);
 
-                    if (isHolding && isEffectiveModerator) {
-                        pushWhiteboardAlert(`⚠️ ${data.name || participant?.name || 'Participant'} switched tabs / on hold.`);
+                    setHoldParticipantsMap(prev => {
+                        const updated = {
+                            ...prev,
+                            [senderId]: isHolding,
+                            [data.identity]: isHolding
+                        };
+                        console.log("[HoldStatus] Updated Map:", updated);
+                        return updated;
+                    });
+
+                    if (isHolding && (isHost || isCoHost)) {
+                        pushWhiteboardAlert(`⚠️ ${senderName || 'Participant'} switched tabs / on hold.`);
                     }
                 } else if (data.type === 'co_host_update') {
                     setCoHostsMap(prev => ({ ...prev, [data.targetIdentity]: data.isCoHost }));
@@ -632,7 +656,9 @@ function MeetingStage({
                 isHost: targetIsHost,
                 isCoHost: Boolean(coHostsMap[p.identity]),
                 isSelf: false,
-                isOnHold: !targetIsHost && !Boolean(coHostsMap[p.identity]) && Boolean(holdParticipantsMap[p.identity]),
+                isOnHold: !targetIsHost && !Boolean(coHostsMap[p.identity]) && (
+                    Boolean(holdParticipantsMap[p.identity]) || Boolean(holdParticipantsMap[p.name])
+                ),
                 isHandRaised: !!raisedHandsMap[p.identity]
             };
         })
@@ -696,16 +722,18 @@ function MeetingStage({
                             </div>
                             <div className="stage-camera-strip">
                                 {cameraTracks.map(track => {
-                                    const peerId = track.participant?.identity;
-                                    const peerName = track.participant?.name;
-                                    const targetIsHost = (track.participant?.isLocal && isHost) || peerId?.includes('Host') || peerName?.includes('Host');
-                                    const targetIsCoHost = (track.participant?.isLocal && isCoHost) || Boolean(coHostsMap[peerId]);
+                                    const participant = track.participant;
+                                    const peerId = participant?.identity;
+                                    const peerName = participant?.name || peerId;
+                                    const targetIsHost = (participant?.isLocal && isHost) || peerId?.includes('(Host)') || peerName?.includes('(Host)');
+                                    const targetIsCoHost = (participant?.isLocal && isCoHost) || Boolean(coHostsMap[peerId]);
                                     const hasHandRaised = !!raisedHandsMap[peerId];
                                     const isOnHold = !targetIsHost && !targetIsCoHost && Boolean(holdParticipantsMap[peerId]);
+                                    const canSeeBadge = Boolean(isHost || isCoHost);
 
                                     return (
                                         <div key={track.publication?.trackSid || peerId} style={{ position: 'relative', height: '100%' }}>
-                                            {isOnHold && !isScreenSharing && isEffectiveModerator && (
+                                            {isOnHold && canSeeBadge && (
                                                 <div className="video-hold-badge">
                                                     <PauseCircle size={12} /> ON HOLD
                                                 </div>
@@ -723,22 +751,31 @@ function MeetingStage({
                                 const participant = track.participant;
                                 const peerId = participant?.identity;
                                 const peerName = participant?.name || peerId;
-                                const targetIsHost = (participant?.isLocal && isHost) || peerId?.includes('Host') || peerName?.includes('Host');
-                                const targetIsCoHost = (participant?.isLocal && isCoHost) || Boolean(coHostsMap[peerId]);
-                                const hasHandRaised = !!raisedHandsMap[peerId];
-                                const isOnHold = !targetIsHost && !targetIsCoHost && Boolean(holdParticipantsMap[peerId]);
-                                const isCamActive = track.publication && !track.publication.isMuted && track.publication.track;
+
+                                const targetIsHost = (participant?.isLocal && isHost) || peerId?.includes('(Host)') || peerName?.includes('(Host)');
+                                const targetIsCoHost = (participant?.isLocal && isCoHost) || Boolean(coHostsMap?.[peerId]);
+                                const hasHandRaised = Boolean(raisedHandsMap?.[peerId]);
+
+                                const isOnHold = !targetIsHost && !targetIsCoHost && (
+                                    Boolean(holdParticipantsMap?.[peerId]) || Boolean(holdParticipantsMap?.[peerName])
+                                );
+
+                                const canSeeBadge = Boolean(isHost || isCoHost);
+                                const isCamActive = Boolean(track.publication && !track.publication.isMuted && track.publication.track);
 
                                 return (
                                     <div
                                         key={track.publication?.trackSid || peerId}
                                         className={`video-tile-wrapper ${targetIsHost ? 'tile-host' : ''}`}
                                     >
-                                        {isOnHold && !isScreenSharing && isEffectiveModerator && (
-                                            <div className="video-hold-badge">
+                                        {/* Hold Badge */}
+                                        {isOnHold && canSeeBadge && (
+                                            <div className="video-hold-badge" style={{ zIndex: 99 }}>
                                                 <PauseCircle size={14} /> AWAY / ON HOLD
                                             </div>
                                         )}
+
+                                        {/* Hand Raised Badge */}
                                         {hasHandRaised && <div className="video-hand-badge">✋ Hand Raised</div>}
 
                                         {isCamActive ? (
@@ -795,9 +832,9 @@ function MeetingStage({
                                             border: '1px solid rgba(255, 255, 255, 0.08)',
                                             zIndex: 15
                                         }}>
-                                            <span style={{ fontSize: '0.78rem', fontWeight: '600', color: '#f8fafc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                {peerName.replace(/\(Host\)/g, '').trim()} {targetIsHost ? '(Host)' : ''}
-                                            </span>
+                <span style={{ fontSize: '0.78rem', fontWeight: '600', color: '#f8fafc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {peerName ? peerName.replace(/\(Host\)/g, '').trim() : 'Participant'} {targetIsHost ? '(Host)' : ''}
+                </span>
                                             <TrackMutedIndicator trackRef={{ participant, source: Track.Source.Microphone }} style={{ display: 'flex', alignItems: 'center' }} />
                                         </div>
                                     </div>
