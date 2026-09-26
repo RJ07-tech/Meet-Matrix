@@ -133,16 +133,17 @@ function MeetingStage({
         }
     }, [localParticipant, initialCam, initialMic, participantName, micLocked, isEffectiveModerator]);
 
-    // Visibility / Hold status with reliable focus & initial reset
+    // Tab Visibility Tracker
     useEffect(() => {
         if (!room || !localParticipant) return;
 
-        const broadcastHoldStatus = (isHidden) => {
-            if (localParticipant.isScreenShareEnabled || isHost) return;
+        const reportStatus = (hidden) => {
+            // Do not mark host or screen-sharers as on hold
+            if (isHost || localParticipant.isScreenShareEnabled) return;
 
             setHoldParticipantsMap(prev => ({
                 ...prev,
-                [localParticipant.identity]: isHidden
+                [localParticipant.identity]: hidden
             }));
 
             try {
@@ -150,42 +151,29 @@ function MeetingStage({
                     type: 'user_hold_status',
                     identity: localParticipant.identity,
                     name: participantName,
-                    isOnHold: isHidden
+                    isOnHold: hidden
                 });
                 room.localParticipant.publishData(new TextEncoder().encode(payload), { reliable: true });
-            } catch (e) {}
+            } catch (err) {}
 
             axios.post(`${BACKEND_URL}/api/attendance/update`, {
                 room_name: roomName,
                 participant_name: participantName,
                 participant_identity: localParticipant.identity,
-                action: isHidden ? "hold_start" : "hold_end"
+                action: hidden ? "hold_start" : "hold_end"
             }).catch(() => {});
         };
 
-        const handleVisibilityChange = () => {
-            broadcastHoldStatus(document.visibilityState === 'hidden');
+        const onVisibilityChange = () => {
+            reportStatus(document.visibilityState === 'hidden');
         };
 
-        const handleWindowFocus = () => {
-            broadcastHoldStatus(false);
-        };
+        // Reset hold status upon joining
+        reportStatus(false);
 
-        const handleWindowBlur = () => {
-            broadcastHoldStatus(true);
-        };
-
-        // Immediately clear hold status upon entering
-        broadcastHoldStatus(false);
-
-        document.addEventListener('visibilitychange', handleVisibilityChange);
-        window.addEventListener('focus', handleWindowFocus);
-        window.addEventListener('blur', handleWindowBlur);
-
+        document.addEventListener('visibilitychange', onVisibilityChange);
         return () => {
-            document.removeEventListener('visibilitychange', handleVisibilityChange);
-            window.removeEventListener('focus', handleWindowFocus);
-            window.removeEventListener('blur', handleWindowBlur);
+            document.removeEventListener('visibilitychange', onVisibilityChange);
         };
     }, [room, localParticipant, roomName, participantName, isHost]);
 
@@ -713,7 +701,7 @@ function MeetingStage({
                                     const targetIsHost = (track.participant?.isLocal && isHost) || peerId?.includes('Host') || peerName?.includes('Host');
                                     const targetIsCoHost = (track.participant?.isLocal && isCoHost) || Boolean(coHostsMap[peerId]);
                                     const hasHandRaised = !!raisedHandsMap[peerId];
-                                    const isOnHold = !targetIsHost && !targetIsCoHost && !!holdParticipantsMap[peerId];
+                                    const isOnHold = !targetIsHost && !targetIsCoHost && Boolean(holdParticipantsMap[peerId]);
 
                                     return (
                                         <div key={track.publication?.trackSid || peerId} style={{ position: 'relative', height: '100%' }}>

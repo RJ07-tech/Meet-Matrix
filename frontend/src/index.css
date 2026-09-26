@@ -22,7 +22,7 @@
   --text-muted: #64748b;
 }
 
-/* Universal Typography Normalization (Prevents Mobile Cursive Font Substitution) */
+/* Universal Typography Normalization */
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
@@ -56,7 +56,7 @@ header div span {
 
 @media (max-width: 500px) {
   .header-reactions-container {
-    display: none !important; /* Hide reaction emoji bar on small phones so main buttons fit */
+    display: none !important;
   }
 }
 
@@ -189,34 +189,28 @@ video[data-lk-source="screen_share"] {
 }
 
 /* Dynamic Sizing based on Participant Counts (Desktop) */
-
-/* 1 Participant: Hero focus in center */
 .matrix-grid-1 .video-tile-wrapper {
   width: min(82vw, 1000px) !important;
   max-height: 80vh !important;
 }
 
-/* 2 Participants: Two balanced 16:9 cards side-by-side */
 .matrix-grid-2 .video-tile-wrapper {
   width: min(45vw, 680px) !important;
   max-height: 65vh !important;
 }
 
-/* 3 or 4 Participants: 2 per row (3rd person auto-centers at bottom) */
 .matrix-grid-3 .video-tile-wrapper,
 .matrix-grid-4 .video-tile-wrapper {
   width: min(45vw, 580px) !important;
   max-height: 42vh !important;
 }
 
-/* 5 or 6 Participants: 3 per row */
 .matrix-grid-5 .video-tile-wrapper,
 .matrix-grid-6 .video-tile-wrapper {
   width: min(30vw, 440px) !important;
   max-height: 38vh !important;
 }
 
-/* 7 to 9 Participants: 3x3 layout */
 .matrix-grid-7 .video-tile-wrapper,
 .matrix-grid-8 .video-tile-wrapper,
 .matrix-grid-9 .video-tile-wrapper {
@@ -224,7 +218,6 @@ video[data-lk-source="screen_share"] {
   max-height: 30vh !important;
 }
 
-/* 10+ Participants: Compact grid tiles */
 .matrix-grid-multi .video-tile-wrapper {
   width: min(22vw, 320px) !important;
   max-height: 25vh !important;
@@ -315,6 +308,51 @@ video[data-lk-source="screen_share"] {
   100% { opacity: 0; transform: translateY(-400px) scale(0.8); }
 }
 
+/* --- DESKTOP CONTROL BAR (Centered Compact Floating Dock) --- */
+.control-bar,
+footer,
+div[class*="control-bar"] {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 12px !important;
+  padding: 8px 20px !important;
+  width: auto !important;
+  max-width: fit-content !important;
+  margin: 0 auto 14px auto !important;
+  background: rgba(15, 23, 42, 0.85) !important;
+  backdrop-filter: blur(16px) !important;
+  border-radius: 16px !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5) !important;
+  z-index: 100 !important;
+}
+
+.control-bar button,
+footer button,
+div[class*="control-bar"] button {
+  flex: 0 0 auto !important;
+  width: 52px !important;
+  height: 52px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 3px !important;
+  border-radius: 10px !important;
+  font-size: 0.65rem !important;
+  padding: 4px !important;
+}
+
+.control-bar button span,
+footer button span,
+div[class*="control-bar"] button span {
+  font-size: 0.65rem !important;
+  line-height: 1 !important;
+  white-space: nowrap !important;
+  font-weight: 600 !important;
+}
+
 /* Mobile Viewport Optimization (Phones & Small Tablets) */
 @media (max-width: 768px) {
   .matrix-stage-grid {
@@ -332,7 +370,7 @@ video[data-lk-source="screen_share"] {
     aspect-ratio: auto !important;
   }
 
-  /* 2 Participants on Mobile: Strict Vertical Stack (1 on top, 1 on bottom) */
+  /* 2 Participants on Mobile: Strict Vertical Stack */
   .matrix-grid-2 {
     display: flex !important;
     flex-direction: column !important;
@@ -353,9 +391,8 @@ video[data-lk-source="screen_share"] {
     aspect-ratio: auto !important;
     flex: 1 1 auto !important;
   }
-}
 
-  /* 3 Participants on Mobile: Top 2 side-by-side, Bottom 1 centered matching size */
+  /* 3 Participants on Mobile */
   .matrix-grid-3 {
     display: flex !important;
     flex-wrap: wrap !important;
@@ -389,12 +426,18 @@ video[data-lk-source="screen_share"] {
   .control-bar,
   footer,
   div[class*="control-bar"] {
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100vw !important;
+    max-width: 100vw !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
     padding: 6px 4px !important;
     gap: 3px !important;
-    width: 100% !important;
-    max-width: 100vw !important;
-    box-sizing: border-box !important;
     justify-content: space-between !important;
+    box-sizing: border-box !important;
     overflow-x: hidden !important;
   }
 
@@ -406,6 +449,7 @@ video[data-lk-source="screen_share"] {
     flex: 1 1 0 !important;
     max-width: 48px !important;
     height: 46px !important;
+    width: auto !important;
     display: flex !important;
     flex-direction: column !important;
     align-items: center !important;
@@ -424,6 +468,7 @@ video[data-lk-source="screen_share"] {
     max-width: 42px !important;
     font-weight: 600 !important;
   }
+}
 
 /* Explicit System Font Rules for Badges and Nameplates */
 .video-tile-wrapper span,
@@ -489,5 +534,4 @@ button span {
   z-index: 10 !important;
   flex: 1 1 0% !important;
   min-height: 0 !important;
-  overflow: hidden !important;
-}
+  overflow: hidden !important;}
