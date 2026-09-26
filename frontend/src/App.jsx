@@ -138,7 +138,6 @@ function MeetingStage({
         if (!room || !localParticipant) return;
 
         const reportStatus = (hidden) => {
-            // Do not mark host or screen-sharers as on hold
             if (isHost || localParticipant.isScreenShareEnabled) return;
 
             setHoldParticipantsMap(prev => ({
@@ -150,7 +149,7 @@ function MeetingStage({
                 const payload = JSON.stringify({
                     type: 'user_hold_status',
                     identity: localParticipant.identity,
-                    name: participantName,
+                    name: participantName || localParticipant.name || 'Participant',
                     isOnHold: hidden
                 });
                 room.localParticipant.publishData(new TextEncoder().encode(payload), { reliable: true });
@@ -168,12 +167,18 @@ function MeetingStage({
             reportStatus(document.visibilityState === 'hidden');
         };
 
-        // Reset hold status upon joining
+        const onWindowFocus = () => {
+            reportStatus(false);
+        };
+
         reportStatus(false);
 
         document.addEventListener('visibilitychange', onVisibilityChange);
+        window.addEventListener('focus', onWindowFocus);
+
         return () => {
             document.removeEventListener('visibilitychange', onVisibilityChange);
+            window.removeEventListener('focus', onWindowFocus);
         };
     }, [room, localParticipant, roomName, participantName, isHost]);
 
@@ -257,11 +262,10 @@ function MeetingStage({
 
         const handleDataReceived = (payload, participant) => {
             try {
-                const decoded = new TextDecoder().decode(payload);
+                const decoded = typeof payload === 'string' ? payload : new TextDecoder().decode(payload);
                 const data = JSON.parse(decoded);
 
                 if (data.type === 'room_terminated') {
-                    // Instantly leave without a blocking alert
                     onLeave();
                 } else if (data.type === 'settings_update') {
                     if (data.allow_participant_screenshare !== undefined) setAllowScreenshare(data.allow_participant_screenshare);
@@ -285,12 +289,17 @@ function MeetingStage({
                         setShowVideoRequestModal(true);
                     }
                 } else if (data.type === 'user_hold_status') {
+                    const senderId = participant?.identity || data.identity;
+                    const isHolding = Boolean(data.isOnHold);
+
                     setHoldParticipantsMap(prev => ({
                         ...prev,
-                        [data.identity]: Boolean(data.isOnHold)
+                        [senderId]: isHolding,
+                        [data.identity]: isHolding
                     }));
-                    if (data.isOnHold && isEffectiveModerator) {
-                        pushWhiteboardAlert(`⚠️ ${data.name || 'Participant'} switched tabs / on hold.`);
+
+                    if (isHolding && isEffectiveModerator) {
+                        pushWhiteboardAlert(`⚠️ ${data.name || participant?.name || 'Participant'} switched tabs / on hold.`);
                     }
                 } else if (data.type === 'co_host_update') {
                     setCoHostsMap(prev => ({ ...prev, [data.targetIdentity]: data.isCoHost }));
@@ -484,7 +493,6 @@ function MeetingStage({
         onLeave();
     };
 
-    // Standalone attendance download: DOES NOT terminate, leave, or change inMeeting state
     const handleDownloadAttendanceLive = async (e) => {
         if (e && e.preventDefault) e.preventDefault();
         if (e && e.stopPropagation) e.stopPropagation();
@@ -494,7 +502,6 @@ function MeetingStage({
                 responseType: 'blob'
             });
 
-            // Create an in-memory blob URL that never causes navigation or unmounts
             const blob = new Blob([response.data], { type: 'text/csv;charset=utf-8;' });
             const url = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
@@ -503,7 +510,6 @@ function MeetingStage({
             document.body.appendChild(link);
             link.click();
 
-            // Cleanup memory cleanly
             document.body.removeChild(link);
             window.URL.revokeObjectURL(url);
         } catch (err) {
@@ -512,17 +518,14 @@ function MeetingStage({
         }
     };
 
-    // Instant Terminate without confirmation lock or lag
     const handleTerminateWithCsv = () => {
         if (!isHost) return;
 
-        // 1. Instant DataChannel broadcast to all peers
         if (room?.localParticipant) {
             const payload = JSON.stringify({ type: 'room_terminated' });
             room.localParticipant.publishData(new TextEncoder().encode(payload), { reliable: true });
         }
 
-        // 2. Immediate CSV download if checked
         if (autoDownloadCsv) {
             const downloadUrl = `${BACKEND_URL}/api/attendance/export/${roomName}`;
             const a = document.createElement('a');
@@ -534,10 +537,7 @@ function MeetingStage({
             document.body.removeChild(a);
         }
 
-        // 3. Fire-and-forget backend closure
         axios.post(`${BACKEND_URL}/api/terminate-room`, { room_name: roomName }).catch(() => {});
-
-        // 4. Immediately end the host's session
         onTerminate();
     };
 
@@ -621,7 +621,7 @@ function MeetingStage({
             isHost,
             isCoHost,
             isSelf: true,
-            isOnHold: !isHost && !isCoHost && !!holdParticipantsMap[localParticipant?.identity],
+            isOnHold: !isHost && !isCoHost && Boolean(holdParticipantsMap[localParticipant?.identity]),
             isHandRaised: !!raisedHandsMap[localParticipant?.identity]
         },
         ...remoteParticipants.map(p => {
@@ -632,7 +632,7 @@ function MeetingStage({
                 isHost: targetIsHost,
                 isCoHost: Boolean(coHostsMap[p.identity]),
                 isSelf: false,
-                isOnHold: !targetIsHost && !Boolean(coHostsMap[p.identity]) && !!holdParticipantsMap[p.identity],
+                isOnHold: !targetIsHost && !Boolean(coHostsMap[p.identity]) && Boolean(holdParticipantsMap[p.identity]),
                 isHandRaised: !!raisedHandsMap[p.identity]
             };
         })
@@ -726,7 +726,7 @@ function MeetingStage({
                                 const targetIsHost = (participant?.isLocal && isHost) || peerId?.includes('Host') || peerName?.includes('Host');
                                 const targetIsCoHost = (participant?.isLocal && isCoHost) || Boolean(coHostsMap[peerId]);
                                 const hasHandRaised = !!raisedHandsMap[peerId];
-                                const isOnHold = !targetIsHost && !targetIsCoHost && !!holdParticipantsMap[peerId];
+                                const isOnHold = !targetIsHost && !targetIsCoHost && Boolean(holdParticipantsMap[peerId]);
                                 const isCamActive = track.publication && !track.publication.isMuted && track.publication.track;
 
                                 return (
@@ -747,7 +747,7 @@ function MeetingStage({
                                                 style={{
                                                     width: '100%',
                                                     height: '100%',
-                                                    objectFit: 'cover' // <--- Change from 'contain' to 'cover'
+                                                    objectFit: 'cover'
                                                 }}
                                             />
                                         ) : (
@@ -795,9 +795,9 @@ function MeetingStage({
                                             border: '1px solid rgba(255, 255, 255, 0.08)',
                                             zIndex: 15
                                         }}>
-                    <span style={{ fontSize: '0.78rem', fontWeight: '600', color: '#f8fafc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {peerName.replace(/\(Host\)/g, '').trim()} {targetIsHost ? '(Host)' : ''}
-                    </span>
+                                            <span style={{ fontSize: '0.78rem', fontWeight: '600', color: '#f8fafc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                {peerName.replace(/\(Host\)/g, '').trim()} {targetIsHost ? '(Host)' : ''}
+                                            </span>
                                             <TrackMutedIndicator trackRef={{ participant, source: Track.Source.Microphone }} style={{ display: 'flex', alignItems: 'center' }} />
                                         </div>
                                     </div>
@@ -949,7 +949,7 @@ export default function App() {
     const [loading, setLoading] = useState(false);
     const [isInviteFlow, setIsInviteFlow] = useState(false);
 
-    const [step, setStep] = useState('landing'); // 'landing' | 'lobby' | 'meeting'
+    const [step, setStep] = useState('landing');
     const [isHostIntent, setIsHostIntent] = useState(false);
 
     const handleStartHostLanding = () => {
@@ -1004,7 +1004,6 @@ export default function App() {
     const previewStreamRef = useRef(null);
     const isJoiningRef = useRef(false);
 
-    // Callback ref: fires immediately when the <video> tag mounts or unmounts in DOM
     const setVideoPreviewRef = useCallback((node) => {
         videoPreviewElRef.current = node;
         if (node && previewStreamRef.current) {
@@ -1030,7 +1029,6 @@ export default function App() {
                     }
                     previewStreamRef.current = stream;
 
-                    // Attach immediately if video tag is already present
                     if (videoPreviewElRef.current) {
                         videoPreviewElRef.current.srcObject = stream;
                         videoPreviewElRef.current.play().catch(() => {});
@@ -1091,7 +1089,7 @@ export default function App() {
             setRoomName(roomParam);
             setIsInviteFlow(true);
             setIsHostIntent(false);
-            setStep('lobby'); // <--- Skips Stage 1 directly to Green Room
+            setStep('lobby');
         }
     }, []);
 
@@ -1406,7 +1404,6 @@ export default function App() {
         }
     };
 
-    // Immediate cleanup for Host
     const handleTerminateMeeting = () => {
         axios.post(`${BACKEND_URL}/api/terminate-room`, { room_name: roomName }).catch(() => {});
         setInMeeting(false);
