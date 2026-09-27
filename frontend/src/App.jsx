@@ -309,20 +309,19 @@ function MeetingStage({
                     }
                 } else if (data.type === 'user_hold_status') {
                     const isHolding = Boolean(data.isOnHold);
-                    const idKey = data.identity || participant?.identity;
-                    const nameKey = data.name || participant?.name;
+                    const key1 = data.identity;
+                    const key2 = participant?.identity;
+                    const key3 = data.name;
 
-                    console.log(`[MeetMatrix Hold Event] Identity: ${idKey}, Name: ${nameKey}, Status: ${isHolding}`);
-
-                    setHoldParticipantsMap(prev => {
-                        const next = { ...prev };
-                        if (idKey) next[idKey] = isHolding;
-                        if (nameKey) next[nameKey] = isHolding;
-                        return next;
-                    });
+                    setHoldParticipantsMap(prev => ({
+                        ...prev,
+                        ...(key1 ? { [key1]: isHolding } : {}),
+                        ...(key2 ? { [key2]: isHolding } : {}),
+                        ...(key3 ? { [key3]: isHolding } : {})
+                    }));
 
                     if (isHolding && (isHost || isCoHost)) {
-                        pushWhiteboardAlert(`⚠️ ${nameKey || idKey || 'Participant'} switched tabs / on hold.`);
+                        pushWhiteboardAlert(`⚠️ ${data.name || participant?.name || 'Participant'} switched tabs / on hold.`);
                     }
                 } else if (data.type === 'co_host_update') {
                     setCoHostsMap(prev => ({ ...prev, [data.targetIdentity]: data.isCoHost }));
@@ -747,35 +746,39 @@ function MeetingStage({
                     ) : (
                         <div className={`matrix-stage-grid ${getGridClass()}`}>
                             {cameraTracks.map(track => {
-                                const participant = track.participant;
-                                const peerId = participant?.identity || track.publication?.participant?.identity || '';
-                                const peerName = participant?.name || track.publication?.participant?.name || peerId;
-                                const hasHandRaised = Boolean(raisedHandsMap?.[peerId]);
+                                // 1. Fallback extraction: LiveKit placeholders store participant in different properties
+                                const participant = track.participant || track.publication?.participant;
+                                const peerId = participant?.identity || track.participantIdentity || '';
+                                const peerName = participant?.name || peerId;
 
-                                const targetIsHost = participant?.isLocal
+                                // 2. Strict Host/CoHost check (Avoid accidental false positive)
+                                const isThisLocal = Boolean(participant?.isLocal);
+                                const targetIsHost = isThisLocal
                                     ? Boolean(isHost)
-                                    : Boolean(peerId.toLowerCase().includes('host') || peerName.toLowerCase().includes('(host)'));
-                                const isThisTileHost = targetIsHost;
-
-                                const targetIsCoHost = participant?.isLocal
+                                    : (peerId.endsWith('(Host)') || peerName.endsWith('(Host)'));
+                                const targetIsCoHost = isThisLocal
                                     ? Boolean(isCoHost)
                                     : Boolean(coHostsMap?.[peerId]);
-                                const isThisTileCoHost = targetIsCoHost;
 
-                                // Check hold state by both peerId and peerName
-                                const peerHoldState = Boolean(holdParticipantsMap?.[peerId]) || Boolean(holdParticipantsMap?.[peerName]);
-                                const isOnHold = !isThisTileHost && !isThisTileCoHost && peerHoldState;
+                                const hasHandRaised = Boolean(raisedHandsMap?.[peerId]);
 
-                                // Host or CoHost can see the badge
+                                // 3. Robust hold status lookup across all keys
+                                const isParticipantOnHold = Boolean(
+                                    (peerId && holdParticipantsMap?.[peerId]) ||
+                                    (peerName && holdParticipantsMap?.[peerName]) ||
+                                    (participant?.identity && holdParticipantsMap?.[participant.identity])
+                                );
+
+                                const isOnHold = !targetIsHost && !targetIsCoHost && isParticipantOnHold;
                                 const canSeeBadge = Boolean(isHost || isCoHost);
                                 const isCamActive = Boolean(track.publication && !track.publication.isMuted && track.publication.track);
 
                                 return (
                                     <div
                                         key={track.publication?.trackSid || peerId || Math.random()}
-                                        className={`video-tile-wrapper ${isThisTileHost ? 'tile-host' : ''}`}
+                                        className={`video-tile-wrapper ${targetIsHost ? 'tile-host' : ''}`}
                                     >
-                                        {/* The Badge */}
+                                        {/* The Away / On-Hold Badge */}
                                         {isOnHold && canSeeBadge && (
                                             <div
                                                 className="video-hold-badge"
@@ -784,21 +787,22 @@ function MeetingStage({
                                                     top: '10px',
                                                     left: '10px',
                                                     background: '#eab308',
-                                                    color: '#000',
+                                                    color: '#0f172a',
                                                     fontWeight: '800',
+                                                    fontSize: '0.72rem',
                                                     padding: '4px 8px',
                                                     borderRadius: '6px',
                                                     zIndex: 9999,
                                                     display: 'flex',
                                                     alignItems: 'center',
-                                                    gap: '4px'
+                                                    gap: '4px',
+                                                    boxShadow: '0 4px 10px rgba(0,0,0,0.5)'
                                                 }}
                                             >
                                                 <PauseCircle size={14} /> AWAY / ON HOLD
                                             </div>
                                         )}
 
-                                        {/* Hand Raised Badge */}
                                         {hasHandRaised && <div className="video-hand-badge">✋ Hand Raised</div>}
 
                                         {isCamActive ? (

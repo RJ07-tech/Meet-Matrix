@@ -350,28 +350,44 @@ async def update_attendance(req: AttendanceUpdateRequest):
             req.participant_name,
             req.participant_identity or "Unknown",
             is_host=False,
-        )
-    elif rec:
+            )
+        return {"status": "success"}
+
+    # Fallback: if join wasn't recorded first, create the record now
+    if not rec:
+        mark_attendance_join(
+            req.room_name,
+            req.participant_name,
+            req.participant_identity or "Unknown",
+            is_host=False,
+            )
+        rec = find_attendance(records, identity=req.participant_identity, name=req.participant_name)
+
+    if rec:
         if req.action == "leave":
             rec["leave_time"] = now_str
             if rec.get("current_hold_start"):
                 start_dt = rec["current_hold_start"]
-                dur = int((now_dt - start_dt).total_seconds())
+                dur = max(0, int((now_dt - start_dt).total_seconds()))
                 rec.setdefault("hold_logs", []).append(
                     f"{start_dt.strftime('%I:%M:%S %p')} to {now_dt.strftime('%I:%M:%S %p')} ({dur}s)"
                 )
+                rec["total_hold_seconds"] = rec.get("total_hold_seconds", 0) + dur
                 rec["current_hold_start"] = None
 
         elif req.action == "hold_start":
-            rec["current_hold_start"] = now_dt
+            # Only start timer if not already running (prevents duplicate blur/visibility overwrite)
+            if not rec.get("current_hold_start"):
+                rec["current_hold_start"] = now_dt
 
         elif req.action == "hold_end":
             if rec.get("current_hold_start"):
                 start_dt = rec["current_hold_start"]
-                dur = int((now_dt - start_dt).total_seconds())
+                dur = max(0, int((now_dt - start_dt).total_seconds()))
                 rec.setdefault("hold_logs", []).append(
                     f"{start_dt.strftime('%I:%M:%S %p')} to {now_dt.strftime('%I:%M:%S %p')} ({dur}s)"
                 )
+                rec["total_hold_seconds"] = rec.get("total_hold_seconds", 0) + dur
                 rec["current_hold_start"] = None
 
     return {"status": "success"}
