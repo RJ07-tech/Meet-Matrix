@@ -138,19 +138,13 @@ function MeetingStage({
         if (!room || !localParticipant) return;
 
         const reportStatus = (hidden) => {
-            // Do not flag host or screen sharer
+            // Host does not trigger hold
             if (isHost || localParticipant.isScreenShareEnabled) return;
 
-            const myId = localParticipant.identity;
-            const myName = participantName || localParticipant.name || '';
+            const myId = String(localParticipant.identity || '').trim();
+            const myName = String(participantName || localParticipant.name || myId).trim();
 
-            console.log(`[MeetMatrix Hold Emitter] Sending hold: ${hidden} for ID: ${myId}`);
-
-            setHoldParticipantsMap(prev => ({
-                ...prev,
-                [myId]: hidden,
-                ...(myName ? { [myName]: hidden } : {})
-            }));
+            console.warn("📡 [EMITTING HOLD STATUS FROM PARTICIPANT]:", hidden, "ID:", myId);
 
             try {
                 const payload = JSON.stringify({
@@ -159,47 +153,39 @@ function MeetingStage({
                     name: myName,
                     isOnHold: hidden
                 });
-                const encoded = new TextEncoder().encode(payload);
-                room.localParticipant.publishData(encoded, { reliable: true });
+                const dataBytes = new TextEncoder().encode(payload);
+
+                // Broadcast to room
+                room.localParticipant.publishData(dataBytes, { reliable: true });
             } catch (err) {
-                console.error("[MeetMatrix Hold Emitter Error]", err);
+                console.error("Hold broadcast error:", err);
             }
 
             if (typeof BACKEND_URL !== 'undefined') {
                 axios.post(`${BACKEND_URL}/api/attendance/update`, {
                     room_name: roomName,
-                    participant_name: myName || myId,
+                    participant_name: myName,
                     participant_identity: myId,
                     action: hidden ? "hold_start" : "hold_end"
                 }).catch(() => {});
             }
         };
 
-        const handleVisibilityChange = () => {
+        const onHide = () => reportStatus(true);
+        const onShow = () => reportStatus(false);
+
+        window.addEventListener('blur', onHide);
+        window.addEventListener('focus', onShow);
+        document.addEventListener('visibilitychange', () => {
             reportStatus(document.visibilityState === 'hidden');
-        };
-
-        const handleBlur = () => {
-            reportStatus(true);
-        };
-
-        const handleFocus = () => {
-            reportStatus(false);
-        };
-
-        // Initialize to false on join
-        reportStatus(false);
-
-        document.addEventListener('visibilitychange', handleVisibilityChange);
-        window.addEventListener('blur', handleBlur);
-        window.addEventListener('focus', handleFocus);
+        });
 
         return () => {
-            document.removeEventListener('visibilitychange', handleVisibilityChange);
-            window.removeEventListener('blur', handleBlur);
-            window.removeEventListener('focus', handleFocus);
+            window.removeEventListener('blur', onHide);
+            window.removeEventListener('focus', onShow);
+            document.removeEventListener('visibilitychange', () => {});
         };
-    }, [room, localParticipant, participantName, isHost, roomName]);
+    }, [room, localParticipant, isHost, participantName, roomName]);
 
     // Live Room Settings Sync
     useEffect(() => {
@@ -309,19 +295,20 @@ function MeetingStage({
                     }
                 } else if (data.type === 'user_hold_status') {
                     const isHolding = Boolean(data.isOnHold);
-                    const key1 = data.identity;
-                    const key2 = participant?.identity;
-                    const key3 = data.name;
+                    const incomingId = String(data.identity || participant?.identity || '').trim();
+                    const incomingName = String(data.name || participant?.name || '').trim();
 
-                    setHoldParticipantsMap(prev => ({
-                        ...prev,
-                        ...(key1 ? { [key1]: isHolding } : {}),
-                        ...(key2 ? { [key2]: isHolding } : {}),
-                        ...(key3 ? { [key3]: isHolding } : {})
-                    }));
+                    console.warn("🚨 [HOLD PACKET RECEIVED BY HOST]", { incomingId, incomingName, isHolding });
 
-                    if (isHolding && (isHost || isCoHost)) {
-                        pushWhiteboardAlert(`⚠️ ${data.name || participant?.name || 'Participant'} switched tabs / on hold.`);
+                    setHoldParticipantsMap(prev => {
+                        const next = { ...prev };
+                        if (incomingId) next[incomingId] = isHolding;
+                        if (incomingName) next[incomingName] = isHolding;
+                        return next;
+                    });
+
+                    if (isHolding) {
+                        pushWhiteboardAlert(`⚠️ ${incomingName || 'Participant'} switched tabs / on hold.`);
                     }
                 } else if (data.type === 'co_host_update') {
                     setCoHostsMap(prev => ({ ...prev, [data.targetIdentity]: data.isCoHost }));
@@ -746,60 +733,50 @@ function MeetingStage({
                     ) : (
                         <div className={`matrix-stage-grid ${getGridClass()}`}>
                             {cameraTracks.map(track => {
-                                // 1. Fallback extraction: LiveKit placeholders store participant in different properties
-                                const participant = track.participant || track.publication?.participant;
-                                const peerId = participant?.identity || track.participantIdentity || '';
-                                const peerName = participant?.name || peerId;
+                                const participant = track.participant;
+                                const peerId = String(participant?.identity || track.publication?.participant?.identity || '').trim();
+                                const peerName = String(participant?.name || track.publication?.participant?.name || peerId).trim();
 
-                                // 2. Strict Host/CoHost check (Avoid accidental false positive)
-                                const isThisLocal = Boolean(participant?.isLocal);
-                                const targetIsHost = isThisLocal
-                                    ? Boolean(isHost)
-                                    : (peerId.endsWith('(Host)') || peerName.endsWith('(Host)'));
-                                const targetIsCoHost = isThisLocal
-                                    ? Boolean(isCoHost)
-                                    : Boolean(coHostsMap?.[peerId]);
+                                // Check if tile belongs to local host or remote host
+                                const isLocalUser = Boolean(participant?.isLocal);
+                                const isTileHost = isLocalUser ? Boolean(isHost) : peerName.includes('(Host)');
+
+                                // The remote participant is on hold if their ID or Name is marked true in holdParticipantsMap
+                                const isUserHolding = Boolean(holdParticipantsMap[peerId] || holdParticipantsMap[peerName]);
+
+                                // Show badge only on the participant tile when viewed by the Host
+                                const showHoldBadge = Boolean(isHost) && !isTileHost && isUserHolding;
 
                                 const hasHandRaised = Boolean(raisedHandsMap?.[peerId]);
-
-                                // 3. Robust hold status lookup across all keys
-                                const isParticipantOnHold = Boolean(
-                                    (peerId && holdParticipantsMap?.[peerId]) ||
-                                    (peerName && holdParticipantsMap?.[peerName]) ||
-                                    (participant?.identity && holdParticipantsMap?.[participant.identity])
-                                );
-
-                                const isOnHold = !targetIsHost && !targetIsCoHost && isParticipantOnHold;
-                                const canSeeBadge = Boolean(isHost || isCoHost);
                                 const isCamActive = Boolean(track.publication && !track.publication.isMuted && track.publication.track);
 
                                 return (
                                     <div
                                         key={track.publication?.trackSid || peerId || Math.random()}
-                                        className={`video-tile-wrapper ${targetIsHost ? 'tile-host' : ''}`}
+                                        className={`video-tile-wrapper ${isTileHost ? 'tile-host' : ''}`}
                                     >
-                                        {/* The Away / On-Hold Badge */}
-                                        {isOnHold && canSeeBadge && (
+                                        {/* The Badge */}
+                                        {showHoldBadge && (
                                             <div
-                                                className="video-hold-badge"
                                                 style={{
                                                     position: 'absolute',
-                                                    top: '10px',
-                                                    left: '10px',
+                                                    top: '12px',
+                                                    left: '12px',
                                                     background: '#eab308',
-                                                    color: '#0f172a',
-                                                    fontWeight: '800',
-                                                    fontSize: '0.72rem',
-                                                    padding: '4px 8px',
+                                                    color: '#000000',
+                                                    fontWeight: '900',
+                                                    fontSize: '0.75rem',
+                                                    padding: '5px 10px',
                                                     borderRadius: '6px',
-                                                    zIndex: 9999,
+                                                    zIndex: 99999,
                                                     display: 'flex',
                                                     alignItems: 'center',
-                                                    gap: '4px',
-                                                    boxShadow: '0 4px 10px rgba(0,0,0,0.5)'
+                                                    gap: '5px',
+                                                    boxShadow: '0 4px 12px rgba(0,0,0,0.7)',
+                                                    letterSpacing: '0.5px'
                                                 }}
                                             >
-                                                <PauseCircle size={14} /> AWAY / ON HOLD
+                                                <PauseCircle size={15} color="#000" /> AWAY / ON HOLD
                                             </div>
                                         )}
 
