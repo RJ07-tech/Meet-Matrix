@@ -749,7 +749,7 @@ function MeetingStage({
                                 const isUserHolding = Boolean(holdParticipantsMap[peerId] || holdParticipantsMap[peerName]);
 
                                 // Show badge only on the participant tile when viewed by the Host
-                                const showHoldBadge = Boolean(isHost) && !isTileHost && isUserHolding;
+                                const showHoldBadge = Boolean(isHost) && !targetIsHost && isUserHolding;
 
                                 const hasHandRaised = Boolean(raisedHandsMap?.[peerId]);
                                 const isCamActive = Boolean(track.publication && !track.publication.isMuted && track.publication.track);
