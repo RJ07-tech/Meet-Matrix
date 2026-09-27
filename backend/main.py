@@ -31,10 +31,16 @@ else:
     _cors_origins = [o.strip() for o in _cors_raw.split(",") if o.strip()]
     _cors_credentials = True
 
+origins = [
+    "https://meet-matrix.vercel.app",
+    "http://localhost:5173",
+    "http://localhost:3000",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_cors_origins,
-    allow_credentials=_cors_credentials,
+    allow_origins=origins,  # Explicit domains allowed with credentials
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -168,11 +174,7 @@ def verified_host(room_name: str, host_secret: Optional[str]) -> bool:
     return hmac.compare_digest(stored, host_secret)
 
 
-def find_attendance(
-    records: List[Dict[str, Any]],
-    identity: Optional[str] = None,
-    name: Optional[str] = None,
-) -> Optional[Dict[str, Any]]:
+def find_attendance(records, identity=None, name=None):
     if identity:
         rec = next((r for r in records if r.get("identity") == identity), None)
         if rec:

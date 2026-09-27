@@ -1114,7 +1114,8 @@ export default function App() {
         const handleBeforeUnload = () => {
             if (inMeeting && isHost && roomName) {
                 const payload = JSON.stringify({ room_name: roomName });
-                const blob = new Blob([payload], { type: 'application/json' });
+                // Use a plain Blob without triggering credentialed preflight locks
+                const blob = new Blob([payload], { type: 'text/plain' });
                 navigator.sendBeacon(`${BACKEND_URL}/api/terminate-room`, blob);
             }
         };
