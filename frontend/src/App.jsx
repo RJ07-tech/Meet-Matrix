@@ -710,8 +710,12 @@ function MeetingStage({
                                     const participant = track.participant;
                                     const peerId = participant?.identity;
                                     const peerName = participant?.name || peerId;
-                                    const targetIsHost = (participant?.isLocal && isHost) || peerId?.includes('(Host)') || peerName?.includes('(Host)');
-                                    const targetIsCoHost = (participant?.isLocal && isCoHost) || Boolean(coHostsMap[peerId]);
+                                    const targetIsHost = participant?.isLocal
+                                        ? Boolean(isHost)
+                                        : Boolean(peerId.toLowerCase().includes('(host)') || peerName.toLowerCase().includes('(host)'));
+                                    const targetIsCoHost = participant?.isLocal
+                                        ? Boolean(isCoHost)
+                                        : Boolean(coHostsMap?.[peerId]);
                                     const hasHandRaised = !!raisedHandsMap[peerId];
                                     const isOnHold = !targetIsHost && !targetIsCoHost && Boolean(holdParticipantsMap[peerId]);
                                     const canSeeBadge = Boolean(isHost || isCoHost);
@@ -739,7 +743,7 @@ function MeetingStage({
 
                                 // Check if tile belongs to local host or remote host
                                 const isLocalUser = Boolean(participant?.isLocal);
-                                const isTileHost = isLocalUser ? Boolean(isHost) : peerName.includes('(Host)');
+                                const targetIsHost = isLocalUser ? Boolean(isHost) : peerName.includes('(Host)');
 
                                 // The remote participant is on hold if their ID or Name is marked true in holdParticipantsMap
                                 const isUserHolding = Boolean(holdParticipantsMap[peerId] || holdParticipantsMap[peerName]);
@@ -753,7 +757,7 @@ function MeetingStage({
                                 return (
                                     <div
                                         key={track.publication?.trackSid || peerId || Math.random()}
-                                        className={`video-tile-wrapper ${isTileHost ? 'tile-host' : ''}`}
+                                        className={`video-tile-wrapper ${targetIsHost ? 'tile-host' : ''}`}
                                     >
                                         {/* The Badge */}
                                         {showHoldBadge && (
