@@ -867,7 +867,7 @@ function MeetingStage({
 
 // Clean out any extra (Host) text from the base display name
                                 const cleanDisplayName = currentRawName.replace(/\s*\(Host\)$/i, '').trim();
-
+                                const peerName = cleanDisplayName;
 // Host checks
                                 const targetIsHost = isThisLocal
                                     ? Boolean(isHost)
