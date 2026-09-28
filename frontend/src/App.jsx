@@ -101,8 +101,17 @@ function MeetingStage({
     const mediaRecorderRef = useRef(null);
     const recordedChunksRef = useRef([]);
 
-    const isCoHost = Boolean(coHostsMap[localParticipant?.identity]);
-    const isEffectiveModerator = isHost || isCoHost;
+    const isCoHost = Boolean(
+        coHostsMap?.[localParticipant?.identity] ||
+        coHostsMap?.[participantName]
+    );
+    const isEffectiveModerator = Boolean(isHost || isCoHost);
+
+// Keep a ref that always holds the freshest permission state
+    const moderatorRef = useRef(isEffectiveModerator);
+    useEffect(() => {
+        moderatorRef.current = isEffectiveModerator;
+    }, [isEffectiveModerator]);
 
     const allTracks = useTracks(
         [
@@ -298,21 +307,20 @@ function MeetingStage({
                 } else if (data.type === 'user_hold_status') {
                     const isHolding = Boolean(data.isOnHold);
                     const incomingId = String(data.identity || participant?.identity || '').trim();
-                    const incomingName = String(data.name || participant?.name || '').trim();
+                    const incomingName = String(data.name || participant?.name || incomingId).trim();
 
-                    console.warn("🚨 [HOLD PACKET RECEIVED BY HOST]", { incomingId, incomingName, isHolding });
+                    // 1. ALWAYS update the state map on every client
+                    setHoldParticipantsMap(prev => ({
+                        ...prev,
+                        [incomingId]: isHolding,
+                        [incomingName]: isHolding,
+                        ...(participant?.identity ? { [participant.identity]: isHolding } : {})
+                    }));
 
-                    setHoldParticipantsMap(prev => {
-                        const next = { ...prev };
-                        if (incomingId) next[incomingId] = isHolding;
-                        if (incomingName) next[incomingName] = isHolding;
-                        return next;
-                    });
-
-                    if (isHolding) {
-                        pushWhiteboardAlert(`⚠️ ${incomingName || 'Participant'} switched tabs / on hold.`);
+                    // 2. Alert only if the freshest ref confirms moderator status
+                    if (isHolding && moderatorRef.current) {
+                        pushWhiteboardAlert(`⚠️ ${incomingName} switched tabs / on hold.`);
                     }
-                    // In your handleDataReceived function:
                 } else if (data.type === 'cohost_update') {
                     setCoHostsMap(prev => ({
                         ...prev,
@@ -469,12 +477,25 @@ function MeetingStage({
         } catch (err) {}
     };
 
-    const handleToggleCoHost = (identity) => {
-        if (!isHost || !room) return;
-        const nextStatus = !coHostsMap[identity];
-        setCoHostsMap(prev => ({ ...prev, [identity]: nextStatus }));
-        const payload = JSON.stringify({ type: 'co_host_update', targetIdentity: identity, isCoHost: nextStatus });
-        room.localParticipant.publishData(new TextEncoder().encode(payload), { reliable: true });
+    const handleToggleCoHost = (targetIdentity, targetName) => {
+        // 1. Update local co-host map
+        setCoHostsMap(prev => ({ ...prev, [targetIdentity]: true }));
+
+        // 2. Notify everyone of the promotion
+        const promoPayload = JSON.stringify({
+            type: 'cohost_update',
+            identity: targetIdentity,
+            name: targetName,
+            isCoHost: true
+        });
+        room.localParticipant.publishData(new TextEncoder().encode(promoPayload), { reliable: true });
+
+        // 3. Sync all currently away participants to the new co-host
+        const syncPayload = JSON.stringify({
+            type: 'sync_hold_states',
+            states: holdParticipantsMap
+        });
+        room.localParticipant.publishData(new TextEncoder().encode(syncPayload), { reliable: true });
     };
 
     const handleRequestVideo = (targetIdentity, targetName) => {
@@ -748,28 +769,25 @@ function MeetingStage({
                                 const peerId = String(participant?.identity || track.participantIdentity || '').trim();
                                 const peerName = String(participant?.name || track.publication?.participant?.name || peerId).trim();
 
-                                const isLocalUser = Boolean(participant?.isLocal);
+                                const isThisLocal = Boolean(participant?.isLocal);
 
-                                // 1. Host resolution
-                                const targetIsHost = isLocalUser
+                                // Host checks
+                                const targetIsHost = isThisLocal
                                     ? Boolean(isHost)
                                     : Boolean(peerName.includes('(Host)') || peerId.toLowerCase().includes('host'));
 
-                                // 2. Co-Host resolution (check both identity and name keys)
-                                const targetIsCoHost = isLocalUser
-                                    ? (Boolean(isCoHost) || Boolean(coHostsMap?.[localParticipant?.identity]) || Boolean(coHostsMap?.[participantName]))
-                                    : (Boolean(coHostsMap?.[peerId]) || Boolean(coHostsMap?.[peerName]));
+                                // Co-host checks
+                                const targetIsCoHost = isThisLocal
+                                    ? Boolean(isCoHost)
+                                    : Boolean(coHostsMap?.[peerId] || coHostsMap?.[peerName]);
 
-                                // 3. Viewer capability: can this person view badges? (Host or Co-Host)
-                                const localViewerIsCoHost = Boolean(coHostsMap?.[localParticipant?.identity]) ||
-                                    Boolean(coHostsMap?.[participantName]) ||
-                                    Boolean(isCoHost);
-                                const canSeeBadge = Boolean(isHost || localViewerIsCoHost);
+                                // Viewer capability check: Host OR CoHost
+                                const canSeeBadge = Boolean(isHost || isCoHost);
 
-                                // 4. Is the participant rendered in this tile away?
-                                const isUserHolding = Boolean(holdParticipantsMap?.[peerId]) || Boolean(holdParticipantsMap?.[peerName]);
+                                // Participant hold check
+                                const isUserHolding = Boolean(holdParticipantsMap?.[peerId] || holdParticipantsMap?.[peerName]);
 
-                                // 5. Badge shows ONLY on regular students/participants, NEVER on host or co-host
+                                // Badge renders ONLY for students/attendees, never for host or co-host
                                 const showHoldBadge = canSeeBadge && !targetIsHost && !targetIsCoHost && isUserHolding;
 
                                 const hasHandRaised = Boolean(raisedHandsMap?.[peerId]);
@@ -780,7 +798,6 @@ function MeetingStage({
                                         key={track.publication?.trackSid || peerId || Math.random()}
                                         className={`video-tile-wrapper ${targetIsHost ? 'tile-host' : ''}`}
                                     >
-                                        {/* Away / On Hold Badge */}
                                         {showHoldBadge && (
                                             <div
                                                 className="video-hold-badge"
