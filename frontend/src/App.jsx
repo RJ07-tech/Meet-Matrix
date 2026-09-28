@@ -322,11 +322,33 @@ function MeetingStage({
                         pushWhiteboardAlert(`⚠️ ${incomingName} switched tabs / on hold.`);
                     }
                 } else if (data.type === 'cohost_update') {
-                    setCoHostsMap(prev => ({
-                        ...prev,
-                        [data.identity]: data.isCoHost,
-                        ...(data.name ? { [data.name]: data.isCoHost } : {})
-                    }));
+                    const targetId = String(data.identity || '').trim();
+                    const targetName = String(data.name || '').trim();
+                    const isNowCoHost = Boolean(data.isCoHost);
+
+                    setCoHostsMap(prev => {
+                        const next = { ...prev };
+                        if (!isNowCoHost) {
+                            if (targetId) delete next[targetId];
+                            if (targetName) delete next[targetName];
+                        } else {
+                            if (targetId) next[targetId] = true;
+                            if (targetName) next[targetName] = true;
+                        }
+                        return next;
+                    });
+
+                    const myId = String(localParticipant?.identity || '').trim();
+                    const myName = String(participantName || localParticipant?.name || '').trim();
+                    const isMe = (targetId && targetId === myId) || (targetName && targetName === myName);
+
+                    if (isMe) {
+                        if (isNowCoHost) {
+                            pushWhiteboardAlert("🎉 You have been made a Co-Host.");
+                        } else {
+                            pushWhiteboardAlert("ℹ️ Your Co-Host permissions were removed.");
+                        }
+                    }
                 } else if (data.type === 'reaction') {
                     if (allowReactions) {
                         renderLocalFloatingEmoji(data.emoji, data.sender || participant.name || 'User');
@@ -478,24 +500,44 @@ function MeetingStage({
     };
 
     const handleToggleCoHost = (targetIdentity, targetName) => {
-        // 1. Update local co-host map
-        setCoHostsMap(prev => ({ ...prev, [targetIdentity]: true }));
+        // 1. Determine if this person is currently a co-host
+        const isCurrentlyCoHost = Boolean(coHostsMap?.[targetIdentity] || coHostsMap?.[targetName]);
+        const newStatus = !isCurrentlyCoHost;
 
-        // 2. Notify everyone of the promotion
-        const promoPayload = JSON.stringify({
-            type: 'cohost_update',
-            identity: targetIdentity,
-            name: targetName,
-            isCoHost: true
+        // 2. Update local host co-host map (add or delete)
+        setCoHostsMap(prev => {
+            const next = { ...prev };
+            if (!newStatus) {
+                delete next[targetIdentity];
+                if (targetName) delete next[targetName];
+            } else {
+                next[targetIdentity] = true;
+                if (targetName) next[targetName] = true;
+            }
+            return next;
         });
-        room.localParticipant.publishData(new TextEncoder().encode(promoPayload), { reliable: true });
 
-        // 3. Sync all currently away participants to the new co-host
-        const syncPayload = JSON.stringify({
-            type: 'sync_hold_states',
-            states: holdParticipantsMap
-        });
-        room.localParticipant.publishData(new TextEncoder().encode(syncPayload), { reliable: true });
+        // 3. Notify everyone in the room of the role change
+        try {
+            const promoPayload = JSON.stringify({
+                type: 'cohost_update',
+                identity: targetIdentity,
+                name: targetName,
+                isCoHost: newStatus
+            });
+            room.localParticipant.publishData(new TextEncoder().encode(promoPayload), { reliable: true });
+
+            // 4. If newly promoted, sync existing hold states so their UI catches up
+            if (newStatus) {
+                const syncPayload = JSON.stringify({
+                    type: 'sync_hold_states',
+                    states: holdParticipantsMap
+                });
+                room.localParticipant.publishData(new TextEncoder().encode(syncPayload), { reliable: true });
+            }
+        } catch (err) {
+            console.error("Failed to broadcast cohost toggle:", err);
+        }
     };
 
     const handleRequestVideo = (targetIdentity, targetName) => {
