@@ -382,20 +382,22 @@ async def update_attendance(req: AttendanceUpdateRequest):
         rec = find_attendance(records, identity=req.participant_identity, name=req.participant_name)
 
     if rec:
-        rec.setdefault("roles_held", [rec.get("role", "Attendee")])
+        # Guarantee roles_held exists
+        if "roles_held" not in rec or not isinstance(rec["roles_held"], list):
+            rec["roles_held"] = [rec.get("role", "Attendee")]
 
         if req.action == "role_cohost":
             if rec.get("role") != "Host":
                 rec["role"] = "Co-Host"
                 if "Co-Host" not in rec["roles_held"]:
                     rec["roles_held"].append("Co-Host")
-                if rec.get("current_hold_start"):
-                    rec["current_hold_start"] = None
+                # Clear active hold if they were promoted while away
+                rec["current_hold_start"] = None
 
         elif req.action == "role_attendee":
             if rec.get("role") != "Host":
                 rec["role"] = "Attendee"
-
+                # Keep "Co-Host" in rec["roles_held"]! Do NOT remove it.
         elif req.action == "hold_start":
             if not rec.get("current_hold_start") and rec.get("role") == "Attendee":
                 rec["current_hold_start"] = now_dt
@@ -497,10 +499,17 @@ async def export_attendance_excel(room_name: str):
         pct = round((active_sec / total_sec) * 100, 1)
 
         # Check role history for Co-Host tracking
+        # Determine display role
         current_role = rec.get("role", "Attendee")
         roles_held = rec.get("roles_held", [])
-        if current_role == "Attendee" and "Co-Host" in roles_held:
-            display_role = "Attendee (Was Co-Host)"
+
+        if current_role == "Host" or "Host" in roles_held:
+            display_role = "Host"
+        elif "Co-Host" in roles_held:
+            if current_role == "Co-Host":
+                display_role = "Co-Host"
+            else:
+                display_role = "Attendee (Was Co-Host)"
         else:
             display_role = current_role
 

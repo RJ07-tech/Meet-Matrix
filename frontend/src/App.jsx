@@ -500,11 +500,13 @@ function MeetingStage({
     };
 
     const handleToggleCoHost = (targetIdentity, targetName) => {
-        // 1. Determine if this person is currently a co-host
-        const isCurrentlyCoHost = Boolean(coHostsMap?.[targetIdentity] || coHostsMap?.[targetName]);
+        const isCurrentlyCoHost = Boolean(
+            coHostsMap?.[targetIdentity] ||
+            coHostsMap?.[targetName]
+        );
         const newStatus = !isCurrentlyCoHost;
 
-        // 2. Update local host co-host map (add or delete)
+        // 1. Update local host state
         setCoHostsMap(prev => {
             const next = { ...prev };
             if (!newStatus) {
@@ -517,7 +519,7 @@ function MeetingStage({
             return next;
         });
 
-        // 3. Notify everyone in the room of the role change
+        // 2. Broadcast via DataChannel
         try {
             const promoPayload = JSON.stringify({
                 type: 'cohost_update',
@@ -527,16 +529,6 @@ function MeetingStage({
             });
             room.localParticipant.publishData(new TextEncoder().encode(promoPayload), { reliable: true });
 
-            if (typeof BACKEND_URL !== 'undefined') {
-                axios.post(`${BACKEND_URL}/api/attendance/update`, {
-                    room_name: roomName,
-                    participant_identity: targetIdentity,
-                    participant_name: targetName,
-                    action: newStatus ? "role_cohost" : "role_attendee"
-                }).catch(err => console.error("Failed to sync role update to backend:", err));
-            }
-
-            // 4. If newly promoted, sync existing hold states so their UI catches up
             if (newStatus) {
                 const syncPayload = JSON.stringify({
                     type: 'sync_hold_states',
@@ -545,8 +537,23 @@ function MeetingStage({
                 room.localParticipant.publishData(new TextEncoder().encode(syncPayload), { reliable: true });
             }
         } catch (err) {
-            console.error("Failed to broadcast cohost toggle:", err);
+            console.error("Co-host broadcast error:", err);
         }
+
+        // 3. MUST NOTIFY BACKEND EXPLICITLY
+        const apiAction = newStatus ? "role_cohost" : "role_attendee";
+        console.log(`[ATTENDANCE] Dispatching role update: ${apiAction} for ${targetName || targetIdentity}`);
+
+        axios.post(`${BACKEND_URL}/api/attendance/update`, {
+            room_name: roomName,
+            participant_identity: String(targetIdentity || '').trim(),
+            participant_name: String(targetName || '').trim(),
+            action: apiAction
+        }).then(res => {
+            console.log("[ATTENDANCE] Role update recorded in backend successfully:", res.data);
+        }).catch(err => {
+            console.error("[ATTENDANCE] Error syncing role to backend:", err);
+        });
     };
 
     const handleRequestVideo = (targetIdentity, targetName) => {
