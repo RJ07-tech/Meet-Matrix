@@ -22,6 +22,11 @@
   --text-muted: #64748b;
 }
 
+/* Mirror local participant camera in the screen share top strip */
+.stage-camera-strip [data-lk-local-participant="true"] video {
+  transform: scaleX(-1);
+}
+
 /* Universal Typography Normalization */
 *, *::before, *::after {
   box-sizing: border-box;

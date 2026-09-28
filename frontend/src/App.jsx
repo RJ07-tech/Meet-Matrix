@@ -954,7 +954,8 @@ function MeetingStage({
                                                 style={{
                                                     width: '100%',
                                                     height: '100%',
-                                                    objectFit: 'cover'
+                                                    objectFit: 'cover',
+                                                    transform: isThisLocal ? 'scaleX(-1)' : 'none'
                                                 }}
                                             />
                                         ) : (
