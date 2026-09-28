@@ -334,7 +334,8 @@ async def get_token(req: TokenRequest):
             room=req.room_name,
             can_publish=True,
             can_subscribe=True,
-            can_publish_data=True
+            can_publish_data=True,
+            can_update_own_metadata=True
         )
 
         pid = req.participant_identity if req.participant_identity and not identity_banned else f"{req.participant_name}_{uuid.uuid4().hex[:8]}"

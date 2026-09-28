@@ -92,6 +92,7 @@ function MeetingStage({
     const [showChat, setShowChat] = useState(false);
     const [showParticipants, setShowParticipants] = useState(false);
     const [showInMeetingSettings, setShowInMeetingSettings] = useState(false);
+    const [participantNamesMap, setParticipantNamesMap] = useState({});
     const [showVideoRequestModal, setShowVideoRequestModal] = useState(false);
 
     const [floatingEmojis, setFloatingEmojis] = useState([]);
@@ -338,6 +339,15 @@ function MeetingStage({
                         }
                         return next;
                     });
+                } else if (data.type === 'name_change') {
+                    const targetId = String(data.identity || '').trim();
+                    const newName = String(data.name || '').trim();
+                    if (targetId && newName) {
+                        setParticipantNamesMap(prev => ({
+                            ...prev,
+                            [targetId]: newName
+                        }));
+                    }
 
                     const myId = String(localParticipant?.identity || '').trim();
                     const myName = String(participantName || localParticipant?.name || '').trim();
@@ -477,7 +487,6 @@ function MeetingStage({
     const handleSaveName = async (newName) => {
         if (!localParticipant) return;
 
-        // Clean base name and ensure (Host) is attached cleanly if host
         const cleanBase = newName.replace(/\s*\(Host\)$/i, '').trim();
         const finalName = isHost ? `${cleanBase} (Host)` : cleanBase;
 
@@ -485,8 +494,26 @@ function MeetingStage({
             await localParticipant.setName(finalName);
         } catch (e) {}
 
+        // 1. Update local state
         setParticipantName(finalName);
+        setParticipantNamesMap(prev => ({
+            ...prev,
+            [localParticipant.identity]: finalName
+        }));
 
+        // 2. Broadcast to all participants in real time
+        try {
+            const payload = JSON.stringify({
+                type: 'name_change',
+                identity: localParticipant.identity,
+                name: finalName
+            });
+            room.localParticipant.publishData(new TextEncoder().encode(payload), { reliable: true });
+        } catch (err) {
+            console.error("Failed to broadcast name change:", err);
+        }
+
+        // 3. Sync with attendance backend
         if (typeof BACKEND_URL !== 'undefined' && roomName) {
             axios.post(`${BACKEND_URL}/api/attendance/update`, {
                 room_name: roomName,
@@ -753,10 +780,11 @@ function MeetingStage({
             isHandRaised: !!raisedHandsMap[localParticipant?.identity]
         },
         ...remoteParticipants.map(p => {
-            const targetIsHost = !isHost && (p.identity?.includes('Host') || p.name?.includes('Host'));
+            const displayName = participantNamesMap[p.identity] || p.name || p.identity;
+            const targetIsHost = !isHost && (p.identity?.includes('Host') || displayName.includes('(Host)'));
             return {
                 identity: p.identity,
-                name: p.name || p.identity,
+                name: displayName,
                 isHost: targetIsHost,
                 isCoHost: Boolean(coHostsMap[p.identity]),
                 isSelf: false,
@@ -863,7 +891,7 @@ function MeetingStage({
 // Use local React state for immediate response, or remote participant's name
                                 const currentRawName = isThisLocal
                                     ? (participantName || 'You')
-                                    : String(participant?.name || track.publication?.participant?.name || peerId || 'Participant').trim();
+                                    : (participantNamesMap[peerId] || participant?.name || track.publication?.participant?.name || peerId || 'Participant');
 
 // Clean out any extra (Host) text from the base display name
                                 const cleanDisplayName = currentRawName.replace(/\s*\(Host\)$/i, '').trim();
