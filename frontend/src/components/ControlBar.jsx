@@ -88,7 +88,7 @@ export default function ControlBar({
                 <span style={{ fontSize: '0.65rem' }}>{isRecording ? 'Rec' : 'Record'}</span>
             </button>
 
-            {/* Dedicated Mid-Meeting CSV Download for Host/CoHost */}
+            {/* Dedicated Mid-Meeting Excel Download for Host/CoHost */}
             {isEffectiveModerator && onDownloadAttendance && (
                 <button
                     type="button"
@@ -97,11 +97,11 @@ export default function ControlBar({
                         e.stopPropagation();
                         onDownloadAttendance(e);
                     }}
-                    title="Download Current Attendance CSV"
+                    title="Download Current Attendance Excel"
                     style={{ ...controlBtn, background: '#065f46', borderColor: '#059669', color: '#34d399' }}
                 >
                     <Download size={18} />
-                    <span className="mobile-hide" style={{ fontSize: '0.65rem' }}>CSV</span>
+                    <span className="mobile-hide" style={{ fontSize: '0.65rem' }}>Excel</span>
                 </button>
             )}
 

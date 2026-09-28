@@ -57,8 +57,8 @@ function MeetingStage({
                           setAllowReactions,
                           micLocked,
                           setMicLocked,
-                          autoDownloadCsv,
-                          setAutoDownloadCsv
+                          autoDownloadExcel,
+                          setAutoDownloadExcel
                       }) {
     const { localParticipant, isCameraEnabled, isMicrophoneEnabled } = useLocalParticipant();
     const remoteParticipants = useRemoteParticipants();
@@ -214,7 +214,7 @@ function MeetingStage({
                         if (res.data.allow_direct_chat !== undefined) setAllowDirectChat(Boolean(res.data.allow_direct_chat));
                         if (res.data.allow_cohost_whiteboard !== undefined) setAllowCohostWhiteboard(Boolean(res.data.allow_cohost_whiteboard));
                         if (res.data.chat_host_only !== undefined) setChatHostOnly(Boolean(res.data.chat_host_only));
-                        if (res.data.auto_download_csv !== undefined) setAutoDownloadCsv(Boolean(res.data.auto_download_csv));
+                        if (res.data.auto_download_Excel !== undefined) setAutoDownloadExcel(Boolean(res.data.auto_download_Excel));
 
                         if (res.data.mic_locked !== undefined) {
                             setMicLocked(Boolean(res.data.mic_locked));
@@ -227,7 +227,7 @@ function MeetingStage({
             }, 1200);
         }
         return () => clearInterval(interval);
-    }, [roomName, setAllowScreenshare, setChatLocked, setWaitingMode, setAllowReactions, setAllowWhiteboard, setAllowDirectChat, setMicLocked, isEffectiveModerator, localParticipant, setAllowCohostWhiteboard, setChatHostOnly, setAutoDownloadCsv]);
+    }, [roomName, setAllowScreenshare, setChatLocked, setWaitingMode, setAllowReactions, setAllowWhiteboard, setAllowDirectChat, setMicLocked, isEffectiveModerator, localParticipant, setAllowCohostWhiteboard, setChatHostOnly, setAutoDownloadExcel]);
 
     // Waiting list poll
     useEffect(() => {
@@ -292,7 +292,7 @@ function MeetingStage({
                     if (data.allow_whiteboard !== undefined) setAllowWhiteboard(data.allow_whiteboard);
                     if (data.allow_cohost_whiteboard !== undefined) setAllowCohostWhiteboard(data.allow_cohost_whiteboard);
                     if (data.allow_direct_chat !== undefined) setAllowDirectChat(data.allow_direct_chat);
-                    if (data.auto_download_csv !== undefined) setAutoDownloadCsv(data.auto_download_csv);
+                    if (data.auto_download_Excel !== undefined) setAutoDownloadExcel(data.auto_download_Excel);
                     if (data.mic_locked !== undefined) {
                         setMicLocked(data.mic_locked);
                         if (data.mic_locked && !isEffectiveModerator) {
@@ -387,7 +387,7 @@ function MeetingStage({
 
         room.on('dataReceived', handleDataReceived);
         return () => room.off('dataReceived', handleDataReceived);
-    }, [room, localParticipant, onLeave, setAllowScreenshare, setChatLocked, setChatHostOnly, setWaitingMode, setAllowReactions, setAllowWhiteboard, setAllowCohostWhiteboard, setAllowDirectChat, setMicLocked, setAutoDownloadCsv, allowReactions, isEffectiveModerator, isHost, pushWhiteboardAlert]);
+    }, [room, localParticipant, onLeave, setAllowScreenshare, setChatLocked, setChatHostOnly, setWaitingMode, setAllowReactions, setAllowWhiteboard, setAllowCohostWhiteboard, setAllowDirectChat, setMicLocked, setAutoDownloadExcel, allowReactions, isEffectiveModerator, isHost, pushWhiteboardAlert]);
 
     const triggerReactionBroadcast = (emoji) => {
         if (!allowReactions) {
@@ -618,7 +618,7 @@ function MeetingStage({
         }
     };
 
-    const handleTerminateWithCsv = () => {
+    const handleTerminateWithExcel = () => {
         if (!isHost) return;
 
         if (room?.localParticipant) {
@@ -626,11 +626,11 @@ function MeetingStage({
             room.localParticipant.publishData(new TextEncoder().encode(payload), { reliable: true });
         }
 
-        if (autoDownloadCsv) {
+        if (autoDownloadExcel) {
             const downloadUrl = `${BACKEND_URL}/api/attendance/export/${roomName}`;
             const a = document.createElement('a');
             a.href = downloadUrl;
-            a.setAttribute('download', `attendance-${roomName}.csv`);
+            a.setAttribute('download', `attendance-${roomName}.Excel`);
             a.style.display = 'none';
             document.body.appendChild(a);
             a.click();
@@ -1009,7 +1009,7 @@ function MeetingStage({
                 startRecording={startRecording}
                 stopRecording={stopRecording}
                 onLeave={handleLeaveMeeting}
-                onTerminate={handleTerminateWithCsv}
+                onTerminate={handleTerminateWithExcel}
                 onDownloadAttendance={handleDownloadAttendanceLive}
             />
 
@@ -1059,8 +1059,8 @@ function MeetingStage({
                     setAllowWhiteboard={setAllowWhiteboard}
                     allowReactions={allowReactions}
                     setAllowReactions={setAllowReactions}
-                    autoDownloadCsv={autoDownloadCsv}
-                    setAutoDownloadCsv={setAutoDownloadCsv}
+                    autoDownloadExcel={autoDownloadExcel}
+                    setAutoDownloadExcel={setAutoDownloadExcel}
                     waitingMode={waitingMode}
                     setWaitingMode={setWaitingMode}
                     onUpdateLiveSettings={handleUpdateLiveRoomSettings}
@@ -1125,7 +1125,7 @@ export default function App() {
     const [cameraOffOnEntry, setCameraOffOnEntry] = useState(false);
     const [allowWhiteboard, setAllowWhiteboard] = useState(false);
     const [allowReactions, setAllowReactions] = useState(false);
-    const [autoDownloadCsv, setAutoDownloadCsv] = useState(true);
+    const [autoDownloadExcel, setAutoDownloadExcel] = useState(true);
 
     const [showScheduleModal, setShowScheduleModal] = useState(false);
     const [scheduleTitle, setScheduleTitle] = useState('');
@@ -1348,7 +1348,7 @@ export default function App() {
                 camera_off_on_entry: cameraOffOnEntry,
                 allow_whiteboard: allowWhiteboard,
                 allow_reactions: allowReactions,
-                auto_download_csv: autoDownloadCsv
+                auto_download_Excel: autoDownloadExcel
             });
             const newRoomId = res.data.room_id;
             const createdHostSecret = res.data.host_secret;
@@ -1410,7 +1410,7 @@ export default function App() {
                 allow_reactions: allowReactions,
                 mute_on_entry: muteOnEntry,
                 camera_off_on_entry: cameraOffOnEntry,
-                auto_download_csv: autoDownloadCsv
+                auto_download_Excel: autoDownloadExcel
             };
 
             const scheduleRes = await axios.post(`${BACKEND_URL}/api/schedule-meeting`, newScheduled);
@@ -1610,8 +1610,8 @@ export default function App() {
                         setAllowReactions={setAllowReactions}
                         micLocked={micLocked}
                         setMicLocked={setMicLocked}
-                        autoDownloadCsv={autoDownloadCsv}
-                        setAutoDownloadCsv={setAutoDownloadCsv}
+                        autoDownloadExcel={autoDownloadExcel}
+                        setAutoDownloadExcel={setAutoDownloadExcel}
                     />
                 </LiveKitRoom>
             </div>
@@ -1645,8 +1645,8 @@ export default function App() {
                     setAllowDirectChat={setAllowDirectChat}
                     allowReactions={allowReactions}
                     setAllowReactions={setAllowReactions}
-                    autoDownloadCsv={autoDownloadCsv}
-                    setAutoDownloadCsv={setAutoDownloadCsv}
+                    autoDownloadExcel={autoDownloadExcel}
+                    setAutoDownloadExcel={setAutoDownloadExcel}
                     onConfirmLaunch={handleConfirmAndLaunchRoom}
                     onClose={() => setShowPreSettingsModal(false)}
                 />
@@ -1681,8 +1681,8 @@ export default function App() {
                     setAllowDirectChat={setAllowDirectChat}
                     allowReactions={allowReactions}
                     setAllowReactions={setAllowReactions}
-                    autoDownloadCsv={autoDownloadCsv}
-                    setAutoDownloadCsv={setAutoDownloadCsv}
+                    autoDownloadExcel={autoDownloadExcel}
+                    setAutoDownloadExcel={setAutoDownloadExcel}
                     loading={loading}
                     onSaveSchedule={handleSaveScheduleMeeting}
                     onClose={() => setShowScheduleModal(false)}
