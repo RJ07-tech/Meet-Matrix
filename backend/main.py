@@ -203,14 +203,23 @@ def mark_attendance_join(room_name: str, name: str, identity: str, is_host: bool
     if rec:
         rec["leave_time"] = "Active"
         rec["identity"] = identity or rec.get("identity")
-        rec["name"] = name or rec.get("name")
+
+        # Track initial name and any renames
+        if name and name != rec.get("name"):
+            rec.setdefault("name_history", [rec.get("name", name)])
+            if name not in rec["name_history"]:
+                rec["name_history"].append(name)
+            rec["name"] = name
+
         if not rec.get("join_dt"):
             rec["join_dt"] = now_dt
+
         if is_host:
             rec["role"] = "Host"
             rec["is_host"] = True
             if "Host" not in rec.setdefault("roles_held", []):
                 rec["roles_held"].append("Host")
+
         return
 
     records.append({
@@ -219,6 +228,7 @@ def mark_attendance_join(room_name: str, name: str, identity: str, is_host: bool
         "is_host": is_host,
         "role": initial_role,
         "roles_held": [initial_role],
+        "name_history": [name],  # Track all names used by this participant
         "join_time": now_str,
         "join_dt": now_dt,
         "leave_time": "Active",
@@ -227,7 +237,6 @@ def mark_attendance_join(room_name: str, name: str, identity: str, is_host: bool
         "total_hold_seconds": 0,
         "total_session_seconds": 0,
         "active_seconds": 0,
-        "active_percentage": 100.0,
         "hold_logs": [],
     })
 
@@ -381,6 +390,20 @@ async def update_attendance(req: AttendanceUpdateRequest):
         rec = find_attendance(records, identity=req.participant_identity, name=req.participant_name)
 
     if rec:
+        rec.setdefault("roles_held", [rec.get("role", "Attendee")])
+        rec.setdefault("name_history", [rec.get("name", req.participant_name)])
+
+        # If a participant submits a name change or changes name during an event
+        if req.participant_name and req.participant_name != rec.get("name"):
+            if req.participant_name not in rec["name_history"]:
+                rec["name_history"].append(req.participant_name)
+            rec["name"] = req.participant_name
+
+        if req.action == "name_change":
+            # Explicit name change event
+            return {"status": "success"}
+
+    if rec:
         # Guarantee roles_held exists
         if "roles_held" not in rec or not isinstance(rec["roles_held"], list):
             rec["roles_held"] = [rec.get("role", "Attendee")]
@@ -472,7 +495,7 @@ async def export_attendance_excel(room_name: str):
         "Total Meeting Duration",
         "Away / Hold Time",
         "Active Attention Time",
-        "Attention Score",
+        "Name Change History",
         "Away Instances",
         "Detailed Away Intervals"
     ]
@@ -495,22 +518,23 @@ async def export_attendance_excel(room_name: str):
 
         total_sec = rec.get("total_session_seconds") or max(1, int((now_dt - join_dt).total_seconds()))
         active_sec = max(0, total_sec - hold_sec)
-        pct = round((active_sec / total_sec) * 100, 1)
 
-        # Check role history for Co-Host tracking
-        # Determine display role
+        # Build clean role description
         current_role = rec.get("role", "Attendee")
         roles_held = rec.get("roles_held", [])
-
         if current_role == "Host" or "Host" in roles_held:
             display_role = "Host"
         elif "Co-Host" in roles_held:
-            if current_role == "Co-Host":
-                display_role = "Co-Host"
-            else:
-                display_role = "Attendee (Was Co-Host)"
+            display_role = "Co-Host" if current_role == "Co-Host" else "Attendee (Was Co-Host)"
         else:
             display_role = current_role
+
+        # Build Name Change description
+        name_history = rec.get("name_history", [rec.get("name", "Unknown")])
+        if len(name_history) > 1:
+            name_change_str = f"Yes ({' -> '.join(name_history)})"
+        else:
+            name_change_str = "No"
 
         hold_logs_str = "\n".join(rec.get("hold_logs", [])) if rec.get("hold_logs") else "None"
 
@@ -522,7 +546,7 @@ async def export_attendance_excel(room_name: str):
             format_duration(total_sec),
             format_duration(hold_sec),
             format_duration(active_sec),
-            f"{pct}%",
+            name_change_str,
             rec.get("hold_count", 0),
             hold_logs_str
         ]
@@ -533,12 +557,12 @@ async def export_attendance_excel(room_name: str):
             cell = ws.cell(row=row_idx, column=col_idx)
             cell.font = data_font
             cell.border = thin_border
-            if col_idx in [1, 10]:
+            if col_idx in [1, 8, 10]:
                 cell.alignment = left_align
             else:
                 cell.alignment = center_align
 
-            if col_idx == 10:
+            if col_idx in [8, 10]:
                 cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
 
         ws.row_dimensions[row_idx].height = 24 if not rec.get("hold_logs") else 20 * max(1, len(rec.get("hold_logs", [])))

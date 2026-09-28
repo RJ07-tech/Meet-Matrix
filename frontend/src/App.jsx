@@ -467,6 +467,16 @@ function MeetingStage({
         if (!localParticipant) return;
         localParticipant.setName(newName);
         setParticipantName(newName);
+
+        // ADD THESE LINES:
+        if (typeof BACKEND_URL !== 'undefined' && roomName) {
+            axios.post(`${BACKEND_URL}/api/attendance/update`, {
+                room_name: roomName,
+                participant_identity: localParticipant.identity,
+                participant_name: newName,
+                action: "name_change"
+            }).catch(err => console.error("Failed to sync name change:", err));
+        }
     };
 
     const handleHostMute = (identity) => {
