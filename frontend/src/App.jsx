@@ -68,6 +68,7 @@ function MeetingStage({
     const [isHandRaised, setIsHandRaised] = useState(false);
     const [raisedHandsMap, setRaisedHandsMap] = useState({});
     const [holdParticipantsMap, setHoldParticipantsMap] = useState({});
+    const [, setRenderTrigger] = useState(0);
 
     // Persistent Whiteboard memory
     const drawingHistoryRef = useRef([]);
@@ -385,8 +386,18 @@ function MeetingStage({
             } catch (err) {}
         };
 
+        const handleParticipantNameChanged = () => {
+            // Re-render MeetingStage so remote video tiles display updated names immediately
+            setRenderTrigger(prev => prev + 1);
+        };
+
         room.on('dataReceived', handleDataReceived);
-        return () => room.off('dataReceived', handleDataReceived);
+        room.on('participantNameChanged', handleParticipantNameChanged);
+
+        return () => {
+            room.off('dataReceived', handleDataReceived);
+            room.off('participantNameChanged', handleParticipantNameChanged);
+        };
     }, [room, localParticipant, onLeave, setAllowScreenshare, setChatLocked, setChatHostOnly, setWaitingMode, setAllowReactions, setAllowWhiteboard, setAllowCohostWhiteboard, setAllowDirectChat, setMicLocked, setAutoDownloadExcel, allowReactions, isEffectiveModerator, isHost, pushWhiteboardAlert]);
 
     const triggerReactionBroadcast = (emoji) => {
@@ -463,17 +474,24 @@ function MeetingStage({
         room.localParticipant.publishData(new TextEncoder().encode(payload), { reliable: true });
     };
 
-    const handleSaveName = (newName) => {
+    const handleSaveName = async (newName) => {
         if (!localParticipant) return;
-        localParticipant.setName(newName);
-        setParticipantName(newName);
 
-        // ADD THESE LINES:
+        // Clean base name and ensure (Host) is attached cleanly if host
+        const cleanBase = newName.replace(/\s*\(Host\)$/i, '').trim();
+        const finalName = isHost ? `${cleanBase} (Host)` : cleanBase;
+
+        try {
+            await localParticipant.setName(finalName);
+        } catch (e) {}
+
+        setParticipantName(finalName);
+
         if (typeof BACKEND_URL !== 'undefined' && roomName) {
             axios.post(`${BACKEND_URL}/api/attendance/update`, {
                 room_name: roomName,
                 participant_identity: localParticipant.identity,
-                participant_name: newName,
+                participant_name: finalName,
                 action: "name_change"
             }).catch(err => console.error("Failed to sync name change:", err));
         }
@@ -640,7 +658,7 @@ function MeetingStage({
             const downloadUrl = `${BACKEND_URL}/api/attendance/export/${roomName}`;
             const a = document.createElement('a');
             a.href = downloadUrl;
-            a.setAttribute('download', `attendance-${roomName}.Excel`);
+            a.setAttribute('download', `attendance-${roomName}.xlsx`);
             a.style.display = 'none';
             document.body.appendChild(a);
             a.click();
@@ -840,14 +858,20 @@ function MeetingStage({
                             {cameraTracks.map(track => {
                                 const participant = track.participant || track.publication?.participant;
                                 const peerId = String(participant?.identity || track.participantIdentity || '').trim();
-                                const peerName = String(participant?.name || track.publication?.participant?.name || peerId).trim();
+                                const isThisLocal = Boolean(participant?.isLocal || (localParticipant && peerId === localParticipant.identity));
 
-                                const isThisLocal = Boolean(participant?.isLocal);
+// Use local React state for immediate response, or remote participant's name
+                                const currentRawName = isThisLocal
+                                    ? (participantName || 'You')
+                                    : String(participant?.name || track.publication?.participant?.name || peerId || 'Participant').trim();
 
-                                // Host checks
+// Clean out any extra (Host) text from the base display name
+                                const cleanDisplayName = currentRawName.replace(/\s*\(Host\)$/i, '').trim();
+
+// Host checks
                                 const targetIsHost = isThisLocal
                                     ? Boolean(isHost)
-                                    : Boolean(peerName.includes('(Host)') || peerId.toLowerCase().includes('host'));
+                                    : Boolean(currentRawName.includes('(Host)') || peerId.toLowerCase().includes('host'));
 
                                 // Co-host checks
                                 const targetIsCoHost = isThisLocal
@@ -929,7 +953,7 @@ function MeetingStage({
                                                     color: '#ffffff',
                                                     boxShadow: '0 8px 24px rgba(0,0,0,0.4)'
                                                 }}>
-                                                    {(peerName || 'U').charAt(0).toUpperCase()}
+                                                    {(cleanDisplayName || 'U').charAt(0).toUpperCase()}
                                                 </div>
                                             </div>
                                         )}
@@ -951,7 +975,7 @@ function MeetingStage({
                                             zIndex: 15
                                         }}>
                 <span style={{ fontSize: '0.78rem', fontWeight: '600', color: '#f8fafc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {peerName ? peerName.replace(/\(Host\)/g, '').trim() : 'Participant'} {targetIsHost ? '(Host)' : ''}
+                    {cleanDisplayName || 'Participant'}{targetIsHost ? ' (Host)' : ''}
                 </span>
                                             <TrackMutedIndicator trackRef={{ participant, source: Track.Source.Microphone }} style={{ display: 'flex', alignItems: 'center' }} />
                                         </div>
