@@ -441,73 +441,16 @@ def format_duration(seconds: int) -> str:
     return f"{m}m {s}s"
 
 @app.get("/api/attendance/export/{room_name}")
-async def export_attendance(room_name: str):
-    records = attendance_db.get(room_name, [])
-    now_dt = get_ist_now_dt()
-
-    output = io.StringIO()
-    writer = csv.writer(output)
-
-    # Enhanced CSV Headers
-    writer.writerow([
-        "Participant Name",
-        "Identity",
-        "Role",
-        "Join Time",
-        "Leave Time",
-        "Total Meeting Duration",
-        "Total Away/Hold Time",
-        "Active Attention Time",
-        "Attention Score (%)",
-        "Away Instances",
-        "Detailed Hold Logs"
-    ])
-
-    for rec in records:
-        # Finalize calculations if user never cleanly sent a leave request
-        join_dt = rec.get("join_dt", now_dt)
-        hold_sec = rec.get("total_hold_seconds", 0)
-
-        # If still in an open hold session, close it for export snapshot
-        if rec.get("current_hold_start"):
-            hold_sec += max(0, int((now_dt - rec["current_hold_start"]).total_seconds()))
-
-        total_sec = rec.get("total_session_seconds") or max(1, int((now_dt - join_dt).total_seconds()))
-        active_sec = max(0, total_sec - hold_sec)
-        pct = round((active_sec / total_sec) * 100, 1)
-
-        writer.writerow([
-            rec.get("name", "Unknown"),
-            rec.get("identity", "Unknown"),
-            rec.get("role", "Attendee"),
-            rec.get("join_time", "-"),
-            rec.get("leave_time", "-"),
-            format_duration(total_sec),
-            format_duration(hold_sec),
-            format_duration(active_sec),
-            f"{pct}%",
-            rec.get("hold_count", 0),
-            "; ".join(rec.get("hold_logs", [])) or "None"
-        ])
-
-    csv_data = output.getvalue()
-    return Response(
-        content=csv_data,
-        media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename=attendance_{room_name}.csv"}
-    )
-
-@app.get("/api/attendance/export/{room_name}")
 async def export_attendance_excel(room_name: str):
     records = attendance_db.get(room_name, [])
     now_dt = get_ist_now_dt()
 
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.title = "Attendance & Attention Report"
+    ws.title = "Attendance Report"
     ws.views.sheetView[0].showGridLines = True
 
-    # Styling definitions
+    # Header styling
     header_fill = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
     header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
     data_font = Font(name="Calibri", size=10, color="0F172A")
@@ -553,7 +496,7 @@ async def export_attendance_excel(room_name: str):
         active_sec = max(0, total_sec - hold_sec)
         pct = round((active_sec / total_sec) * 100, 1)
 
-        # Build clean role description (including past Co-Host role)
+        # Check role history for Co-Host tracking
         current_role = rec.get("role", "Attendee")
         roles_held = rec.get("roles_held", [])
         if current_role == "Attendee" and "Co-Host" in roles_held:
@@ -587,13 +530,11 @@ async def export_attendance_excel(room_name: str):
             else:
                 cell.alignment = center_align
 
-            # Wrap text for detailed logs
             if col_idx == 10:
                 cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
 
         ws.row_dimensions[row_idx].height = 24 if not rec.get("hold_logs") else 20 * max(1, len(rec.get("hold_logs", [])))
 
-    # Auto-fit column widths
     for col in ws.columns:
         max_len = max(len(str(cell.value or '')) for cell in col)
         col_letter = get_column_letter(col[0].column)
