@@ -83,7 +83,7 @@ class RoomConfig(BaseModel):
     camera_off_on_entry: bool = False
     allow_whiteboard: bool = False
     allow_reactions: bool = False
-    auto_download_csv: bool = True
+    auto_download_Excel: bool = True
 
 
 class UpdateRoomSettingsRequest(BaseModel):
@@ -100,7 +100,7 @@ class UpdateRoomSettingsRequest(BaseModel):
     camera_off_on_entry: Optional[bool] = None
     allow_whiteboard: Optional[bool] = None
     allow_reactions: Optional[bool] = None
-    auto_download_csv: Optional[bool] = None
+    auto_download_Excel: Optional[bool] = None
 
 
 class AdmitRequest(BaseModel):
