@@ -90,8 +90,8 @@ export function InMeetingSettingsModal({
                                            setAllowWhiteboard,
                                            allowReactions,
                                            setAllowReactions,
-                                           autoDownloadCsv,
-                                           setAutoDownloadCsv,
+                                           autoDownloadExcel,
+                                           setAutoDownloadExcel,
                                            waitingMode,
                                            setWaitingMode,
                                            onUpdateLiveSettings
@@ -220,18 +220,18 @@ export function InMeetingSettingsModal({
                     <span>Allow Emoji Reactions</span>
                 </label>
 
-                <label style={{ ...rowBaseStyle, background: autoDownloadCsv ? 'rgba(16, 185, 129, 0.15)' : 'transparent', border: autoDownloadCsv ? '1px solid rgba(16, 185, 129, 0.35)' : '1px solid transparent' }}>
+                <label style={{ ...rowBaseStyle, background: autoDownloadExcel ? 'rgba(16, 185, 129, 0.15)' : 'transparent', border: autoDownloadExcel ? '1px solid rgba(16, 185, 129, 0.35)' : '1px solid transparent' }}>
                     <input
                         type="checkbox"
-                        checked={autoDownloadCsv}
+                        checked={autoDownloadExcel}
                         onChange={(e) => {
-                            setAutoDownloadCsv(e.target.checked);
-                            onUpdateLiveSettings({ auto_download_csv: e.target.checked });
+                            setAutoDownloadExcel(e.target.checked);
+                            onUpdateLiveSettings({ auto_download_Excel: e.target.checked });
                         }}
                         style={{ ...checkboxSquareStyle, accentColor: '#10b981' }}
                     />
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '700', color: autoDownloadCsv ? '#34d399' : '#f8fafc' }}>
-                        <Download size={13} color={autoDownloadCsv ? '#34d399' : '#94a3b8'} style={{ flexShrink: 0 }} /> Auto-download CSV on End Meeting
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '700', color: autoDownloadExcel ? '#34d399' : '#f8fafc' }}>
+                        <Download size={13} color={autoDownloadExcel ? '#34d399' : '#94a3b8'} style={{ flexShrink: 0 }} /> Auto-download Excel on End Meeting
                     </span>
                 </label>
             </div>
@@ -278,8 +278,8 @@ export function PreFlightModal({
                                    setAllowDirectChat,
                                    allowReactions,
                                    setAllowReactions,
-                                   autoDownloadCsv,
-                                   setAutoDownloadCsv,
+                                   autoDownloadExcel,
+                                   setAutoDownloadExcel,
                                    onConfirmLaunch,
                                    onClose
                                }) {
@@ -359,9 +359,9 @@ export function PreFlightModal({
                                 <input type="checkbox" checked={allowReactions} onChange={(e) => setAllowReactions(e.target.checked)} style={checkboxSquareStyle} />
                                 <span>Allow Emoji Reactions</span>
                             </label>
-                            <label style={{ ...rowBaseStyle, background: autoDownloadCsv ? 'rgba(16, 185, 129, 0.15)' : 'transparent', border: autoDownloadCsv ? '1px solid rgba(16, 185, 129, 0.35)' : '1px solid transparent' }}>
-                                <input type="checkbox" checked={autoDownloadCsv} onChange={(e) => setAutoDownloadCsv(e.target.checked)} style={{ ...checkboxSquareStyle, accentColor: '#10b981' }} />
-                                <span style={{ fontWeight: '700', color: autoDownloadCsv ? '#34d399' : '#f8fafc' }}>Auto-download CSV on End Meeting</span>
+                            <label style={{ ...rowBaseStyle, background: autoDownloadExcel ? 'rgba(16, 185, 129, 0.15)' : 'transparent', border: autoDownloadExcel ? '1px solid rgba(16, 185, 129, 0.35)' : '1px solid transparent' }}>
+                                <input type="checkbox" checked={autoDownloadExcel} onChange={(e) => setAutoDownloadExcel(e.target.checked)} style={{ ...checkboxSquareStyle, accentColor: '#10b981' }} />
+                                <span style={{ fontWeight: '700', color: autoDownloadExcel ? '#34d399' : '#f8fafc' }}>Auto-download Excel on End Meeting</span>
                             </label>
                         </div>
                     </div>
@@ -402,8 +402,8 @@ export function ScheduleModal({
                                   setAllowDirectChat,
                                   allowReactions,
                                   setAllowReactions,
-                                  autoDownloadCsv,
-                                  setAutoDownloadCsv,
+                                  autoDownloadExcel,
+                                  setAutoDownloadExcel,
                                   loading,
                                   onSaveSchedule,
                                   onClose
@@ -510,8 +510,8 @@ export function ScheduleModal({
                                 <span>Allow Emoji Reactions</span>
                             </label>
                             <label style={rowBaseStyle}>
-                                <input type="checkbox" checked={autoDownloadCsv} onChange={(e) => setAutoDownloadCsv(e.target.checked)} style={{ ...checkboxSquareStyle, accentColor: '#10b981' }} />
-                                <span>Auto-download CSV on End Meeting</span>
+                                <input type="checkbox" checked={autoDownloadExcel} onChange={(e) => setAutoDownloadExcel(e.target.checked)} style={{ ...checkboxSquareStyle, accentColor: '#10b981' }} />
+                                <span>Auto-download Excel on End Meeting</span>
                             </label>
                         </div>
                     </div>
