@@ -2,8 +2,11 @@ import os
 import uuid
 import csv
 import io
+import openpyxl
 import hmac
 from fastapi.responses import Response
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List, Set
 from fastapi import FastAPI, HTTPException
@@ -187,12 +190,7 @@ def find_attendance(records, identity=None, name=None):
     return None
 
 
-def mark_attendance_join(
-        room_name: str,
-        name: str,
-        identity: str,
-        is_host: bool = False,
-) -> None:
+def mark_attendance_join(room_name: str, name: str, identity: str, is_host: bool = False) -> None:
     if room_name not in attendance_db:
         attendance_db[room_name] = []
 
@@ -200,6 +198,8 @@ def mark_attendance_join(
     now_dt = get_ist_now_dt()
     now_str = now_dt.strftime("%Y-%m-%d %I:%M:%S %p")
     rec = find_attendance(records, identity=identity, name=name)
+
+    initial_role = "Host" if is_host else "Attendee"
 
     if rec:
         rec["leave_time"] = "Active"
@@ -210,13 +210,16 @@ def mark_attendance_join(
         if is_host:
             rec["role"] = "Host"
             rec["is_host"] = True
+            if "Host" not in rec.setdefault("roles_held", []):
+                rec["roles_held"].append("Host")
         return
 
     records.append({
         "name": name,
         "identity": identity,
         "is_host": is_host,
-        "role": "Host" if is_host else "Attendee",
+        "role": initial_role,
+        "roles_held": [initial_role],
         "join_time": now_str,
         "join_dt": now_dt,
         "leave_time": "Active",
@@ -379,10 +382,13 @@ async def update_attendance(req: AttendanceUpdateRequest):
         rec = find_attendance(records, identity=req.participant_identity, name=req.participant_name)
 
     if rec:
+        rec.setdefault("roles_held", [rec.get("role", "Attendee")])
+
         if req.action == "role_cohost":
             if rec.get("role") != "Host":
                 rec["role"] = "Co-Host"
-                # If they were on hold when promoted, close hold session
+                if "Co-Host" not in rec["roles_held"]:
+                    rec["roles_held"].append("Co-Host")
                 if rec.get("current_hold_start"):
                     rec["current_hold_start"] = None
 
@@ -391,7 +397,6 @@ async def update_attendance(req: AttendanceUpdateRequest):
                 rec["role"] = "Attendee"
 
         elif req.action == "hold_start":
-            # Only count hold if not already on hold and not host/co-host
             if not rec.get("current_hold_start") and rec.get("role") == "Attendee":
                 rec["current_hold_start"] = now_dt
                 rec["hold_count"] = rec.get("hold_count", 0) + 1
@@ -408,7 +413,6 @@ async def update_attendance(req: AttendanceUpdateRequest):
 
         elif req.action == "leave":
             rec["leave_time"] = now_str
-            # Wrap up any open hold interval
             if rec.get("current_hold_start"):
                 start_dt = rec["current_hold_start"]
                 dur = max(0, int((now_dt - start_dt).total_seconds()))
@@ -418,7 +422,6 @@ async def update_attendance(req: AttendanceUpdateRequest):
                 rec["total_hold_seconds"] = rec.get("total_hold_seconds", 0) + dur
                 rec["current_hold_start"] = None
 
-            # Calculate total durations and percentage
             join_dt = rec.get("join_dt", now_dt)
             total_sec = max(1, int((now_dt - join_dt).total_seconds()))
             hold_sec = rec.get("total_hold_seconds", 0)
@@ -495,53 +498,115 @@ async def export_attendance(room_name: str):
     )
 
 @app.get("/api/attendance/export/{room_name}")
-async def export_attendance(room_name: str):
+async def export_attendance_excel(room_name: str):
     records = attendance_db.get(room_name, [])
     now_dt = get_ist_now_dt()
-    now_str = now_dt.strftime("%Y-%m-%d %I:%M:%S %p")
-    output = io.StringIO()
-    writer = csv.writer(output)
 
-    writer.writerow(["Meeting Attendance Report", f"Room: {room_name}", f"Generated: {now_str} (IST)"])
-    writer.writerow([])
-    writer.writerow([
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Attendance & Attention Report"
+    ws.views.sheetView[0].showGridLines = True
+
+    # Styling definitions
+    header_fill = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
+    header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+    data_font = Font(name="Calibri", size=10, color="0F172A")
+    center_align = Alignment(horizontal="center", vertical="center")
+    left_align = Alignment(horizontal="left", vertical="center")
+    thin_border = Border(
+        left=Side(style='thin', color='CBD5E1'),
+        right=Side(style='thin', color='CBD5E1'),
+        top=Side(style='thin', color='CBD5E1'),
+        bottom=Side(style='thin', color='CBD5E1')
+    )
+
+    headers = [
         "Participant Name",
-        "Role",
-        "Join Time (IST)",
-        "Leave Time (IST)",
-        "Hold / Away Status & Intervals (IST)"
-    ])
+        "Role During Meeting",
+        "Join Time",
+        "Leave Time",
+        "Total Meeting Duration",
+        "Away / Hold Time",
+        "Active Attention Time",
+        "Attention Score",
+        "Away Instances",
+        "Detailed Away Intervals"
+    ]
 
-    if not records:
-        writer.writerow(["No participants recorded", "-", "-", "-", "-"])
-    else:
-        for r in records:
-            role = "Host" if r.get("is_host") else "Participant"
-            leave_time = r.get("leave_time", "Active")
-            if leave_time == "Active":
-                leave_time = f"{now_str} (Meeting Ended)"
+    ws.append(headers)
+    for col_idx in range(1, len(headers) + 1):
+        cell = ws.cell(row=1, column=col_idx)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = center_align
+        cell.border = thin_border
+    ws.row_dimensions[1].height = 28
 
-            logs = list(r.get("hold_logs") or [])
-            if r.get("current_hold_start"):
-                s_dt = r["current_hold_start"]
-                dur = int((now_dt - s_dt).total_seconds())
-                logs.append(f"{s_dt.strftime('%I:%M:%S %p')} to {now_dt.strftime('%I:%M:%S %p')} ({dur}s)")
+    for row_idx, rec in enumerate(records, start=2):
+        join_dt = rec.get("join_dt", now_dt)
+        hold_sec = rec.get("total_hold_seconds", 0)
 
-            hold_display = "No" if not logs else " | ".join(logs)
+        if rec.get("current_hold_start"):
+            hold_sec += max(0, int((now_dt - rec["current_hold_start"]).total_seconds()))
 
-            writer.writerow([
-                r.get("name", "Unknown"),
-                role,
-                r.get("join_time", "-"),
-                leave_time,
-                hold_display
-            ])
+        total_sec = rec.get("total_session_seconds") or max(1, int((now_dt - join_dt).total_seconds()))
+        active_sec = max(0, total_sec - hold_sec)
+        pct = round((active_sec / total_sec) * 100, 1)
 
-    output.seek(0)
-    return StreamingResponse(
-        iter([output.getvalue()]),
-        media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename=attendance-{room_name}.csv"}
+        # Build clean role description (including past Co-Host role)
+        current_role = rec.get("role", "Attendee")
+        roles_held = rec.get("roles_held", [])
+        if current_role == "Attendee" and "Co-Host" in roles_held:
+            display_role = "Attendee (Was Co-Host)"
+        else:
+            display_role = current_role
+
+        hold_logs_str = "\n".join(rec.get("hold_logs", [])) if rec.get("hold_logs") else "None"
+
+        row_data = [
+            rec.get("name", "Unknown"),
+            display_role,
+            rec.get("join_time", "-"),
+            rec.get("leave_time", "-"),
+            format_duration(total_sec),
+            format_duration(hold_sec),
+            format_duration(active_sec),
+            f"{pct}%",
+            rec.get("hold_count", 0),
+            hold_logs_str
+        ]
+
+        ws.append(row_data)
+
+        for col_idx in range(1, len(row_data) + 1):
+            cell = ws.cell(row=row_idx, column=col_idx)
+            cell.font = data_font
+            cell.border = thin_border
+            if col_idx in [1, 10]:
+                cell.alignment = left_align
+            else:
+                cell.alignment = center_align
+
+            # Wrap text for detailed logs
+            if col_idx == 10:
+                cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+
+        ws.row_dimensions[row_idx].height = 24 if not rec.get("hold_logs") else 20 * max(1, len(rec.get("hold_logs", [])))
+
+    # Auto-fit column widths
+    for col in ws.columns:
+        max_len = max(len(str(cell.value or '')) for cell in col)
+        col_letter = get_column_letter(col[0].column)
+        ws.column_dimensions[col_letter].width = max(max_len + 4, 14)
+
+    file_stream = io.BytesIO()
+    wb.save(file_stream)
+    file_stream.seek(0)
+
+    return Response(
+        content=file_stream.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename=attendance_{room_name}.xlsx"}
     )
 
 
