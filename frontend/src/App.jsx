@@ -137,14 +137,19 @@ function MeetingStage({
     useEffect(() => {
         if (!room || !localParticipant) return;
 
+        // Determine if local client is a co-host
+        const myId = localParticipant.identity;
+        const myName = participantName || localParticipant.name || myId;
+        const targetIsCoHost = Boolean(coHostsMap?.[myId]) || Boolean(coHostsMap?.[myName]);
+
         const reportStatus = (hidden) => {
-            // Host does not trigger hold
-            if (isHost || localParticipant.isScreenShareEnabled) return;
+            // Neither Host nor Co-Host nor active Screen-Sharer should trigger hold
+            if (isHost || targetIsCoHost || localParticipant.isScreenShareEnabled) return;
 
-            const myId = String(localParticipant.identity || '').trim();
-            const myName = String(participantName || localParticipant.name || myId).trim();
-
-            console.warn("📡 [EMITTING HOLD STATUS FROM PARTICIPANT]:", hidden, "ID:", myId);
+            setHoldParticipantsMap(prev => ({
+                ...prev,
+                [myId]: hidden
+            }));
 
             try {
                 const payload = JSON.stringify({
@@ -153,10 +158,7 @@ function MeetingStage({
                     name: myName,
                     isOnHold: hidden
                 });
-                const dataBytes = new TextEncoder().encode(payload);
-
-                // Broadcast to room
-                room.localParticipant.publishData(dataBytes, { reliable: true });
+                room.localParticipant.publishData(new TextEncoder().encode(payload), { reliable: true });
             } catch (err) {
                 console.error("Hold broadcast error:", err);
             }
@@ -185,7 +187,7 @@ function MeetingStage({
             window.removeEventListener('focus', onShow);
             document.removeEventListener('visibilitychange', () => {});
         };
-    }, [room, localParticipant, isHost, participantName, roomName]);
+    }, [room, localParticipant, isHost, participantName, roomName, coHostsMap]);
 
     // Live Room Settings Sync
     useEffect(() => {
@@ -310,8 +312,13 @@ function MeetingStage({
                     if (isHolding) {
                         pushWhiteboardAlert(`⚠️ ${incomingName || 'Participant'} switched tabs / on hold.`);
                     }
-                } else if (data.type === 'co_host_update') {
-                    setCoHostsMap(prev => ({ ...prev, [data.targetIdentity]: data.isCoHost }));
+                    // In your handleDataReceived function:
+                } else if (data.type === 'cohost_update') {
+                    setCoHostsMap(prev => ({
+                        ...prev,
+                        [data.identity]: data.isCoHost,
+                        ...(data.name ? { [data.name]: data.isCoHost } : {})
+                    }));
                 } else if (data.type === 'reaction') {
                     if (allowReactions) {
                         renderLocalFloatingEmoji(data.emoji, data.sender || participant.name || 'User');
@@ -737,19 +744,33 @@ function MeetingStage({
                     ) : (
                         <div className={`matrix-stage-grid ${getGridClass()}`}>
                             {cameraTracks.map(track => {
-                                const participant = track.participant;
-                                const peerId = String(participant?.identity || track.publication?.participant?.identity || '').trim();
+                                const participant = track.participant || track.publication?.participant;
+                                const peerId = String(participant?.identity || track.participantIdentity || '').trim();
                                 const peerName = String(participant?.name || track.publication?.participant?.name || peerId).trim();
 
-                                // Check if tile belongs to local host or remote host
                                 const isLocalUser = Boolean(participant?.isLocal);
-                                const targetIsHost = isLocalUser ? Boolean(isHost) : peerName.includes('(Host)');
 
-                                // The remote participant is on hold if their ID or Name is marked true in holdParticipantsMap
-                                const isUserHolding = Boolean(holdParticipantsMap[peerId] || holdParticipantsMap[peerName]);
+                                // 1. Host resolution
+                                const targetIsHost = isLocalUser
+                                    ? Boolean(isHost)
+                                    : Boolean(peerName.includes('(Host)') || peerId.toLowerCase().includes('host'));
 
-                                // Show badge only on the participant tile when viewed by the Host
-                                const showHoldBadge = Boolean(isHost) && !targetIsHost && isUserHolding;
+                                // 2. Co-Host resolution (check both identity and name keys)
+                                const targetIsCoHost = isLocalUser
+                                    ? (Boolean(isCoHost) || Boolean(coHostsMap?.[localParticipant?.identity]) || Boolean(coHostsMap?.[participantName]))
+                                    : (Boolean(coHostsMap?.[peerId]) || Boolean(coHostsMap?.[peerName]));
+
+                                // 3. Viewer capability: can this person view badges? (Host or Co-Host)
+                                const localViewerIsCoHost = Boolean(coHostsMap?.[localParticipant?.identity]) ||
+                                    Boolean(coHostsMap?.[participantName]) ||
+                                    Boolean(isCoHost);
+                                const canSeeBadge = Boolean(isHost || localViewerIsCoHost);
+
+                                // 4. Is the participant rendered in this tile away?
+                                const isUserHolding = Boolean(holdParticipantsMap?.[peerId]) || Boolean(holdParticipantsMap?.[peerName]);
+
+                                // 5. Badge shows ONLY on regular students/participants, NEVER on host or co-host
+                                const showHoldBadge = canSeeBadge && !targetIsHost && !targetIsCoHost && isUserHolding;
 
                                 const hasHandRaised = Boolean(raisedHandsMap?.[peerId]);
                                 const isCamActive = Boolean(track.publication && !track.publication.isMuted && track.publication.track);
@@ -759,28 +780,27 @@ function MeetingStage({
                                         key={track.publication?.trackSid || peerId || Math.random()}
                                         className={`video-tile-wrapper ${targetIsHost ? 'tile-host' : ''}`}
                                     >
-                                        {/* The Badge */}
+                                        {/* Away / On Hold Badge */}
                                         {showHoldBadge && (
                                             <div
+                                                className="video-hold-badge"
                                                 style={{
                                                     position: 'absolute',
-                                                    top: '12px',
-                                                    left: '12px',
+                                                    top: '10px',
+                                                    left: '10px',
                                                     background: '#eab308',
-                                                    color: '#000000',
-                                                    fontWeight: '900',
-                                                    fontSize: '0.75rem',
-                                                    padding: '5px 10px',
+                                                    color: '#0f172a',
+                                                    fontWeight: '800',
+                                                    fontSize: '0.72rem',
+                                                    padding: '4px 8px',
                                                     borderRadius: '6px',
-                                                    zIndex: 99999,
+                                                    zIndex: 9999,
                                                     display: 'flex',
                                                     alignItems: 'center',
-                                                    gap: '5px',
-                                                    boxShadow: '0 4px 12px rgba(0,0,0,0.7)',
-                                                    letterSpacing: '0.5px'
+                                                    gap: '4px'
                                                 }}
                                             >
-                                                <PauseCircle size={15} color="#000" /> AWAY / ON HOLD
+                                                <PauseCircle size={14} /> AWAY / ON HOLD
                                             </div>
                                         )}
 
