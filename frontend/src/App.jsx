@@ -595,11 +595,13 @@ function MeetingStage({
             const response = await axios.get(`${BACKEND_URL}/api/attendance/export/${roomName}`, {
                 responseType: 'blob',
             });
-            const blob = new Blob([response.data], { type: 'text/csv' });
+            const blob = new Blob([response.data], {
+                type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            });
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `Attendance_${roomName}.csv`;
+            a.download = `Attendance_${roomName}.xlsx`;
             document.body.appendChild(a);
             a.click();
             a.remove();
