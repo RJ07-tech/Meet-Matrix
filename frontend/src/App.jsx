@@ -527,6 +527,15 @@ function MeetingStage({
             });
             room.localParticipant.publishData(new TextEncoder().encode(promoPayload), { reliable: true });
 
+            if (typeof BACKEND_URL !== 'undefined') {
+                axios.post(`${BACKEND_URL}/api/attendance/update`, {
+                    room_name: roomName,
+                    participant_identity: targetIdentity,
+                    participant_name: targetName,
+                    action: newStatus ? "role_cohost" : "role_attendee"
+                }).catch(err => console.error("Failed to sync role update to backend:", err));
+            }
+
             // 4. If newly promoted, sync existing hold states so their UI catches up
             if (newStatus) {
                 const syncPayload = JSON.stringify({
@@ -561,39 +570,42 @@ function MeetingStage({
     };
 
     const handleLeaveMeeting = async () => {
-        try {
-            await axios.post(`${BACKEND_URL}/api/attendance/update`, {
-                room_name: roomName,
-                participant_name: participantName,
-                participant_identity: localParticipant?.identity,
-                action: "leave"
-            });
-        } catch (e) {}
-        onLeave();
+        const myId = localParticipant?.identity || '';
+        const myName = participantName || localParticipant?.name || myId;
+
+        if (typeof BACKEND_URL !== 'undefined' && roomName) {
+            try {
+                await axios.post(`${BACKEND_URL}/api/attendance/update`, {
+                    room_name: roomName,
+                    participant_identity: myId,
+                    participant_name: myName,
+                    action: "leave"
+                });
+            } catch (e) {}
+        }
+
+        if (room) {
+            await room.disconnect();
+        }
+        setInMeeting(false);
     };
 
-    const handleDownloadAttendanceLive = async (e) => {
-        if (e && e.preventDefault) e.preventDefault();
-        if (e && e.stopPropagation) e.stopPropagation();
-
+    const handleDownloadAttendanceLive = async () => {
         try {
             const response = await axios.get(`${BACKEND_URL}/api/attendance/export/${roomName}`, {
-                responseType: 'blob'
+                responseType: 'blob',
             });
-
-            const blob = new Blob([response.data], { type: 'text/csv;charset=utf-8;' });
+            const blob = new Blob([response.data], { type: 'text/csv' });
             const url = window.URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.setAttribute('download', `attendance-${roomName}.csv`);
-            document.body.appendChild(link);
-            link.click();
-
-            document.body.removeChild(link);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `Attendance_${roomName}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
             window.URL.revokeObjectURL(url);
-        } catch (err) {
-            console.error("Attendance download error:", err);
-            alert("Failed to export attendance CSV.");
+        } catch (error) {
+            console.error("Failed to download attendance sheet:", error);
         }
     };
 

@@ -3,6 +3,7 @@ import uuid
 import csv
 import io
 import hmac
+from fastapi.responses import Response
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List, Set
 from fastapi import FastAPI, HTTPException
@@ -187,31 +188,44 @@ def find_attendance(records, identity=None, name=None):
 
 
 def mark_attendance_join(
-    room_name: str,
-    name: str,
-    identity: str,
-    is_host: bool = False,
+        room_name: str,
+        name: str,
+        identity: str,
+        is_host: bool = False,
 ) -> None:
     if room_name not in attendance_db:
         attendance_db[room_name] = []
+
     records = attendance_db[room_name]
-    now_str = get_ist_now_str()
+    now_dt = get_ist_now_dt()
+    now_str = now_dt.strftime("%Y-%m-%d %I:%M:%S %p")
     rec = find_attendance(records, identity=identity, name=name)
+
     if rec:
         rec["leave_time"] = "Active"
-        rec["join_time"] = now_str
         rec["identity"] = identity or rec.get("identity")
         rec["name"] = name or rec.get("name")
+        if not rec.get("join_dt"):
+            rec["join_dt"] = now_dt
         if is_host:
+            rec["role"] = "Host"
             rec["is_host"] = True
         return
+
     records.append({
         "name": name,
         "identity": identity,
         "is_host": is_host,
+        "role": "Host" if is_host else "Attendee",
         "join_time": now_str,
+        "join_dt": now_dt,
         "leave_time": "Active",
         "current_hold_start": None,
+        "hold_count": 0,
+        "total_hold_seconds": 0,
+        "total_session_seconds": 0,
+        "active_seconds": 0,
+        "active_percentage": 100.0,
         "hold_logs": [],
     })
 
@@ -355,7 +369,6 @@ async def update_attendance(req: AttendanceUpdateRequest):
             )
         return {"status": "success"}
 
-    # Fallback: if join wasn't recorded first, create the record now
     if not rec:
         mark_attendance_join(
             req.room_name,
@@ -366,34 +379,120 @@ async def update_attendance(req: AttendanceUpdateRequest):
         rec = find_attendance(records, identity=req.participant_identity, name=req.participant_name)
 
     if rec:
-        if req.action == "leave":
-            rec["leave_time"] = now_str
-            if rec.get("current_hold_start"):
-                start_dt = rec["current_hold_start"]
-                dur = max(0, int((now_dt - start_dt).total_seconds()))
-                rec.setdefault("hold_logs", []).append(
-                    f"{start_dt.strftime('%I:%M:%S %p')} to {now_dt.strftime('%I:%M:%S %p')} ({dur}s)"
-                )
-                rec["total_hold_seconds"] = rec.get("total_hold_seconds", 0) + dur
-                rec["current_hold_start"] = None
+        if req.action == "role_cohost":
+            if rec.get("role") != "Host":
+                rec["role"] = "Co-Host"
+                # If they were on hold when promoted, close hold session
+                if rec.get("current_hold_start"):
+                    rec["current_hold_start"] = None
+
+        elif req.action == "role_attendee":
+            if rec.get("role") != "Host":
+                rec["role"] = "Attendee"
 
         elif req.action == "hold_start":
-            # Only start timer if not already running (prevents duplicate blur/visibility overwrite)
-            if not rec.get("current_hold_start"):
+            # Only count hold if not already on hold and not host/co-host
+            if not rec.get("current_hold_start") and rec.get("role") == "Attendee":
                 rec["current_hold_start"] = now_dt
+                rec["hold_count"] = rec.get("hold_count", 0) + 1
 
         elif req.action == "hold_end":
             if rec.get("current_hold_start"):
                 start_dt = rec["current_hold_start"]
                 dur = max(0, int((now_dt - start_dt).total_seconds()))
                 rec.setdefault("hold_logs", []).append(
-                    f"{start_dt.strftime('%I:%M:%S %p')} to {now_dt.strftime('%I:%M:%S %p')} ({dur}s)"
+                    f"{start_dt.strftime('%I:%M:%S %p')} - {now_dt.strftime('%I:%M:%S %p')} ({dur}s)"
                 )
                 rec["total_hold_seconds"] = rec.get("total_hold_seconds", 0) + dur
                 rec["current_hold_start"] = None
 
+        elif req.action == "leave":
+            rec["leave_time"] = now_str
+            # Wrap up any open hold interval
+            if rec.get("current_hold_start"):
+                start_dt = rec["current_hold_start"]
+                dur = max(0, int((now_dt - start_dt).total_seconds()))
+                rec.setdefault("hold_logs", []).append(
+                    f"{start_dt.strftime('%I:%M:%S %p')} - {now_dt.strftime('%I:%M:%S %p')} ({dur}s)"
+                )
+                rec["total_hold_seconds"] = rec.get("total_hold_seconds", 0) + dur
+                rec["current_hold_start"] = None
+
+            # Calculate total durations and percentage
+            join_dt = rec.get("join_dt", now_dt)
+            total_sec = max(1, int((now_dt - join_dt).total_seconds()))
+            hold_sec = rec.get("total_hold_seconds", 0)
+            active_sec = max(0, total_sec - hold_sec)
+
+            rec["total_session_seconds"] = total_sec
+            rec["active_seconds"] = active_sec
+            rec["active_percentage"] = round((active_sec / total_sec) * 100, 1)
+
     return {"status": "success"}
 
+def format_duration(seconds: int) -> str:
+    m, s = divmod(int(seconds), 60)
+    h, m = divmod(m, 60)
+    if h > 0:
+        return f"{h}h {m}m {s}s"
+    return f"{m}m {s}s"
+
+@app.get("/api/attendance/export/{room_name}")
+async def export_attendance(room_name: str):
+    records = attendance_db.get(room_name, [])
+    now_dt = get_ist_now_dt()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    # Enhanced CSV Headers
+    writer.writerow([
+        "Participant Name",
+        "Identity",
+        "Role",
+        "Join Time",
+        "Leave Time",
+        "Total Meeting Duration",
+        "Total Away/Hold Time",
+        "Active Attention Time",
+        "Attention Score (%)",
+        "Away Instances",
+        "Detailed Hold Logs"
+    ])
+
+    for rec in records:
+        # Finalize calculations if user never cleanly sent a leave request
+        join_dt = rec.get("join_dt", now_dt)
+        hold_sec = rec.get("total_hold_seconds", 0)
+
+        # If still in an open hold session, close it for export snapshot
+        if rec.get("current_hold_start"):
+            hold_sec += max(0, int((now_dt - rec["current_hold_start"]).total_seconds()))
+
+        total_sec = rec.get("total_session_seconds") or max(1, int((now_dt - join_dt).total_seconds()))
+        active_sec = max(0, total_sec - hold_sec)
+        pct = round((active_sec / total_sec) * 100, 1)
+
+        writer.writerow([
+            rec.get("name", "Unknown"),
+            rec.get("identity", "Unknown"),
+            rec.get("role", "Attendee"),
+            rec.get("join_time", "-"),
+            rec.get("leave_time", "-"),
+            format_duration(total_sec),
+            format_duration(hold_sec),
+            format_duration(active_sec),
+            f"{pct}%",
+            rec.get("hold_count", 0),
+            "; ".join(rec.get("hold_logs", [])) or "None"
+        ])
+
+    csv_data = output.getvalue()
+    return Response(
+        content=csv_data,
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=attendance_{room_name}.csv"}
+    )
 
 @app.get("/api/attendance/export/{room_name}")
 async def export_attendance(room_name: str):
